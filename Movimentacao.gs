@@ -11,15 +11,14 @@ const BL_URL   = 'https://api.baselinker.com/connector.php';
 // Preencha após rodar "Descobrir IDs dos Canais"
 // ============================================================
 const CANAL_MAP = {
-  // Exemplo (substitua pelos IDs reais):
-  // '24401': 'ML Humble',
-  // '24402': 'ML Najumi',
-  // '24403': 'ML Sky',
-  // '24404': 'ML Edmotos',
-  // '24405': 'ML Moto Vibe',
-  // '24406': 'Shopee Humble',
-  // '24407': 'Shopee Najumi',
-  // '24408': 'Shopee Sky',
+  '24365': 'ML Humble',
+  '24367': 'ML Najumi',
+  '24370': 'ML Edmotos',
+  '24401': 'ML Moto Vibe',
+  '24411': 'ML Sky',
+  '24366': 'Shopee Humble',
+  '24368': 'Shopee Najumi',
+  '24369': 'Shopee Sky',
 };
 
 // ============================================================
