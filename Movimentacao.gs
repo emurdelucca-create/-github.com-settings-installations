@@ -3,8 +3,12 @@
 // Puxa pedidos com status "Movimentação" e estoques por armazém
 // ============================================================
 
-const BL_TOKEN = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2RR74VA1N2RE95PVYWGZ';
-const BL_URL   = 'https://api.baselinker.com/connector.php';
+const BL_TOKEN        = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2RR74VA1N2RE95PVYWGZ';
+const BL_URL          = 'https://api.baselinker.com/connector.php';
+const INVENTORY_ID    = '39947';
+const WH_PADRAO       = 'bl_44285';
+const WH_ARMAZENAMENTO = 'bl_50394';
+const WH_CHEGOU       = 'bl_51442';
 
 // ============================================================
 // MAPEAMENTO order_source_id → nome do canal
@@ -167,38 +171,32 @@ function sincronizarMovimentacao() {
       return;
     }
 
-    // ── 3. Buscar inventário e armazéns ───────────────────────
-    const invResp     = blPost('getInventories', {});
-    const inventoryId = invResp.inventories[0].inventory_id;
+    // ── 3. Coletar product_ids únicos dos pedidos ─────────────
+    const prodIds = [...new Set(
+      pedidos.flatMap(p => (p.products || [])
+        .map(pr => String(pr.product_id || ''))
+        .filter(Boolean))
+    )];
 
-    const whResp = blPost('getInventoryWarehouses', { inventory_id: inventoryId });
-    let idPad = null, idArm = null, idChg = null;
-    (whResp.warehouses || []).forEach(wh => {
-      const n = normStr(wh.name);
-      if      (n.includes('padrao') || n.includes('padrão')) idPad = wh.warehouse_id;
-      else if (n.includes('armazenamento'))                   idArm = wh.warehouse_id;
-      else if (n.includes('chegou'))                          idChg = wh.warehouse_id;
-    });
-
-    // ── 4. Buscar estoque de todos os produtos (paginado) ─────
+    // ── 4. Buscar estoque via getInventoryProductsData ────────
+    // Usa os IDs de armazém e inventário fixos (descobertos no código existente)
     // stockMap: product_id → { pad, arm, chg }
     const stockMap = {};
-    let page = 1;
-    while (true) {
-      const sr    = blPost('getInventoryProductsStock', { inventory_id: inventoryId, page });
-      const prods = sr.products || {};
-      const keys  = Object.keys(prods);
-      if (keys.length === 0) break;
-      keys.forEach(pid => {
-        const stock = prods[pid].stock || {};
+    const LOTE = 1000;
+    for (let i = 0; i < prodIds.length; i += LOTE) {
+      const lote = prodIds.slice(i, i + LOTE);
+      const res  = blPost('getInventoryProductsData', {
+        inventory_id: INVENTORY_ID,
+        products: lote,
+      });
+      Object.entries(res.products || {}).forEach(([pid, d]) => {
+        const stock = d.stock || {};
         stockMap[pid] = {
-          pad: idPad ? (stock[idPad] || 0) : 0,
-          arm: idArm ? (stock[idArm] || 0) : 0,
-          chg: idChg ? (stock[idChg] || 0) : 0,
+          pad: Number(stock[WH_PADRAO]        || 0),
+          arm: Number(stock[WH_ARMAZENAMENTO] || 0),
+          chg: Number(stock[WH_CHEGOU]        || 0),
         };
       });
-      if (keys.length < 1000) break;
-      page++;
     }
 
     // ── 5. Montar linhas ──────────────────────────────────────
