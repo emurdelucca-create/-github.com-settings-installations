@@ -31,10 +31,11 @@ const CANAL_MAP = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Movimentação')
-    .addItem('🔄 Atualizar dados',          'sincronizarMovimentacao')
+    .addItem('🔄 Atualizar dados',                    'sincronizarMovimentacao')
     .addSeparator()
-    .addItem('🔍 Descobrir IDs dos Canais', 'descobrirCanais')
-    .addItem('🔍 Diagnóstico BaseLinker',   'diagnosticarBL')
+    .addItem('🔍 Descobrir IDs dos Canais',           'descobrirCanais')
+    .addItem('🔍 Diagnóstico BaseLinker',             'diagnosticarBL')
+    .addItem('🔍 Investigar Estoque Insuficiente',    'investigarEstoqueInsuficiente')
     .addToUi();
 }
 
@@ -134,6 +135,129 @@ function diagnosticarBL() {
       });
     }
     ui.alert('🔍 Diagnóstico', msg, ui.ButtonSet.OK);
+  } catch(e) {
+    ui.alert('❌ Erro: ' + e.message);
+  }
+}
+
+// ============================================================
+// INVESTIGAR ESTOQUE INSUFICIENTE
+// Busca pedidos em Separação com SKU alvo e exibe todos os campos
+// de produto para identificar o sinal de "Estoque insuficiente"
+// ============================================================
+function investigarEstoqueInsuficiente() {
+  const ui     = SpreadsheetApp.getUi();
+  const SKU_ALVO = '03470-S'; // SKU a investigar
+
+  try {
+    // ── 1. Descobrir ID do status "Separação" ─────────────────
+    const statusResp = blPost('getOrderStatusList', {});
+    const normStr    = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    const sepStatus  = statusResp.statuses.find(s => normStr(s.name).includes('separa'));
+    if (!sepStatus) {
+      const nomes = statusResp.statuses.map(s => '"' + s.name + '"').join(', ');
+      throw new Error('Status "Separação" não encontrado. Disponíveis: ' + nomes);
+    }
+
+    // ── 2. Paginar pedidos em Separação até achar o SKU ──────
+    let idFrom     = 0;
+    let pedidosViu = 0;
+    const achados  = []; // { order_id, produtos_alvo[] }
+
+    while (true) {
+      const r     = blPost('getOrders', { status_id: sepStatus.id, id_from: idFrom });
+      const batch = r.orders || [];
+      if (batch.length === 0) break;
+      pedidosViu += batch.length;
+
+      batch.forEach(pedido => {
+        const prods_alvo = (pedido.products || []).filter(pr =>
+          String(pr.sku || '').trim().toUpperCase() === SKU_ALVO.toUpperCase()
+        );
+        if (prods_alvo.length > 0) {
+          achados.push({ pedido, prods_alvo });
+        }
+      });
+
+      // Para quando tiver 5 pedidos com o SKU ou chegou ao fim
+      if (achados.length >= 5 || batch.length < 100) break;
+      idFrom = batch[batch.length - 1].order_id;
+    }
+
+    if (achados.length === 0) {
+      ui.alert('ℹ️ Nenhum pedido em "' + sepStatus.name + '" com SKU ' + SKU_ALVO +
+               ' encontrado nos ' + pedidosViu + ' pedidos analisados.');
+      return;
+    }
+
+    // ── 3. Montar relatório com todos os campos relevantes ────
+    let msg = '📋 SKU: ' + SKU_ALVO + ' | Status: ' + sepStatus.name +
+              ' | ' + achados.length + ' pedido(s) encontrado(s) em ' + pedidosViu + ' analisados\n';
+    msg += '═'.repeat(60) + '\n\n';
+
+    // Campos do produto que podem sinalizar "Estoque Insuficiente"
+    const CAMPOS_PROD = [
+      'product_id', 'sku', 'name', 'quantity',
+      'location',        // hipótese principal: vazio = sem estoque
+      'location_id',
+      'bundle_id',       // se é componente de kit
+      'bundle_name',
+      'pick_state',      // estado de separação/picking
+      'weight',
+      'stock_location',
+      'warehouse_id',
+    ];
+
+    achados.forEach((item, idx) => {
+      const p = item.pedido;
+      msg += '─── Pedido #' + p.order_id + ' ───────────────────────\n';
+      msg += 'Data: ' + (p.date_confirmed ? new Date(p.date_confirmed * 1000).toLocaleString('pt-BR') : '—') + '\n';
+      msg += 'Canal: ' + (CANAL_MAP[String(p.order_source_id)] || p.order_source + '/' + p.order_source_id) + '\n\n';
+
+      item.prods_alvo.forEach((prod, pi) => {
+        msg += '  Produto ' + (pi + 1) + ' (SKU: ' + prod.sku + ' | qty: ' + prod.quantity + '):\n';
+        CAMPOS_PROD.forEach(campo => {
+          const val = prod[campo];
+          if (val !== undefined) {
+            msg += '    ' + campo + ': ' + JSON.stringify(val) + '\n';
+          }
+        });
+
+        // Campos extras desconhecidos — mostrar tudo que não seja padrão esperado
+        const CAMPOS_COMUNS = new Set([
+          'product_id','sku','name','price_brutto','price_netto','tax_rate',
+          'quantity','quantity_returned','product_description','product_description_long',
+          'weight','ean','warehouse_id','location','location_id',
+          'bundle_id','bundle_name','pick_state','storage','storage_id',
+          'auction_id','order_product_id','attributes','components',
+        ]);
+        const extras = Object.keys(prod).filter(k => !CAMPOS_COMUNS.has(k));
+        if (extras.length > 0) {
+          msg += '    [extras]: ';
+          extras.forEach(k => { msg += k + '=' + JSON.stringify(prod[k]) + '; '; });
+          msg += '\n';
+        }
+        msg += '\n';
+      });
+
+      // Mostrar TODOS os produtos do pedido para comparar location
+      if ((p.products || []).length > 1) {
+        msg += '  Outros produtos do pedido (location rápido):\n';
+        (p.products || []).filter(pr => pr.sku !== SKU_ALVO).forEach(pr => {
+          msg += '    SKU ' + pr.sku + ' → location: ' + JSON.stringify(pr.location) +
+                 ' | pick_state: ' + JSON.stringify(pr.pick_state) + '\n';
+        });
+      }
+      msg += '\n';
+    });
+
+    // Exibe em alerta (pode ser longo — GAS suporta até ~4000 chars)
+    if (msg.length > 3800) {
+      msg = msg.substring(0, 3800) + '\n...[truncado — veja Logs]';
+      Logger.log(msg);
+    }
+    ui.alert('🔍 Investigação Estoque Insuficiente', msg, ui.ButtonSet.OK);
+
   } catch(e) {
     ui.alert('❌ Erro: ' + e.message);
   }
