@@ -150,48 +150,53 @@ function investigarEstoqueInsuficiente() {
   const SKU_ALVO = '03470-S'; // SKU a investigar
 
   try {
-    // ── 1. Descobrir ID do status "Separação" ─────────────────
+    // ── 1. Descobrir todos os status "[SEP]" ──────────────────
     const statusResp = blPost('getOrderStatusList', {});
-    const normStr    = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-    const sepStatus  = statusResp.statuses.find(s => normStr(s.name).includes('separa'));
-    if (!sepStatus) {
+    const sepStatuses = statusResp.statuses.filter(s =>
+      String(s.name).toUpperCase().includes('[SEP]')
+    );
+    if (sepStatuses.length === 0) {
       const nomes = statusResp.statuses.map(s => '"' + s.name + '"').join(', ');
-      throw new Error('Status "Separação" não encontrado. Disponíveis: ' + nomes);
+      throw new Error('Nenhum status [SEP] encontrado. Disponíveis: ' + nomes);
     }
 
-    // ── 2. Paginar pedidos em Separação até achar o SKU ──────
-    let idFrom     = 0;
+    // ── 2. Varrer pedidos em todos os status [SEP] ────────────
     let pedidosViu = 0;
-    const achados  = []; // { order_id, produtos_alvo[] }
+    const achados  = []; // { pedido, prods_alvo, statusNome }
 
-    while (true) {
-      const r     = blPost('getOrders', { status_id: sepStatus.id, id_from: idFrom });
-      const batch = r.orders || [];
-      if (batch.length === 0) break;
-      pedidosViu += batch.length;
+    for (const sepStatus of sepStatuses) {
+      let idFrom = 0;
+      while (true) {
+        const r     = blPost('getOrders', { status_id: sepStatus.id, id_from: idFrom });
+        const batch = r.orders || [];
+        if (batch.length === 0) break;
+        pedidosViu += batch.length;
 
-      batch.forEach(pedido => {
-        const prods_alvo = (pedido.products || []).filter(pr =>
-          String(pr.sku || '').trim().toUpperCase() === SKU_ALVO.toUpperCase()
-        );
-        if (prods_alvo.length > 0) {
-          achados.push({ pedido, prods_alvo });
-        }
-      });
+        batch.forEach(pedido => {
+          const prods_alvo = (pedido.products || []).filter(pr =>
+            String(pr.sku || '').trim().toUpperCase() === SKU_ALVO.toUpperCase()
+          );
+          if (prods_alvo.length > 0) {
+            achados.push({ pedido, prods_alvo, statusNome: sepStatus.name });
+          }
+        });
 
-      // Para quando tiver 5 pedidos com o SKU ou chegou ao fim
-      if (achados.length >= 5 || batch.length < 100) break;
-      idFrom = batch[batch.length - 1].order_id;
+        if (achados.length >= 5 || batch.length < 100) break;
+        idFrom = batch[batch.length - 1].order_id;
+      }
+      if (achados.length >= 5) break;
     }
 
     if (achados.length === 0) {
-      ui.alert('ℹ️ Nenhum pedido em "' + sepStatus.name + '" com SKU ' + SKU_ALVO +
+      const nomesStatus = sepStatuses.map(s => '"' + s.name + '"').join(', ');
+      ui.alert('ℹ️ Nenhum pedido nos status ' + nomesStatus + ' com SKU ' + SKU_ALVO +
                ' encontrado nos ' + pedidosViu + ' pedidos analisados.');
       return;
     }
 
     // ── 3. Montar relatório com todos os campos relevantes ────
-    let msg = '📋 SKU: ' + SKU_ALVO + ' | Status: ' + sepStatus.name +
+    const nomesEncontrados = [...new Set(achados.map(a => a.statusNome))].join(', ');
+    let msg = '📋 SKU: ' + SKU_ALVO + ' | Status: ' + nomesEncontrados +
               ' | ' + achados.length + ' pedido(s) encontrado(s) em ' + pedidosViu + ' analisados\n';
     msg += '═'.repeat(60) + '\n\n';
 
@@ -210,7 +215,7 @@ function investigarEstoqueInsuficiente() {
 
     achados.forEach((item, idx) => {
       const p = item.pedido;
-      msg += '─── Pedido #' + p.order_id + ' ───────────────────────\n';
+      msg += '─── Pedido #' + p.order_id + ' [' + item.statusNome + '] ───────────────────────\n';
       msg += 'Data: ' + (p.date_confirmed ? new Date(p.date_confirmed * 1000).toLocaleString('pt-BR') : '—') + '\n';
       msg += 'Canal: ' + (CANAL_MAP[String(p.order_source_id)] || p.order_source + '/' + p.order_source_id) + '\n\n';
 
