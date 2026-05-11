@@ -277,8 +277,9 @@ function investigarEstoqueInsuficiente() {
 
 // ============================================================
 // SINCRONIZAR ESTOQUE INSUFICIENTE
-// Varre todos os status ativos, agrega qtd por SKU,
-// compara com estoque Padrão e lista o que falta
+// Agrega qtd de TODOS os status ativos por SKU,
+// mostra SKUs onde Estoque Padrão < Qtd. Necessária,
+// pinta vermelho se Saldo Total também for insuficiente
 // ============================================================
 function sincronizarEstoqueInsuficiente() {
   const ui = SpreadsheetApp.getUi();
@@ -288,7 +289,7 @@ function sincronizarEstoqueInsuficiente() {
   if (!aba) aba = ss.insertSheet('Estoque Insuficiente');
 
   try {
-    // ── 1. Descobrir IDs de todos os status relevantes ────────
+    // ── 1. Todos os status do print ───────────────────────────
     const statusResp = blPost('getOrderStatusList', {});
     const statusIds  = statusResp.statuses
       .filter(s =>
@@ -301,8 +302,8 @@ function sincronizarEstoqueInsuficiente() {
       throw new Error('Nenhum status encontrado. Verifique STATUS_PICKING no código.');
     }
 
-    // ── 2. Varrer pedidos de todos os status ─────────────────
-    // skuMap: sku → { totalQty, productId, ordens: [{marketplace_id, canal}] }
+    // ── 2. Varrer pedidos e agregar por SKU ──────────────────
+    // skuMap: sku → { totalQty, productId, oldestTs }
     const skuMap = {};
 
     for (const sid of statusIds) {
@@ -313,9 +314,7 @@ function sincronizarEstoqueInsuficiente() {
         if (batch.length === 0) break;
 
         batch.forEach(pedido => {
-          const sourceId     = String(pedido.order_source_id || '');
-          const canal        = CANAL_MAP[sourceId] || (pedido.order_source + (sourceId ? ' / ' + sourceId : ''));
-          const marketplaceId = pedido.external_order_id || pedido.order_id;
+          const ts = pedido.date_confirmed || pedido.date_add || 0;
 
           (pedido.products || []).forEach(prod => {
             const sku = String(prod.sku || '').trim();
@@ -323,9 +322,13 @@ function sincronizarEstoqueInsuficiente() {
             const qty = Number(prod.quantity) || 0;
             const pid = String(prod.product_id || '');
 
-            if (!skuMap[sku]) skuMap[sku] = { totalQty: 0, productId: pid, ordens: [] };
+            if (!skuMap[sku]) {
+              skuMap[sku] = { totalQty: 0, productId: pid, oldestTs: ts };
+            }
             skuMap[sku].totalQty += qty;
-            skuMap[sku].ordens.push({ marketplaceId, canal });
+            if (ts > 0 && (skuMap[sku].oldestTs === 0 || ts < skuMap[sku].oldestTs)) {
+              skuMap[sku].oldestTs = ts;
+            }
           });
         });
 
@@ -334,7 +337,7 @@ function sincronizarEstoqueInsuficiente() {
       }
     }
 
-    // ── 3. Buscar estoque de todos os produtos ────────────────
+    // ── 3. Buscar estoque ─────────────────────────────────────
     const allPids  = [...new Set(Object.values(skuMap).map(d => d.productId).filter(Boolean))];
     const stockMap = {};
     const LOTE     = 1000;
@@ -353,46 +356,56 @@ function sincronizarEstoqueInsuficiente() {
       });
     }
 
-    // ── 4. Filtrar insuficientes e montar linhas ──────────────
-    // Uma linha por ocorrência de pedido (mesmo SKU aparece em vários pedidos)
-    const linhas = [];
+    // ── 4. Filtrar (Padrão < Necessário) e montar linhas ──────
+    const linhas    = [];
+    const negativos = []; // índices (base 0) com saldo total negativo
+
     Object.entries(skuMap).forEach(([sku, data]) => {
-      const est  = stockMap[data.productId] || { pad: 0, arm: 0, chg: 0 };
-      if (est.pad >= data.totalQty) return; // estoque suficiente, ignora
+      const est = stockMap[data.productId] || { pad: 0, arm: 0, chg: 0 };
+      if (est.pad >= data.totalQty) return; // picking suficiente, ignora
 
-      const total    = est.pad + est.arm + est.chg;
-      const falta    = data.totalQty - est.pad; // qtd faltando no Padrão
+      const saldoTotal = est.pad + est.arm + est.chg;
+      const saldoGeral = saldoTotal - data.totalQty;
+      const dataAntiga = data.oldestTs > 0 ? new Date(data.oldestTs * 1000) : '';
 
-      data.ordens.forEach(ordem => {
-        linhas.push([
-          sku,                   // A: SKU
-          data.totalQty,         // B: Qtd. necessária total
-          est.pad,               // C: Estoque Padrão
-          est.arm,               // D: Estoque Armazenamento
-          est.chg,               // E: Estoque Chegou
-          total,                 // F: Estoque Total
-          falta,                 // G: Diferença (falta no Padrão)
-          ordem.marketplaceId,   // H: Nº pedido marketplace
-          ordem.canal,           // I: Canal de venda
-        ]);
-      });
+      if (saldoGeral < 0) negativos.push(linhas.length);
+
+      linhas.push([
+        sku,           // A: SKU
+        data.totalQty, // B: Qtd. Necessária
+        est.pad,       // C: Estoque Padrão
+        est.arm,       // D: Estoque Armazenamento
+        est.chg,       // E: Estoque Chegou
+        saldoTotal,    // F: Saldo Total
+        saldoGeral,    // G: Saldo Total − Qtd. Necessária
+        dataAntiga,    // H: Data da venda mais antiga
+      ]);
     });
 
     // ── 5. Escrever na aba ────────────────────────────────────
     const CABECALHO = [[
       'SKU', 'Qtd. Necessária', 'Estoque Padrão', 'Estoque Armazenamento',
-      'Estoque Chegou', 'Estoque Total', 'Diferença (falta)', 'Nº Pedido Marketplace', 'Canal de Venda',
+      'Estoque Chegou', 'Saldo Total', 'Saldo Total - Qtd. Necessária', 'Data da venda mais antiga',
     ]];
+
     aba.clearContents();
-    aba.getRange(1, 1, 1, 9).setValues(CABECALHO);
+    aba.getRange(1, 1, 1, 8).setValues(CABECALHO);
 
     if (linhas.length > 0) {
-      aba.getRange(2, 1, linhas.length, 9).setValues(linhas);
-      aba.getRange(2, 1, linhas.length, 1).setNumberFormat('@'); // SKU como texto
+      const dataRange = aba.getRange(2, 1, linhas.length, 8);
+      dataRange.setValues(linhas);
+      dataRange.setBackground(null);
+      aba.getRange(2, 1, linhas.length, 1).setNumberFormat('@');
+      aba.getRange(2, 8, linhas.length, 1).setNumberFormat('dd/mm/yyyy');
+
+      negativos.forEach(idx => {
+        aba.getRange(idx + 2, 1, 1, 8).setBackground('#FF9999');
+      });
     }
 
     SpreadsheetApp.flush();
-    ui.alert('✅ ' + linhas.length + ' linha(s) com estoque insuficiente encontrada(s).');
+    ui.alert('✅ ' + linhas.length + ' SKU(s) com falta no picking. ' +
+             negativos.length + ' com falta no estoque geral (vermelho).');
 
   } catch(e) {
     ui.alert('❌ Erro: ' + e.message);
