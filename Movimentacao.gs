@@ -302,7 +302,30 @@ function sincronizarEstoqueInsuficiente() {
       throw new Error('Nenhum status encontrado. Verifique STATUS_PICKING no código.');
     }
 
-    // ── 2. Varrer pedidos e agregar por SKU ──────────────────
+    // ── 2a. Coletar SKUs presentes em [SEP] ──────────────────
+    const sepIds = statusResp.statuses
+      .filter(s => String(s.name).toUpperCase().includes('[SEP]'))
+      .map(s => s.id);
+
+    const skusEmSeparacao = new Set();
+    for (const sid of sepIds) {
+      let idFrom = 0;
+      while (true) {
+        const r     = blPost('getOrders', { status_id: sid, id_from: idFrom });
+        const batch = r.orders || [];
+        if (batch.length === 0) break;
+        batch.forEach(pedido => {
+          (pedido.products || []).forEach(prod => {
+            const sku = String(prod.sku || '').trim();
+            if (sku) skusEmSeparacao.add(sku);
+          });
+        });
+        if (batch.length < 100) break;
+        idFrom = batch[batch.length - 1].order_id;
+      }
+    }
+
+    // ── 2b. Agregar Qtd. Necessária de TODOS os status ────────
     // skuMap: sku → { totalQty, productId, oldestTs }
     const skuMap = {};
 
@@ -361,6 +384,7 @@ function sincronizarEstoqueInsuficiente() {
     const negativos = []; // índices (base 0) com saldo total negativo
 
     Object.entries(skuMap).forEach(([sku, data]) => {
+      if (!skusEmSeparacao.has(sku)) return;  // só aparece se estiver em [SEP]
       const est = stockMap[data.productId] || { pad: 0, arm: 0, chg: 0 };
       if (est.pad >= data.totalQty) return; // picking suficiente, ignora
 
