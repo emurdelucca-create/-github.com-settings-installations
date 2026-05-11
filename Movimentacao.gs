@@ -231,12 +231,14 @@ function sincronizarMovimentacao() {
     });
 
     // ── 6. Escrever na planilha ───────────────────────────────
-    const PRIMA   = 2;
+    const PRIMA   = 3;
     const lastRow = aba.getLastRow();
     if (lastRow >= PRIMA) {
-      aba.getRange(PRIMA, 1, lastRow - 1, 10).clearContent();
+      aba.getRange(PRIMA, 1, lastRow - PRIMA + 1, 10).clearContent();
     }
     if (linhas.length > 0) {
+      // SKU (col D = 4) como texto antes de escrever os dados
+      aba.getRange(PRIMA, 4, linhas.length, 1).setNumberFormat('@');
       aba.getRange(PRIMA, 1, linhas.length, 10).setValues(linhas);
       aba.getRange(PRIMA, 6, linhas.length, 1).setNumberFormat('dd/mm/yyyy hh:mm');
     }
