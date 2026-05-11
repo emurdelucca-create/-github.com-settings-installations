@@ -25,6 +25,12 @@ const CANAL_MAP = {
   '24369': 'Shopee Sky',
 };
 
+// Status considerados no cálculo de estoque insuficiente
+const STATUS_PICKING = [
+  'Novos pedidos', 'Agendados Meli',
+  'NF Emitida', 'Erro NF', 'Erro Etiqueta', 'Movimentação',
+];
+
 // ============================================================
 // MENU
 // ============================================================
@@ -32,6 +38,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Movimentação')
     .addItem('🔄 Atualizar dados',                    'sincronizarMovimentacao')
+    .addItem('🔄 Atualizar Estoque Insuficiente',     'sincronizarEstoqueInsuficiente')
     .addSeparator()
     .addItem('🔍 Descobrir IDs dos Canais',           'descobrirCanais')
     .addItem('🔍 Diagnóstico BaseLinker',             'diagnosticarBL')
@@ -262,6 +269,130 @@ function investigarEstoqueInsuficiente() {
       Logger.log(msg);
     }
     ui.alert('🔍 Investigação Estoque Insuficiente', msg, ui.ButtonSet.OK);
+
+  } catch(e) {
+    ui.alert('❌ Erro: ' + e.message);
+  }
+}
+
+// ============================================================
+// SINCRONIZAR ESTOQUE INSUFICIENTE
+// Varre todos os status ativos, agrega qtd por SKU,
+// compara com estoque Padrão e lista o que falta
+// ============================================================
+function sincronizarEstoqueInsuficiente() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  let aba = ss.getSheetByName('Estoque Insuficiente');
+  if (!aba) aba = ss.insertSheet('Estoque Insuficiente');
+
+  try {
+    // ── 1. Descobrir IDs de todos os status relevantes ────────
+    const statusResp = blPost('getOrderStatusList', {});
+    const statusIds  = statusResp.statuses
+      .filter(s =>
+        STATUS_PICKING.includes(s.name) ||
+        String(s.name).toUpperCase().includes('[SEP]')
+      )
+      .map(s => s.id);
+
+    if (statusIds.length === 0) {
+      throw new Error('Nenhum status encontrado. Verifique STATUS_PICKING no código.');
+    }
+
+    // ── 2. Varrer pedidos de todos os status ─────────────────
+    // skuMap: sku → { totalQty, productId, ordens: [{marketplace_id, canal}] }
+    const skuMap = {};
+
+    for (const sid of statusIds) {
+      let idFrom = 0;
+      while (true) {
+        const r     = blPost('getOrders', { status_id: sid, id_from: idFrom });
+        const batch = r.orders || [];
+        if (batch.length === 0) break;
+
+        batch.forEach(pedido => {
+          const sourceId     = String(pedido.order_source_id || '');
+          const canal        = CANAL_MAP[sourceId] || (pedido.order_source + (sourceId ? ' / ' + sourceId : ''));
+          const marketplaceId = pedido.external_order_id || pedido.order_id;
+
+          (pedido.products || []).forEach(prod => {
+            const sku = String(prod.sku || '').trim();
+            if (!sku) return;
+            const qty = Number(prod.quantity) || 0;
+            const pid = String(prod.product_id || '');
+
+            if (!skuMap[sku]) skuMap[sku] = { totalQty: 0, productId: pid, ordens: [] };
+            skuMap[sku].totalQty += qty;
+            skuMap[sku].ordens.push({ marketplaceId, canal });
+          });
+        });
+
+        if (batch.length < 100) break;
+        idFrom = batch[batch.length - 1].order_id;
+      }
+    }
+
+    // ── 3. Buscar estoque de todos os produtos ────────────────
+    const allPids  = [...new Set(Object.values(skuMap).map(d => d.productId).filter(Boolean))];
+    const stockMap = {};
+    const LOTE     = 1000;
+    for (let i = 0; i < allPids.length; i += LOTE) {
+      const res = blPost('getInventoryProductsData', {
+        inventory_id: INVENTORY_ID,
+        products: allPids.slice(i, i + LOTE),
+      });
+      Object.entries(res.products || {}).forEach(([pid, d]) => {
+        const s = d.stock || {};
+        stockMap[pid] = {
+          pad: Number(s[WH_PADRAO]        || 0),
+          arm: Number(s[WH_ARMAZENAMENTO] || 0),
+          chg: Number(s[WH_CHEGOU]        || 0),
+        };
+      });
+    }
+
+    // ── 4. Filtrar insuficientes e montar linhas ──────────────
+    // Uma linha por ocorrência de pedido (mesmo SKU aparece em vários pedidos)
+    const linhas = [];
+    Object.entries(skuMap).forEach(([sku, data]) => {
+      const est  = stockMap[data.productId] || { pad: 0, arm: 0, chg: 0 };
+      if (est.pad >= data.totalQty) return; // estoque suficiente, ignora
+
+      const total    = est.pad + est.arm + est.chg;
+      const falta    = data.totalQty - est.pad; // qtd faltando no Padrão
+
+      data.ordens.forEach(ordem => {
+        linhas.push([
+          sku,                   // A: SKU
+          data.totalQty,         // B: Qtd. necessária total
+          est.pad,               // C: Estoque Padrão
+          est.arm,               // D: Estoque Armazenamento
+          est.chg,               // E: Estoque Chegou
+          total,                 // F: Estoque Total
+          falta,                 // G: Diferença (falta no Padrão)
+          ordem.marketplaceId,   // H: Nº pedido marketplace
+          ordem.canal,           // I: Canal de venda
+        ]);
+      });
+    });
+
+    // ── 5. Escrever na aba ────────────────────────────────────
+    const CABECALHO = [[
+      'SKU', 'Qtd. Necessária', 'Estoque Padrão', 'Estoque Armazenamento',
+      'Estoque Chegou', 'Estoque Total', 'Diferença (falta)', 'Nº Pedido Marketplace', 'Canal de Venda',
+    ]];
+    aba.clearContents();
+    aba.getRange(1, 1, 1, 9).setValues(CABECALHO);
+
+    if (linhas.length > 0) {
+      aba.getRange(2, 1, linhas.length, 9).setValues(linhas);
+      aba.getRange(2, 1, linhas.length, 1).setNumberFormat('@'); // SKU como texto
+    }
+
+    SpreadsheetApp.flush();
+    ui.alert('✅ ' + linhas.length + ' linha(s) com estoque insuficiente encontrada(s).');
 
   } catch(e) {
     ui.alert('❌ Erro: ' + e.message);
