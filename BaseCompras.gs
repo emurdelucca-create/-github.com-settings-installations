@@ -1,15 +1,15 @@
 // ============================================================
-// BASE COMPRAS 2026 — v3
-// Gera relatório de reposição com curvas ABC e urgência
-// Aba "Sem Desmembramento": SKUs como no GE Finance (kits = PAI)
-// Aba "Com Desmembramento": kits decompostos em simples
-// Dados = GERAL (todas as contas somadas)
+// BASE COMPRAS 2026 — v4
+// 4 abas: Sem/Com Desmembramento × Com/Sem Compras Pendentes
+// Colunas AX-BB: % faturamento 0-90 por empresa
 // ============================================================
 
 const RCFG = {
-  ABA_SEM: 'Sem Desmembramento',
-  ABA_COM: 'Com Desmembramento',
-  HEADER_ROWS: 5,   // dados começam na linha 6
+  ABA_SEM:    'Sem Desmembramento',
+  ABA_COM:    'Com Desmembramento',
+  ABA_SEM_SC: 'Sem Desmembramento - S/ Compras',
+  ABA_COM_SC: 'Com Desmembramento - S/ Compras',
+  HEADER_ROWS: 5,
 
   ID_GE:      '1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo',
   ABA_GE:     'Dados Completos',
@@ -20,40 +20,23 @@ const RCFG = {
   ID_CUSTOS:  '1C9Z4vT9SaamEGJ_hCWXdOm8vWOMhxw_vAb049mvtrP0',
   ABA_CUSTOS: 'Soma Composições',
 
-  // Fontes externas para estoque composto
   ID_PEND_MAP: '1xUNgkVTl74eMhj3W5XrOD6B0OxVJpnVXR_H_pgYRoh8',
   ID_FULL:     '1vjZX4PYVQy4G_K_03BJuAo_Div9B5NQ-iA2d0rK1dic',
   ID_COMP_PEN: '1bYe0kxiHCUzPPHszQiK8JarKqzj5lxijAy7M3zpy1mg',
 
-  // Colunas das fontes externas (0-based): col B = SKU, col C = Qtd
   EXT_SKU: 1,
   EXT_QTD: 2,
 
-  // GE Finance colunas (0-based)
-  GE_PRODUTO: 0,
-  GE_SKU:     1,
-  GE_QTD:     2,
-  GE_DATA:    3,
-  GE_CANAL:   7,
-  GE_FAT:    21,
-  GE_CAIXA:  44,
-  GE_MARGEM: 45,
+  GE_PRODUTO: 0, GE_SKU: 1, GE_QTD: 2, GE_DATA: 3,
+  GE_CANAL: 7,  GE_FAT: 21, GE_CAIXA: 44, GE_MARGEM: 45,
 
-  // BaseLinker colunas (0-based)
-  BL_SKU:       1,
-  BL_COD_EST:   2,
-  BL_QTDE_EST:  3,
-  BL_SALDO_PAD: 4,
-  BL_SALDO_ARM: 5,
-  BL_SALDO_CHG: 6,
-  BL_TIPO:      7,
-  BL_PRODUTO:   8,
+  BL_SKU: 1, BL_COD_EST: 2, BL_QTDE_EST: 3,
+  BL_SALDO_PAD: 4, BL_SALDO_ARM: 5, BL_SALDO_CHG: 6,
+  BL_TIPO: 7, BL_PRODUTO: 8,
 
-  // Custos colunas (0-based)
-  CUST_SKU:   0,
-  CUST_VALOR: 1,
+  CUST_SKU: 0, CUST_VALOR: 1,
 
-  MARGEM_MIN: 0.115,   // 11,5%
+  MARGEM_MIN: 0.115,
   ABC_A: 0.70,
   ABC_B: 0.90,
 };
@@ -61,6 +44,15 @@ const RCFG = {
 const CANAIS_ML     = ['ML Edmotos', 'ML Humble', 'ML Najumi', 'ML Sky', 'ML Moto Vibe'];
 const CANAIS_SHOPEE = ['Shopee Humble', 'Shopee Najumi', 'Shopee Sky'];
 const CANAIS_TODOS  = [...CANAIS_ML, ...CANAIS_SHOPEE];
+
+// Agrupamento por empresa para colunas AX-BB
+const EMPRESAS = [
+  { canais: ['ML Humble',    'Shopee Humble']  },  // AX
+  { canais: ['ML Najumi',    'Shopee Najumi']  },  // AY
+  { canais: ['ML Sky',       'Shopee Sky']     },  // AZ
+  { canais: ['ML Edmotos']                     },  // BA
+  { canais: ['ML Moto Vibe']                   },  // BB
+];
 
 const PER_SEM = [
   {de:0,ate:7}, {de:7,ate:15}, {de:15,ate:30},
@@ -96,17 +88,19 @@ function _getAba(ss, nomeDesejado) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Base Compras')
-    .addItem('📋 Gerar Sem Desmembramento', 'gerarSemDesmembramento')
-    .addItem('🔀 Gerar Com Desmembramento', 'gerarComDesmembramento')
+    .addItem('📋 Gerar Sem Desmembramento',             'gerarSemDesmembramento')
+    .addItem('🔀 Gerar Com Desmembramento',             'gerarComDesmembramento')
+    .addItem('📋 Gerar Sem Desmembramento - S/ Compras','gerarSemDesmembramentoSC')
+    .addItem('🔀 Gerar Com Desmembramento - S/ Compras','gerarComDesmembramentoSC')
     .addSeparator()
-    .addItem('🚀 Gerar Ambas as Abas',      'gerarAmbas')
+    .addItem('🚀 Gerar Todas as Abas',   'gerarTodas')
     .addSeparator()
-    .addItem('🔍 Diagnóstico de Abas',      'diagnosticarAbas')
+    .addItem('🔍 Diagnóstico de Abas',   'diagnosticarAbas')
     .addToUi();
 }
 
 // ============================================================
-// DIAGNÓSTICO — lista todas as abas de cada planilha fonte
+// DIAGNÓSTICO
 // ============================================================
 function diagnosticarAbas() {
   const ui = SpreadsheetApp.getUi();
@@ -133,7 +127,7 @@ function diagnosticarAbas() {
       }
       msg += '  Abas: ' + abas + '\n\n';
     } catch(e) {
-      msg += f.label + ' → ERRO ao abrir (ID errado?): ' + e.message + '\n\n';
+      msg += f.label + ' → ERRO: ' + e.message + '\n\n';
     }
   });
 
@@ -144,16 +138,60 @@ function diagnosticarAbas() {
   ui.alert('🔍 Diagnóstico', msg, ui.ButtonSet.OK);
 }
 
-function gerarAmbas() {
+function gerarTodas() {
   gerarSemDesmembramento();
   gerarComDesmembramento();
-  SpreadsheetApp.getUi().alert('✅ Ambas as abas geradas com sucesso!');
+  gerarSemDesmembramentoSC();
+  gerarComDesmembramentoSC();
+  SpreadsheetApp.getUi().alert('✅ Todas as abas geradas com sucesso!');
+}
+
+// ============================================================
+// FUNÇÕES PÚBLICAS DE GERAÇÃO
+// ============================================================
+function gerarSemDesmembramento() {
+  _gerarAba(RCFG.ABA_SEM, false, false);
+}
+function gerarComDesmembramento() {
+  _gerarAba(RCFG.ABA_COM, true, false);
+}
+function gerarSemDesmembramentoSC() {
+  _gerarAba(RCFG.ABA_SEM_SC, false, true);
+}
+function gerarComDesmembramentoSC() {
+  _gerarAba(RCFG.ABA_COM_SC, true, true);
+}
+
+// ============================================================
+// GERAÇÃO CENTRAL
+// desmembrar  = true → kits decompostos em componentes
+// semCompras  = true → AN ignora Compras Pendentes (AM)
+// ============================================================
+function _gerarAba(nomeAba, desmembrar, semCompras) {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('⏳ Gerando "' + nomeAba + '"... Aguarde 1-2 minutos.');
+
+  const blInfo  = _carregarBL();
+  const estoque = _carregarEstoque(blInfo.blDados, desmembrar);
+  const { vendas, prodInfo } = _carregarVendas(desmembrar, desmembrar ? blInfo : {});
+
+  const pivotPend = _carregarPivotExterno(RCFG.ID_PEND_MAP, desmembrar, blInfo.mapaCompostos);
+  const pivotFull = _carregarPivotExterno(RCFG.ID_FULL,     desmembrar, blInfo.mapaCompostos);
+  const pivotComp = _carregarPivotExterno(RCFG.ID_COMP_PEN, desmembrar, blInfo.mapaCompostos);
+
+  const itens    = _construirItens(vendas, prodInfo, estoque, blInfo.mapaBL_prod);
+  const ordenado = _calcularTudo(itens);
+
+  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nomeAba);
+  if (!aba) { ui.alert('❌ Aba "' + nomeAba + '" não encontrada.'); return; }
+
+  _escreverAba(aba, ordenado, pivotPend, pivotFull, pivotComp, semCompras);
+
+  ui.alert('✅ "' + nomeAba + '" gerada! ' + ordenado.length + ' SKUs.');
 }
 
 // ============================================================
 // CARREGAR PIVOT DE PLANILHA EXTERNA
-// Lê col B (SKU) e col C (Qtd) da 1ª aba, soma por SKU.
-// Se desmembrar=true e o SKU for kit, distribui aos componentes.
 // ============================================================
 function _carregarPivotExterno(id, desmembrar, mapaCompostos) {
   const ss    = SpreadsheetApp.openById(id);
@@ -167,67 +205,15 @@ function _carregarPivotExterno(id, desmembrar, mapaCompostos) {
     if (!sku || !qtd) continue;
 
     if (desmembrar && mapaCompostos[sku]) {
-      // Kit → distribui qtd × quantidade do componente no kit
       mapaCompostos[sku].forEach(comp => {
         pivot[comp.codEst] = (pivot[comp.codEst] || 0) + qtd * comp.qtde;
       });
     } else {
-      // Simples ou kit sem desmembramento → acumula direto
       pivot[sku] = (pivot[sku] || 0) + qtd;
     }
   }
 
   return pivot;
-}
-
-// ============================================================
-// GERAR SEM DESMEMBRAMENTO
-// ============================================================
-function gerarSemDesmembramento() {
-  const ui = SpreadsheetApp.getUi();
-  ui.alert('⏳ Gerando Sem Desmembramento... Aguarde 1-2 minutos.');
-
-  const blInfo  = _carregarBL();
-  const estoque = _carregarEstoque(blInfo.blDados, false);
-  const { vendas, prodInfo } = _carregarVendas(false, {});
-
-  const pivotPend = _carregarPivotExterno(RCFG.ID_PEND_MAP, false, blInfo.mapaCompostos);
-  const pivotFull = _carregarPivotExterno(RCFG.ID_FULL,     false, blInfo.mapaCompostos);
-  const pivotComp = _carregarPivotExterno(RCFG.ID_COMP_PEN, false, blInfo.mapaCompostos);
-
-  const itens    = _construirItens(vendas, prodInfo, estoque, blInfo.mapaBL_prod);
-  const ordenado = _calcularTudo(itens);
-
-  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RCFG.ABA_SEM);
-  if (!aba) { ui.alert('❌ Aba "' + RCFG.ABA_SEM + '" não encontrada.'); return; }
-  _escreverAba(aba, ordenado, pivotPend, pivotFull, pivotComp);
-
-  ui.alert('✅ Sem Desmembramento gerado! ' + ordenado.length + ' SKUs.');
-}
-
-// ============================================================
-// GERAR COM DESMEMBRAMENTO
-// ============================================================
-function gerarComDesmembramento() {
-  const ui = SpreadsheetApp.getUi();
-  ui.alert('⏳ Gerando Com Desmembramento... Aguarde 1-2 minutos.');
-
-  const blInfo  = _carregarBL();
-  const estoque = _carregarEstoque(blInfo.blDados, true);
-  const { vendas, prodInfo } = _carregarVendas(true, blInfo);
-
-  const pivotPend = _carregarPivotExterno(RCFG.ID_PEND_MAP, true, blInfo.mapaCompostos);
-  const pivotFull = _carregarPivotExterno(RCFG.ID_FULL,     true, blInfo.mapaCompostos);
-  const pivotComp = _carregarPivotExterno(RCFG.ID_COMP_PEN, true, blInfo.mapaCompostos);
-
-  const itens    = _construirItens(vendas, prodInfo, estoque, blInfo.mapaBL_prod);
-  const ordenado = _calcularTudo(itens);
-
-  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RCFG.ABA_COM);
-  if (!aba) { ui.alert('❌ Aba "' + RCFG.ABA_COM + '" não encontrada.'); return; }
-  _escreverAba(aba, ordenado, pivotPend, pivotFull, pivotComp);
-
-  ui.alert('✅ Com Desmembramento gerado! ' + ordenado.length + ' SKUs.');
 }
 
 // ============================================================
@@ -237,8 +223,8 @@ function _carregarBL() {
   const blSS  = SpreadsheetApp.openById(RCFG.ID_BL);
   const blAba = _getAba(blSS, RCFG.ABA_BL);
   if (!blAba) {
-    const disponiveis = blSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
-    throw new Error('Aba BaseLinker "' + RCFG.ABA_BL + '" nao encontrada.\nAbas disponiveis: ' + disponiveis);
+    const disp = blSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
+    throw new Error('Aba BaseLinker "' + RCFG.ABA_BL + '" nao encontrada.\nAbas: ' + disp);
   }
   const blDados = blAba.getDataRange().getValues();
 
@@ -247,26 +233,26 @@ function _carregarBL() {
 
   // Pass 1: Simples
   for (let i = 1; i < blDados.length; i++) {
-    const row  = blDados[i];
-    const sku  = String(row[RCFG.BL_SKU]     || '').trim();
-    const tipo = String(row[RCFG.BL_TIPO]    || '').trim();
-    const prod = String(row[RCFG.BL_PRODUTO] || '').trim();
-    const saldo = (Number(row[RCFG.BL_SALDO_PAD] || 0) +
-                   Number(row[RCFG.BL_SALDO_ARM] || 0) +
-                   Number(row[RCFG.BL_SALDO_CHG] || 0));
+    const row   = blDados[i];
+    const sku   = String(row[RCFG.BL_SKU]     || '').trim();
+    const tipo  = String(row[RCFG.BL_TIPO]    || '').trim();
+    const prod  = String(row[RCFG.BL_PRODUTO] || '').trim();
+    const saldo = Number(row[RCFG.BL_SALDO_PAD] || 0) +
+                  Number(row[RCFG.BL_SALDO_ARM] || 0) +
+                  Number(row[RCFG.BL_SALDO_CHG] || 0);
     if (!sku || tipo !== 'Simples') continue;
     if (!mapaBL_prod[sku]) mapaBL_prod[sku] = { produto: prod, saldo };
   }
 
-  // Pass 2: PAI (kit como unidade — usado em Sem Desmembramento)
+  // Pass 2: PAI
   for (let i = 1; i < blDados.length; i++) {
-    const row  = blDados[i];
-    const sku  = String(row[RCFG.BL_SKU]     || '').trim();
-    const tipo = String(row[RCFG.BL_TIPO]    || '').trim();
-    const prod = String(row[RCFG.BL_PRODUTO] || '').trim();
-    const saldo = (Number(row[RCFG.BL_SALDO_PAD] || 0) +
-                   Number(row[RCFG.BL_SALDO_ARM] || 0) +
-                   Number(row[RCFG.BL_SALDO_CHG] || 0));
+    const row   = blDados[i];
+    const sku   = String(row[RCFG.BL_SKU]     || '').trim();
+    const tipo  = String(row[RCFG.BL_TIPO]    || '').trim();
+    const prod  = String(row[RCFG.BL_PRODUTO] || '').trim();
+    const saldo = Number(row[RCFG.BL_SALDO_PAD] || 0) +
+                  Number(row[RCFG.BL_SALDO_ARM] || 0) +
+                  Number(row[RCFG.BL_SALDO_CHG] || 0);
     if (!sku || tipo !== 'PAI') continue;
     if (!mapaBL_prod[sku]) mapaBL_prod[sku] = { produto: prod, saldo };
   }
@@ -284,12 +270,12 @@ function _carregarBL() {
     if (!mapaBL_prod[codEst]) mapaBL_prod[codEst] = { produto: '', saldo: 0 };
   }
 
-  // Custos + Proporções para desmembramento de faturamento
+  // Custos + Proporções
   const custSS  = SpreadsheetApp.openById(RCFG.ID_CUSTOS);
   const custAba = _getAba(custSS, RCFG.ABA_CUSTOS);
   if (!custAba) {
-    const disponiveis = custSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
-    throw new Error('Aba Custos "' + RCFG.ABA_CUSTOS + '" nao encontrada.\nAbas disponiveis: ' + disponiveis);
+    const disp = custSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
+    throw new Error('Aba Custos "' + RCFG.ABA_CUSTOS + '" nao encontrada.\nAbas: ' + disp);
   }
   const custDados  = custAba.getDataRange().getValues();
   const mapaCustos = {};
@@ -324,8 +310,7 @@ function _carregarEstoque(blDados, apenasSimples) {
     const row  = blDados[i];
     const sku  = String(row[RCFG.BL_SKU]  || '').trim();
     const tipo = String(row[RCFG.BL_TIPO] || '').trim();
-    if (!sku) continue;
-    if (tipo === 'Composto') continue;
+    if (!sku || tipo === 'Composto') continue;
     if (apenasSimples && tipo !== 'Simples') continue;
     const saldo = Number(row[RCFG.BL_SALDO_PAD] || 0) +
                   Number(row[RCFG.BL_SALDO_ARM] || 0) +
@@ -342,8 +327,8 @@ function _carregarVendas(desmembrar, blInfo) {
   const geSS  = SpreadsheetApp.openById(RCFG.ID_GE);
   const geAba = _getAba(geSS, RCFG.ABA_GE);
   if (!geAba) {
-    const disponiveis = geSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
-    throw new Error('Aba GE Finance "' + RCFG.ABA_GE + '" nao encontrada.\nAbas disponiveis: ' + disponiveis);
+    const disp = geSS.getSheets().map(s => '"' + s.getName() + '"').join(', ');
+    throw new Error('Aba GE Finance "' + RCFG.ABA_GE + '" nao encontrada.\nAbas: ' + disp);
   }
   const geDados = geAba.getDataRange().getValues();
 
@@ -392,13 +377,13 @@ function _carregarVendas(desmembrar, blInfo) {
     const dias = diasPorLinha[i];
     if (dias < 0 || dias >= 90) continue;
 
-    const skuGE    = String(geDados[i][RCFG.GE_SKU]     || '').trim();
-    const nomeProd = String(geDados[i][RCFG.GE_PRODUTO]  || '').trim();
-    const canal    = String(geDados[i][RCFG.GE_CANAL]    || '').trim();
-    const qtd      = Number(geDados[i][RCFG.GE_QTD]      || 0);
-    const fat      = Number(geDados[i][RCFG.GE_FAT]      || 0);
-    const caixa    = Number(geDados[i][RCFG.GE_CAIXA]    || 0);
-    const margem   = Number(geDados[i][RCFG.GE_MARGEM]   || 0);
+    const skuGE    = String(geDados[i][RCFG.GE_SKU]    || '').trim();
+    const nomeProd = String(geDados[i][RCFG.GE_PRODUTO] || '').trim();
+    const canal    = String(geDados[i][RCFG.GE_CANAL]   || '').trim();
+    const qtd      = Number(geDados[i][RCFG.GE_QTD]     || 0);
+    const fat      = Number(geDados[i][RCFG.GE_FAT]     || 0);
+    const caixa    = Number(geDados[i][RCFG.GE_CAIXA]   || 0);
+    const margem   = Number(geDados[i][RCFG.GE_MARGEM]  || 0);
 
     if (!skuGE) continue;
     const canalNorm = CANAIS_TODOS.find(c => c.toLowerCase() === canal.toLowerCase());
@@ -486,44 +471,31 @@ function _calcularTudo(itens) {
 }
 
 // ============================================================
-// ESCREVER ABA (49 colunas)
+// ESCREVER ABA (54 colunas)
 // ============================================================
-// Layout das colunas:
+// Layout:
 //  A(1):   SKU
 //  B-H(2-8): Qtd semanal 0-7, 7-15, 15-30, 30-45, 45-60, 60-75, 75-90
-//  I(9):   Qtd 0-30
-//  J(10):  Fat 0-30
-//  K(11):  Caixa 0-30
-//  L(12):  Margem R$ 0-30
-//  M(13):  Margem % 0-30
-//  N(14):  Qtd 30-60
-//  O(15):  Fat 30-60
-//  P(16):  Caixa 30-60
-//  Q(17):  Margem R$ 30-60
-//  R(18):  Margem % 30-60
-//  S(19):  Qtd 60-90
-//  T(20):  Fat 60-90
-//  U(21):  Caixa 60-90
-//  V(22):  Margem R$ 60-90
-//  W(23):  Margem % 60-90
-//  X(24):  % Fat ML 0-30
-//  Y(25):  % Fat Shopee 0-30
-//  Z(26):  Curva Fat 0-30
-//  AA(27): % Acum Fat 0-30
-//  AB(28): Curva Fat 30-60
-//  AC(29): % Acum Fat 30-60
-//  AD(30): Curva Fat 60-90
-//  AE(31): % Acum Fat 60-90
-//  AF(32): Curva 2 0-30
-//  AG(33): Curva 2 30-60
-//  AH(34): Curva 2 60-90
+//  I(9):   Qtd 0-30       J(10): Fat 0-30     K(11): Caixa 0-30
+//  L(12):  Margem R$ 0-30 M(13): Margem % 0-30
+//  N(14):  Qtd 30-60      O(15): Fat 30-60     P(16): Caixa 30-60
+//  Q(17):  Margem R$ 30-60 R(18): Margem % 30-60
+//  S(19):  Qtd 60-90      T(20): Fat 60-90     U(21): Caixa 60-90
+//  V(22):  Margem R$ 60-90 W(23): Margem % 60-90
+//  X(24):  % Fat ML 0-30   Y(25): % Fat Shopee 0-30
+//  Z(26):  Curva Fat 0-30  AA(27): % Acum Fat 0-30
+//  AB(28): Curva Fat 30-60 AC(29): % Acum Fat 30-60
+//  AD(30): Curva Fat 60-90 AE(31): % Acum Fat 60-90
+//  AF(32): Curva 2 0-30    AG(33): Curva 2 30-60    AH(34): Curva 2 60-90
 //  ── Estoque ──
 //  AI(35): Estoque BL
 //  AJ(36): Pendente Mapeamento
 //  AK(37): Full
-//  AL(38): Resultado ((Estoque + Pendente Mapeamento) - Full)
+//  AL(38): Resultado ((Estoque + Pendente) - Full)
 //  AM(39): Compras Pendentes
-//  AN(40): Resultado Final ((Estoque + Pendente + Compras) - Full)
+//  AN(40): Resultado Final
+//            abas normais:    (AI + AJ + AM) - AK
+//            abas S/ Compras: (AI + AJ) - AK  [= AL]
 //  ── Analítico ──
 //  AO(41): Conta que mais vende (0-30)
 //  AP(42): Var% Fat 0-30 vs 30-60
@@ -536,13 +508,18 @@ function _calcularTudo(itens) {
 //  AU(47): Acum 0-30 − Resultado Final
 //  AV(48): Acum 0-60 − Resultado Final
 //  AW(49): Acum 0-90 − Resultado Final
+//  ── % Fat por Empresa (0-90) ──
+//  AX(50): % Humble   (ML Humble + Shopee Humble)
+//  AY(51): % Najumi   (ML Najumi + Shopee Najumi)
+//  AZ(52): % Sky      (ML Sky + Shopee Sky)
+//  BA(53): % Edmotos  (ML Edmotos)
+//  BB(54): % Moto Vibe (ML Moto Vibe)
 // ============================================================
-function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
+function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp, semCompras) {
   const HEADER = RCFG.HEADER_ROWS;
-  const PRIMA  = HEADER + 1;  // linha 6
-  const NCOLS  = 49;
+  const PRIMA  = HEADER + 1;
+  const NCOLS  = 54;
 
-  // Limpar dados e formatação anteriores
   const lastRow = aba.getLastRow();
   if (lastRow >= PRIMA) {
     aba.getRange(PRIMA, 1, lastRow - HEADER, NCOLS).clearContent();
@@ -571,25 +548,40 @@ function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
     }
 
     // Var% faturamento 0-30 vs 30-60
-    // Positivo = 0-30 maior (produto crescendo), negativo = produto em queda
     const varFat = c3060.fat !== 0
       ? (c030.fat - c3060.fat) / Math.abs(c3060.fat)
       : (c030.fat > 0 ? 1 : 0);
 
-    // Colunas de estoque composto
+    // Estoque composto
     const pendMapeamento = pivotPend[item.sku] || 0;
     const full           = pivotFull[item.sku] || 0;
     const comprasPend    = pivotComp[item.sku] || 0;
     const resultado      = (item.estoque + pendMapeamento) - full;
-    const resultadoFinal = (item.estoque + pendMapeamento + comprasPend) - full;
+    // Nas abas S/ Compras, AN ignora AM (compras pendentes)
+    const resultadoFinal = semCompras
+      ? resultado
+      : (item.estoque + pendMapeamento + comprasPend) - full;
 
-    // Diferenças usando Resultado Final como base de estoque disponível
-    const dif07   = item.qtdSem[0]                                - resultadoFinal;  // AQ
-    const dif030  = c030.qtd                                      - resultadoFinal;  // AR / AU
-    const dif3060 = c3060.qtd                                     - resultadoFinal;  // AS
-    const dif6090 = c6090.qtd                                     - resultadoFinal;  // AT
-    const dif060  = c030.qtd + c3060.qtd                          - resultadoFinal;  // AV
-    const dif090  = c030.qtd + c3060.qtd + c6090.qtd              - resultadoFinal;  // AW
+    // Diferenças — base = Resultado Final (muda conforme semCompras)
+    const dif07   = item.qtdSem[0]                           - resultadoFinal;
+    const dif030  = c030.qtd                                 - resultadoFinal;
+    const dif3060 = c3060.qtd                                - resultadoFinal;
+    const dif6090 = c6090.qtd                                - resultadoFinal;
+    const dif060  = c030.qtd + c3060.qtd                     - resultadoFinal;
+    const dif090  = c030.qtd + c3060.qtd + c6090.qtd         - resultadoFinal;
+
+    // % faturamento por empresa (período 0-90 completo)
+    const fat090 = c030.fat + c3060.fat + c6090.fat;
+    const pctEmpresa = EMPRESAS.map(emp => {
+      if (fat090 === 0) return 0;
+      let total = 0;
+      emp.canais.forEach(canal => {
+        total += (c030.porCanal[canal]  || 0)
+               + (c3060.porCanal[canal] || 0)
+               + (c6090.porCanal[canal] || 0);
+      });
+      return total / fat090;
+    });
 
     return [
       item.sku,              // 1:  A
@@ -638,9 +630,14 @@ function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
       dif030,                // 44: AR
       dif3060,               // 45: AS
       dif6090,               // 46: AT
-      dif030,                // 47: AU  Acum 0-30 = mesmo que AR
+      dif030,                // 47: AU  Acum 0-30 = AR
       dif060,                // 48: AV
       dif090,                // 49: AW
+      pctEmpresa[0],         // 50: AX  % Humble   (%)
+      pctEmpresa[1],         // 51: AY  % Najumi   (%)
+      pctEmpresa[2],         // 52: AZ  % Sky      (%)
+      pctEmpresa[3],         // 53: BA  % Edmotos  (%)
+      pctEmpresa[4],         // 54: BB  % Moto Vibe (%)
     ];
   });
 
@@ -650,8 +647,8 @@ function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
   // SKU como texto
   aba.getRange(PRIMA, 1, rows.length, 1).setNumberFormat('@');
 
-  // Colunas percentuais: M(13), R(18), W(23), X(24), Y(25), AA(27), AC(29), AE(31), AP(42)
-  [13, 18, 23, 24, 25, 27, 29, 31, 42].forEach(col => {
+  // Percentuais: M(13), R(18), W(23), X(24), Y(25), AA(27), AC(29), AE(31), AP(42), AX-BB(50-54)
+  [13, 18, 23, 24, 25, 27, 29, 31, 42, 50, 51, 52, 53, 54].forEach(col => {
     aba.getRange(PRIMA, col, rows.length, 1).setNumberFormat('0.0%');
   });
 
@@ -663,8 +660,8 @@ function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
   // ── Colorir diferenças: AQ(43)..AW(49) ──
   _colorirDiferencas(aba, itens, PRIMA, [43, 44, 45, 46, 47, 48, 49], rows);
 
-  // ── Linha vermelha claro: Margem % 0-30 < 11,5% ──
-  const RED_ROW = '#ffcdd2';
+  // ── Linha vermelha: Margem % 0-30 < 11,5% ──
+  const RED_ROW   = '#ffcdd2';
   const redRanges = [];
   itens.forEach((item, i) => {
     const c = item.cons['0-30'];
@@ -679,10 +676,9 @@ function _escreverAba(aba, itens, pivotPend, pivotFull, pivotComp) {
 
 // ============================================================
 // COLORIR COLUNAS DE DIFERENÇA
-// diff = qtd_vendida − Resultado Final
-//   diff > 0 → vendas superam o disponível → CRÍTICO (vermelho)
-//   diff < 0 → disponível cobre as vendas  → OK (verde)
-//   diff = 0 → exatamente igual            → amarelo
+// diff > 0 → vendas superam disponível → vermelho (crítico)
+// diff < 0 → disponível cobre vendas   → verde (OK)
+// diff = 0 → exato                     → amarelo
 // ============================================================
 function _colorirDiferencas(aba, itens, primaLinha, cols, rows) {
   const COR_CRITICO = '#ef9a9a';
@@ -690,18 +686,14 @@ function _colorirDiferencas(aba, itens, primaLinha, cols, rows) {
   const COR_ZERO    = '#fff9c4';
 
   cols.forEach(col => {
-    const colIdx = col - 1;
+    const colIdx  = col - 1;
     const critico = [], ok = [], zero = [];
 
     itens.forEach((item, i) => {
       const val = rows[i][colIdx];
-      if (val === 0) {
-        zero.push(aba.getRange(primaLinha + i, col).getA1Notation());
-      } else if (val > 0) {
-        critico.push(aba.getRange(primaLinha + i, col).getA1Notation());
-      } else {
-        ok.push(aba.getRange(primaLinha + i, col).getA1Notation());
-      }
+      if      (val === 0) zero.push(aba.getRange(primaLinha + i, col).getA1Notation());
+      else if (val  >  0) critico.push(aba.getRange(primaLinha + i, col).getA1Notation());
+      else                ok.push(aba.getRange(primaLinha + i, col).getA1Notation());
     });
 
     if (critico.length) aba.getRangeList(critico).setBackground(COR_CRITICO);
