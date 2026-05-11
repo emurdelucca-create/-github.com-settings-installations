@@ -1,0 +1,188 @@
+// ============================================================
+// MOVIMENTAÇÃO 2026 — BaseLinker → Google Sheets
+// Puxa pedidos com status "Movimentação" e estoques por armazém
+// ============================================================
+
+const BL_TOKEN = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2RR74VA1N2RE95PVYWGZ';
+const BL_URL   = 'https://api.baselinker.com/connector.php';
+
+// ============================================================
+// MENU
+// ============================================================
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('📦 Movimentação')
+    .addItem('🔄 Atualizar dados', 'sincronizarMovimentacao')
+    .addSeparator()
+    .addItem('🔍 Diagnóstico BaseLinker', 'diagnosticarBL')
+    .addToUi();
+}
+
+// ============================================================
+// CHAMADA À API DO BASELINKER
+// ============================================================
+function blPost(method, params) {
+  const resp = UrlFetchApp.fetch(BL_URL, {
+    method: 'post',
+    payload: {
+      token: BL_TOKEN,
+      method: method,
+      parameters: JSON.stringify(params || {}),
+    },
+    muteHttpExceptions: true,
+  });
+  const data = JSON.parse(resp.getContentText());
+  if (data.status !== 'SUCCESS') {
+    throw new Error('[' + method + '] ' + (data.error_message || JSON.stringify(data)));
+  }
+  return data;
+}
+
+// ============================================================
+// DIAGNÓSTICO — mostra campos do 1º pedido encontrado
+// Útil para descobrir qual campo tem o nome do canal
+// ============================================================
+function diagnosticarBL() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    // Pega qualquer pedido recente para inspecionar campos
+    const r = blPost('getOrders', { id_from: 0 });
+    const pedido = (r.orders || [])[0];
+    if (!pedido) { ui.alert('Nenhum pedido encontrado.'); return; }
+
+    const campos = [
+      'order_id', 'order_source', 'order_source_id', 'order_source_user',
+      'order_source_user_id', 'delivery_method', 'date_confirmed',
+      'user_login', 'extra_field_1', 'extra_field_2', 'order_status_id',
+    ];
+    let msg = '📋 Campos do 1º pedido encontrado:\n\n';
+    campos.forEach(c => { msg += c + ': ' + JSON.stringify(pedido[c]) + '\n'; });
+
+    const prod = (pedido.products || [])[0];
+    if (prod) {
+      msg += '\n📦 1º produto do pedido:\n';
+      ['product_id', 'sku', 'name', 'quantity'].forEach(c => {
+        msg += c + ': ' + JSON.stringify(prod[c]) + '\n';
+      });
+    }
+    ui.alert('🔍 Diagnóstico', msg, ui.ButtonSet.OK);
+  } catch(e) {
+    ui.alert('❌ Erro: ' + e.message);
+  }
+}
+
+// ============================================================
+// SINCRONIZAR MOVIMENTAÇÃO
+// ============================================================
+function sincronizarMovimentacao() {
+  const ui  = SpreadsheetApp.getUi();
+  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  const normStr = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+  try {
+    // ── 1. Buscar ID do status "Movimentação" ─────────────────
+    const statusResp = blPost('getOrderStatusList', {});
+    const statusObj  = statusResp.statuses.find(s => normStr(s.name).includes('movimenta'));
+    if (!statusObj) {
+      throw new Error('Status "Movimentação" não encontrado.\nDisponíveis: ' +
+        statusResp.statuses.map(s => '"' + s.name + '"').join(', '));
+    }
+
+    // ── 2. Buscar pedidos (com paginação) ─────────────────────
+    const pedidos = [];
+    let idFrom = 0;
+    while (true) {
+      const r     = blPost('getOrders', { status_id: statusObj.id, id_from: idFrom });
+      const batch = r.orders || [];
+      pedidos.push(...batch);
+      if (batch.length < 100) break;
+      idFrom = batch[batch.length - 1].order_id;
+    }
+    if (pedidos.length === 0) {
+      ui.alert('Nenhum pedido com status "' + statusObj.name + '" encontrado.');
+      return;
+    }
+
+    // ── 3. Buscar inventário e armazéns ───────────────────────
+    const invResp     = blPost('getInventories', {});
+    const inventoryId = invResp.inventories[0].inventory_id;
+
+    const whResp = blPost('getInventoryWarehouses', { inventory_id: inventoryId });
+    let idPad = null, idArm = null, idChg = null;
+    (whResp.warehouses || []).forEach(wh => {
+      const n = normStr(wh.name);
+      if      (n.includes('padrao') || n.includes('padrão')) idPad = wh.warehouse_id;
+      else if (n.includes('armazenamento'))                   idArm = wh.warehouse_id;
+      else if (n.includes('chegou'))                          idChg = wh.warehouse_id;
+    });
+
+    // ── 4. Buscar estoque de todos os produtos (paginado) ─────
+    // stockMap: product_id → { pad, arm, chg }
+    const stockMap = {};
+    let page = 1;
+    while (true) {
+      const sr    = blPost('getInventoryProductsStock', { inventory_id: inventoryId, page });
+      const prods = sr.products || {};
+      const keys  = Object.keys(prods);
+      if (keys.length === 0) break;
+      keys.forEach(pid => {
+        const stock = prods[pid].stock || {};
+        stockMap[pid] = {
+          pad: idPad ? (stock[idPad] || 0) : 0,
+          arm: idArm ? (stock[idArm] || 0) : 0,
+          chg: idChg ? (stock[idChg] || 0) : 0,
+        };
+      });
+      if (keys.length < 1000) break;
+      page++;
+    }
+
+    // ── 5. Montar linhas ──────────────────────────────────────
+    const linhas = [];
+    pedidos.forEach(pedido => {
+      // Canal de venda: tenta campos mais descritivos primeiro
+      const canal  = pedido.order_source_user
+                  || pedido.extra_field_1
+                  || (pedido.order_source + (pedido.order_source_id ? ' / ' + pedido.order_source_id : ''));
+      const metodo = pedido.delivery_method   || '';
+      const data   = pedido.date_confirmed ? new Date(pedido.date_confirmed * 1000) : '';
+
+      (pedido.products || []).forEach(prod => {
+        const sku = prod.sku      || '';
+        const qty = Number(prod.quantity) || 0;
+        const pid = String(prod.product_id || '');
+        const est = stockMap[pid] || { pad: 0, arm: 0, chg: 0 };
+
+        linhas.push([
+          statusObj.name,              // A: Status BaseLinker
+          canal,                       // B: Canal de venda
+          metodo,                      // C: Método de envio
+          sku,                         // D: SKU
+          qty,                         // E: Quantidade
+          data,                        // F: Data do pedido
+          est.pad,                     // G: Estoque Padrão
+          est.arm,                     // H: Estoque Armazenamento
+          est.chg,                     // I: Estoque Chegou
+          est.pad + est.arm + est.chg, // J: Total
+        ]);
+      });
+    });
+
+    // ── 6. Escrever na planilha ───────────────────────────────
+    const PRIMA   = 2;
+    const lastRow = aba.getLastRow();
+    if (lastRow >= PRIMA) {
+      aba.getRange(PRIMA, 1, lastRow - 1, 10).clearContent();
+    }
+    if (linhas.length > 0) {
+      aba.getRange(PRIMA, 1, linhas.length, 10).setValues(linhas);
+      aba.getRange(PRIMA, 6, linhas.length, 1).setNumberFormat('dd/mm/yyyy hh:mm');
+    }
+
+    SpreadsheetApp.flush();
+    ui.alert('✅ ' + linhas.length + ' linhas importadas de ' + pedidos.length + ' pedidos.');
+
+  } catch(e) {
+    ui.alert('❌ Erro: ' + e.message);
+  }
+}
