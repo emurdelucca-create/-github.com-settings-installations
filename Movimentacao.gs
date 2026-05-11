@@ -7,14 +7,31 @@ const BL_TOKEN = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2R
 const BL_URL   = 'https://api.baselinker.com/connector.php';
 
 // ============================================================
+// MAPEAMENTO order_source_id → nome do canal
+// Preencha após rodar "Descobrir IDs dos Canais"
+// ============================================================
+const CANAL_MAP = {
+  // Exemplo (substitua pelos IDs reais):
+  // '24401': 'ML Humble',
+  // '24402': 'ML Najumi',
+  // '24403': 'ML Sky',
+  // '24404': 'ML Edmotos',
+  // '24405': 'ML Moto Vibe',
+  // '24406': 'Shopee Humble',
+  // '24407': 'Shopee Najumi',
+  // '24408': 'Shopee Sky',
+};
+
+// ============================================================
 // MENU
 // ============================================================
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Movimentação')
-    .addItem('🔄 Atualizar dados', 'sincronizarMovimentacao')
+    .addItem('🔄 Atualizar dados',          'sincronizarMovimentacao')
     .addSeparator()
-    .addItem('🔍 Diagnóstico BaseLinker', 'diagnosticarBL')
+    .addItem('🔍 Descobrir IDs dos Canais', 'descobrirCanais')
+    .addItem('🔍 Diagnóstico BaseLinker',   'diagnosticarBL')
     .addToUi();
 }
 
@@ -36,6 +53,54 @@ function blPost(method, params) {
     throw new Error('[' + method + '] ' + (data.error_message || JSON.stringify(data)));
   }
   return data;
+}
+
+// ============================================================
+// DESCOBRIR IDs DOS CANAIS
+// Varre os últimos pedidos e lista todos os order_source_id
+// únicos encontrados para você preencher o CANAL_MAP acima
+// ============================================================
+function descobrirCanais() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const fontes = {}; // source_id → { source, exemplo_pedido }
+    let idFrom = 0;
+    let totalPedidos = 0;
+
+    // Varre até 500 pedidos recentes para coletar todos os source_ids
+    while (totalPedidos < 500) {
+      const r     = blPost('getOrders', { id_from: idFrom });
+      const batch = r.orders || [];
+      if (batch.length === 0) break;
+
+      batch.forEach(p => {
+        const key = String(p.order_source_id || 'sem_id');
+        if (!fontes[key]) {
+          fontes[key] = {
+            source:   p.order_source || '',
+            exemplo:  p.order_id,
+          };
+        }
+      });
+
+      totalPedidos += batch.length;
+      if (batch.length < 100) break;
+      idFrom = batch[batch.length - 1].order_id;
+    }
+
+    let msg = '📋 IDs de canais encontrados em ' + totalPedidos + ' pedidos:\n\n';
+    msg += 'order_source_id | order_source | ex. pedido\n';
+    msg += '─────────────────────────────────────────\n';
+    Object.keys(fontes).sort().forEach(id => {
+      const f = fontes[id];
+      msg += id + ' | ' + f.source + ' | #' + f.exemplo + '\n';
+    });
+    msg += '\nPreencha o CANAL_MAP no código com esses IDs.';
+
+    ui.alert('🔍 Canais encontrados', msg, ui.ButtonSet.OK);
+  } catch(e) {
+    ui.alert('❌ Erro: ' + e.message);
+  }
 }
 
 // ============================================================
@@ -140,10 +205,10 @@ function sincronizarMovimentacao() {
     // ── 5. Montar linhas ──────────────────────────────────────
     const linhas = [];
     pedidos.forEach(pedido => {
-      // Canal de venda: tenta campos mais descritivos primeiro
-      const canal  = pedido.order_source_user
-                  || pedido.extra_field_1
-                  || (pedido.order_source + (pedido.order_source_id ? ' / ' + pedido.order_source_id : ''));
+      // Canal de venda: usa CANAL_MAP se preenchido, senão mostra source + id bruto
+      const sourceId = String(pedido.order_source_id || '');
+      const canal    = CANAL_MAP[sourceId]
+                    || (pedido.order_source + (sourceId ? ' / ' + sourceId : ''));
       const metodo = pedido.delivery_method   || '';
       const data   = pedido.date_confirmed ? new Date(pedido.date_confirmed * 1000) : '';
 
