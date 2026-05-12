@@ -576,84 +576,62 @@ function _escreverAbaMovimentacao(ss, nomeAba, rows, allMethods) {
 
   if (rows.length === 0) return;
 
-  const COLS  = 10; // colunas por bloco
-  const SEP   = 1;  // coluna separadora entre blocos
-  const STEP  = COLS + SEP; // 11
-  // Layout: [Geral(10)] [sep] [Método1(10)] [sep] [Método2(10)] [sep] ...
+  const COLS     = 7;
+  const SEP      = 1;
+  const STEP     = COLS + SEP; // 8
+  const DATA_ROW = 3;
+
+  const SUB = ['SKU', 'Qtd.', 'Data mais antiga', 'Est. Padrão', 'Est. Armazenamento', 'Est. Chegou', 'Saldo Total'];
+
   const totalCols = STEP * (1 + allMethods.length);
 
-  const SUB = [
-    'SKU', 'Qtd.', 'Canal', 'Data mais antiga',
-    'Est. Padrão', 'Est. Armazenamento', 'Est. Chegou', 'Saldo Total',
-    '', '',
-  ];
-
-  // Linha 1 — nomes dos grupos
+  // Linha 1: nomes dos grupos
   const row1 = new Array(totalCols).fill('');
   row1[0] = 'Geral (Todos os Métodos)';
   allMethods.forEach((m, i) => { row1[STEP * (i + 1)] = m; });
+  aba.getRange(1, 1, 1, totalCols).setValues([row1]);
 
-  // Linha 2 — sub-cabeçalhos
-  const row2 = new Array(totalCols).fill('');
-  for (let b = 0; b <= allMethods.length; b++) {
-    SUB.forEach((h, i) => { row2[b * STEP + i] = h; });
-  }
-
-  // Linhas de dados
-  const dataRows = rows.map(({ sku, est, saldoTotal, data }) => {
-    const row = new Array(totalCols).fill('');
-
-    const topCanal   = Object.entries(data.global.canals).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-    const globalDate = data.global.oldestTs > 0 ? new Date(data.global.oldestTs * 1000) : '';
-
-    // Bloco Geral (offset 0)
-    row[0] = sku;
-    row[1] = data.global.qty;
-    row[2] = topCanal;
-    row[3] = globalDate;
-    row[4] = est.pad;
-    row[5] = est.arm;
-    row[6] = est.chg;
-    row[7] = saldoTotal;
-
-    // Blocos por método
-    allMethods.forEach((m, i) => {
-      const off = STEP * (i + 1);
-      const md  = data.methods[m];
-      if (!md) return;
-      const topMCanal  = Object.entries(md.canals).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-      const methodDate = md.oldestTs > 0 ? new Date(md.oldestTs * 1000) : '';
-      row[off + 0] = sku;
-      row[off + 1] = md.qty;
-      row[off + 2] = topMCanal;
-      row[off + 3] = methodDate;
-      row[off + 4] = est.pad;
-      row[off + 5] = est.arm;
-      row[off + 6] = est.chg;
-      row[off + 7] = saldoTotal;
-    });
-
-    return row;
-  });
-
-  // Escrever tudo
-  const tudo = [row1, row2, ...dataRows];
-  aba.getRange(1, 1, tudo.length, totalCols).setValues(tudo);
-
-  // Mesclar linha 1 nos grupos
-  aba.getRange(1, 1, 1, COLS).merge(); // Geral
+  // Mesclar cada grupo na linha 1 (exatamente 7 colunas)
+  aba.getRange(1, 1, 1, COLS).merge();
   allMethods.forEach((_, i) => {
     aba.getRange(1, STEP * (i + 1) + 1, 1, COLS).merge();
   });
 
-  // Formatar SKU (texto) e Data (dd/mm/yyyy) em cada bloco
-  if (dataRows.length > 0) {
-    for (let b = 0; b <= allMethods.length; b++) {
-      const colSku  = b * STEP + 1; // 1-based
-      const colDate = b * STEP + 4;
-      aba.getRange(3, colSku,  dataRows.length, 1).setNumberFormat('@');
-      aba.getRange(3, colDate, dataRows.length, 1).setNumberFormat('dd/mm/yyyy');
-    }
+  // Linha 2: sub-cabeçalhos
+  const row2 = new Array(totalCols).fill('');
+  for (let b = 0; b <= allMethods.length; b++) {
+    SUB.forEach((h, j) => { row2[b * STEP + j] = h; });
   }
+  aba.getRange(2, 1, 1, totalCols).setValues([row2]);
+
+  // Bloco Geral — escrito independentemente
+  const gData = rows.map(({ sku, est, saldoTotal, data }) => {
+    const d = data.global.oldestTs > 0 ? new Date(data.global.oldestTs * 1000) : '';
+    return [sku, data.global.qty, d, est.pad, est.arm, est.chg, saldoTotal];
+  });
+  aba.getRange(DATA_ROW, 1, gData.length, COLS).setValues(gData);
+  aba.getRange(DATA_ROW, 1, gData.length, 1).setNumberFormat('@');
+  aba.getRange(DATA_ROW, 3, gData.length, 1).setNumberFormat('dd/mm/yyyy');
+
+  // Cada bloco de método — independente, sem linhas vazias
+  allMethods.forEach((m, i) => {
+    const startCol = STEP * (i + 1) + 1; // 1-based
+
+    const mRows = rows
+      .filter(r => r.data.methods[m])
+      .sort((a, b) => (a.data.methods[m].oldestTs || Infinity) - (b.data.methods[m].oldestTs || Infinity));
+
+    if (mRows.length === 0) return;
+
+    const mData = mRows.map(({ sku, est, saldoTotal, data }) => {
+      const md = data.methods[m];
+      const d  = md.oldestTs > 0 ? new Date(md.oldestTs * 1000) : '';
+      return [sku, md.qty, d, est.pad, est.arm, est.chg, saldoTotal];
+    });
+
+    aba.getRange(DATA_ROW, startCol, mData.length, COLS).setValues(mData);
+    aba.getRange(DATA_ROW, startCol,     mData.length, 1).setNumberFormat('@');
+    aba.getRange(DATA_ROW, startCol + 2, mData.length, 1).setNumberFormat('dd/mm/yyyy');
+  });
 }
 
