@@ -438,22 +438,22 @@ function sincronizarEstoqueInsuficiente() {
 
 // ============================================================
 // SINCRONIZAR MOVIMENTAÇÃO
+// Cria abas "Movimentação C/ Estoque" e "Movimentação S/ Estoque"
+// Uma linha por SKU | colunas agrupadas por método de envio
+// Ordenado pela data do pedido mais antigo (crescente)
 // ============================================================
 function sincronizarMovimentacao() {
-  const ui  = SpreadsheetApp.getUi();
-  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  const ui      = SpreadsheetApp.getUi();
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
   const normStr = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
   try {
-    // ── 1. Buscar ID do status "Movimentação" ─────────────────
+    // ── 1. Status "Movimentação" ──────────────────────────────
     const statusResp = blPost('getOrderStatusList', {});
     const statusObj  = statusResp.statuses.find(s => normStr(s.name).includes('movimenta'));
-    if (!statusObj) {
-      throw new Error('Status "Movimentação" não encontrado.\nDisponíveis: ' +
-        statusResp.statuses.map(s => '"' + s.name + '"').join(', '));
-    }
+    if (!statusObj) throw new Error('Status "Movimentação" não encontrado.');
 
-    // ── 2. Buscar pedidos (com paginação) ─────────────────────
+    // ── 2. Buscar todos os pedidos ────────────────────────────
     const pedidos = [];
     let idFrom = 0;
     while (true) {
@@ -468,82 +468,192 @@ function sincronizarMovimentacao() {
       return;
     }
 
-    // ── 3. Coletar product_ids únicos dos pedidos ─────────────
-    const prodIds = [...new Set(
-      pedidos.flatMap(p => (p.products || [])
-        .map(pr => String(pr.product_id || ''))
-        .filter(Boolean))
-    )];
+    // ── 3. Agregar por SKU ────────────────────────────────────
+    // skuMap: sku → { productId, global:{qty,oldestTs,canals}, methods:{metodo:{qty,oldestTs,canals}} }
+    const skuMap = {};
 
-    // ── 4. Buscar estoque via getInventoryProductsData ────────
-    // Usa os IDs de armazém e inventário fixos (descobertos no código existente)
-    // stockMap: product_id → { pad, arm, chg }
+    pedidos.forEach(pedido => {
+      const sourceId = String(pedido.order_source_id || '');
+      const canal    = CANAL_MAP[sourceId] || (pedido.order_source + (sourceId ? '/' + sourceId : ''));
+      const metodo   = pedido.delivery_method || 'Sem método';
+      const ts       = pedido.date_confirmed || pedido.date_add || 0;
+
+      (pedido.products || []).forEach(prod => {
+        const sku = String(prod.sku || '').trim();
+        if (!sku) return;
+        const qty = Number(prod.quantity) || 0;
+        const pid = String(prod.product_id || '');
+
+        if (!skuMap[sku]) {
+          skuMap[sku] = { productId: pid, global: { qty: 0, oldestTs: 0, canals: {} }, methods: {} };
+        }
+        const d = skuMap[sku];
+
+        d.global.qty += qty;
+        if (ts > 0 && (d.global.oldestTs === 0 || ts < d.global.oldestTs)) d.global.oldestTs = ts;
+        d.global.canals[canal] = (d.global.canals[canal] || 0) + qty;
+
+        if (!d.methods[metodo]) d.methods[metodo] = { qty: 0, oldestTs: 0, canals: {} };
+        d.methods[metodo].qty += qty;
+        if (ts > 0 && (d.methods[metodo].oldestTs === 0 || ts < d.methods[metodo].oldestTs)) {
+          d.methods[metodo].oldestTs = ts;
+        }
+        d.methods[metodo].canals[canal] = (d.methods[metodo].canals[canal] || 0) + qty;
+      });
+    });
+
+    // ── 4. Buscar estoque ─────────────────────────────────────
+    const allPids  = [...new Set(Object.values(skuMap).map(d => d.productId).filter(Boolean))];
     const stockMap = {};
-    const LOTE = 1000;
-    for (let i = 0; i < prodIds.length; i += LOTE) {
-      const lote = prodIds.slice(i, i + LOTE);
-      const res  = blPost('getInventoryProductsData', {
+    const LOTE     = 1000;
+    for (let i = 0; i < allPids.length; i += LOTE) {
+      const res = blPost('getInventoryProductsData', {
         inventory_id: INVENTORY_ID,
-        products: lote,
+        products: allPids.slice(i, i + LOTE),
       });
       Object.entries(res.products || {}).forEach(([pid, d]) => {
-        const stock = d.stock || {};
+        const s = d.stock || {};
         stockMap[pid] = {
-          pad: Number(stock[WH_PADRAO]        || 0),
-          arm: Number(stock[WH_ARMAZENAMENTO] || 0),
-          chg: Number(stock[WH_CHEGOU]        || 0),
+          pad: Number(s[WH_PADRAO]        || 0),
+          arm: Number(s[WH_ARMAZENAMENTO] || 0),
+          chg: Number(s[WH_CHEGOU]        || 0),
         };
       });
     }
 
-    // ── 5. Montar linhas ──────────────────────────────────────
-    const linhas = [];
-    pedidos.forEach(pedido => {
-      // Canal de venda: usa CANAL_MAP se preenchido, senão mostra source + id bruto
-      const sourceId = String(pedido.order_source_id || '');
-      const canal    = CANAL_MAP[sourceId]
-                    || (pedido.order_source + (sourceId ? ' / ' + sourceId : ''));
-      const metodo = pedido.delivery_method   || '';
-      const data   = pedido.date_confirmed ? new Date(pedido.date_confirmed * 1000) : '';
+    // ── 5. Filtrar (Padrão < 0) e separar ────────────────────
+    const allMethods = [...new Set(
+      Object.values(skuMap).flatMap(d => Object.keys(d.methods))
+    )].sort();
 
-      (pedido.products || []).forEach(prod => {
-        const sku = prod.sku      || '';
-        const qty = Number(prod.quantity) || 0;
-        const pid = String(prod.product_id || '');
-        const est = stockMap[pid] || { pad: 0, arm: 0, chg: 0 };
+    const comEstoque = []; // Padrão < 0 e Saldo Total >= 0
+    const semEstoque = []; // Padrão < 0 e Saldo Total <  0
 
-        linhas.push([
-          statusObj.name,              // A: Status BaseLinker
-          canal,                       // B: Canal de venda
-          metodo,                      // C: Método de envio
-          sku,                         // D: SKU
-          qty,                         // E: Quantidade
-          data,                        // F: Data do pedido
-          est.pad,                     // G: Estoque Padrão
-          est.arm,                     // H: Estoque Armazenamento
-          est.chg,                     // I: Estoque Chegou
-          est.pad + est.arm + est.chg, // J: Total
-        ]);
-      });
+    Object.entries(skuMap).forEach(([sku, data]) => {
+      const est = stockMap[data.productId] || { pad: 0, arm: 0, chg: 0 };
+      if (est.pad >= 0) return; // picking OK, ignora
+      const saldoTotal = est.pad + est.arm + est.chg;
+      const row = { sku, est, saldoTotal, data };
+      if (saldoTotal >= 0) comEstoque.push(row);
+      else                 semEstoque.push(row);
     });
 
-    // ── 6. Escrever na planilha ───────────────────────────────
-    const PRIMA   = 3;
-    const lastRow = aba.getLastRow();
-    if (lastRow >= PRIMA) {
-      aba.getRange(PRIMA, 1, lastRow - PRIMA + 1, 10).clearContent();
-    }
-    if (linhas.length > 0) {
-      // SKU (col D = 4) como texto antes de escrever os dados
-      aba.getRange(PRIMA, 4, linhas.length, 1).setNumberFormat('@');
-      aba.getRange(PRIMA, 1, linhas.length, 10).setValues(linhas);
-      aba.getRange(PRIMA, 6, linhas.length, 1).setNumberFormat('dd/mm/yyyy hh:mm');
-    }
+    // Ordenar pelo pedido mais antigo (crescente)
+    const sortFn = (a, b) => (a.data.global.oldestTs || Infinity) - (b.data.global.oldestTs || Infinity);
+    comEstoque.sort(sortFn);
+    semEstoque.sort(sortFn);
+
+    // ── 6. Escrever nas abas ──────────────────────────────────
+    _escreverAbaMovimentacao(ss, 'Movimentação C/ Estoque', comEstoque, allMethods);
+    _escreverAbaMovimentacao(ss, 'Movimentação S/ Estoque', semEstoque, allMethods);
+
+    // Remover aba original "Movimentação" (foi renomeada pelo usuário)
+    ['Movimentação', 'Movimentacao'].forEach(nome => {
+      const abaOld = ss.getSheetByName(nome);
+      if (abaOld) ss.deleteSheet(abaOld);
+    });
 
     SpreadsheetApp.flush();
-    ui.alert('✅ ' + linhas.length + ' linhas importadas de ' + pedidos.length + ' pedidos.');
+    ui.alert('✅ C/ Estoque: ' + comEstoque.length + ' SKUs | S/ Estoque: ' + semEstoque.length + ' SKUs');
 
   } catch(e) {
     ui.alert('❌ Erro: ' + e.message);
   }
 }
+
+// ============================================================
+// HELPER — escreve uma aba de movimentação com blocos por método
+// ============================================================
+function _escreverAbaMovimentacao(ss, nomeAba, rows, allMethods) {
+  let aba = ss.getSheetByName(nomeAba);
+  if (aba) {
+    aba.getRange(1, 1, aba.getMaxRows(), aba.getMaxColumns()).breakApart();
+    aba.clearContents();
+    aba.clearFormats();
+  } else {
+    aba = ss.insertSheet(nomeAba);
+  }
+
+  if (rows.length === 0) return;
+
+  const COLS  = 10; // colunas por bloco
+  const SEP   = 1;  // coluna separadora entre blocos
+  const STEP  = COLS + SEP; // 11
+  // Layout: [Geral(10)] [sep] [Método1(10)] [sep] [Método2(10)] [sep] ...
+  const totalCols = STEP * (1 + allMethods.length);
+
+  const SUB = [
+    'SKU', 'Qtd.', 'Canal', 'Data mais antiga',
+    'Est. Padrão', 'Est. Armazenamento', 'Est. Chegou', 'Saldo Total',
+    '', '',
+  ];
+
+  // Linha 1 — nomes dos grupos
+  const row1 = new Array(totalCols).fill('');
+  row1[0] = 'Geral (Todos os Métodos)';
+  allMethods.forEach((m, i) => { row1[STEP * (i + 1)] = m; });
+
+  // Linha 2 — sub-cabeçalhos
+  const row2 = new Array(totalCols).fill('');
+  for (let b = 0; b <= allMethods.length; b++) {
+    SUB.forEach((h, i) => { row2[b * STEP + i] = h; });
+  }
+
+  // Linhas de dados
+  const dataRows = rows.map(({ sku, est, saldoTotal, data }) => {
+    const row = new Array(totalCols).fill('');
+
+    const topCanal   = Object.entries(data.global.canals).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const globalDate = data.global.oldestTs > 0 ? new Date(data.global.oldestTs * 1000) : '';
+
+    // Bloco Geral (offset 0)
+    row[0] = sku;
+    row[1] = data.global.qty;
+    row[2] = topCanal;
+    row[3] = globalDate;
+    row[4] = est.pad;
+    row[5] = est.arm;
+    row[6] = est.chg;
+    row[7] = saldoTotal;
+
+    // Blocos por método
+    allMethods.forEach((m, i) => {
+      const off = STEP * (i + 1);
+      const md  = data.methods[m];
+      if (!md) return;
+      const topMCanal  = Object.entries(md.canals).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+      const methodDate = md.oldestTs > 0 ? new Date(md.oldestTs * 1000) : '';
+      row[off + 0] = sku;
+      row[off + 1] = md.qty;
+      row[off + 2] = topMCanal;
+      row[off + 3] = methodDate;
+      row[off + 4] = est.pad;
+      row[off + 5] = est.arm;
+      row[off + 6] = est.chg;
+      row[off + 7] = saldoTotal;
+    });
+
+    return row;
+  });
+
+  // Escrever tudo
+  const tudo = [row1, row2, ...dataRows];
+  aba.getRange(1, 1, tudo.length, totalCols).setValues(tudo);
+
+  // Mesclar linha 1 nos grupos
+  aba.getRange(1, 1, 1, COLS).merge(); // Geral
+  allMethods.forEach((_, i) => {
+    aba.getRange(1, STEP * (i + 1) + 1, 1, COLS).merge();
+  });
+
+  // Formatar SKU (texto) e Data (dd/mm/yyyy) em cada bloco
+  if (dataRows.length > 0) {
+    for (let b = 0; b <= allMethods.length; b++) {
+      const colSku  = b * STEP + 1; // 1-based
+      const colDate = b * STEP + 4;
+      aba.getRange(3, colSku,  dataRows.length, 1).setNumberFormat('@');
+      aba.getRange(3, colDate, dataRows.length, 1).setNumberFormat('dd/mm/yyyy');
+    }
+  }
+}
+
