@@ -1,10 +1,11 @@
 // ============================================================
-// FULL ML — v2 (inclui aba Reposição Full)
+// FULL ML — v3 (Reposição Full com tabela de componentes dinâmica)
 // ============================================================
 
 const ABA_DADOS      = 'Full ML';
 const ABA_UPLOAD     = 'Uploads';
 const ABA_REPOSICAO  = 'Reposição Full';
+const ABA_RP_DATA    = '_RP_Data'; // aba auxiliar oculta para dados do onEdit
 
 // # Anúncio adicionado ao final (índice 12) para não quebrar
 // código existente que lê colunas por índice 0-11
@@ -58,6 +59,19 @@ function onOpen() {
     .addItem('🔄 Gerar Reposição Full',             'gerarReposicaoFull')
     .addItem('⚙️ Configurar Dias por Curva',        'abrirConfigDias')
     .addToUi();
+}
+
+// ============================================================
+// GATILHO: atualiza tabela de componentes quando AB é editado
+// ============================================================
+function onEdit(e) {
+  try {
+    if (e.range.getSheet().getName() !== ABA_REPOSICAO) return;
+    if (e.range.getColumn() !== 28) return; // somente coluna AB
+    _rpAtualizarComponentes(SpreadsheetApp.getActiveSpreadsheet());
+  } catch(err) {
+    Logger.log('onEdit error: ' + err);
+  }
 }
 
 // ============================================================
@@ -131,7 +145,7 @@ function abrirUploadRelatorio() {
 }
 
 // ============================================================
-// PROCESSAR RELATÓRIO (atualizado: captura # Anúncio)
+// PROCESSAR RELATÓRIO (captura # Anúncio)
 // ============================================================
 function processarRelatorio(base64, conta, nomeArquivo) {
   try {
@@ -202,7 +216,7 @@ function processarRelatorio(base64, conta, nomeArquivo) {
         String(colunas.nivel        !== undefined ? linha[colunas.nivel]        : ''),
         String(colunas.obs          !== undefined ? linha[colunas.obs]          : ''),
         agora,
-        String(colunas.anuncio      !== undefined ? linha[colunas.anuncio]      : ''), // # Anúncio
+        String(colunas.anuncio      !== undefined ? linha[colunas.anuncio]      : ''),
       ]);
     }
 
@@ -646,7 +660,6 @@ function gerarReposicaoFull() {
 
 // ============================================================
 // CARREGAR GE FINANCE
-// Retorna: skuCanalMap[sku][canal] = { semanas:[7], cons:{} }
 // ============================================================
 function _rpCarregarGE() {
   const ss  = SpreadsheetApp.openById(RP_GE_ID);
@@ -709,9 +722,9 @@ function _rpCarregarBL() {
   if (!aba) throw new Error('Aba BaseLinker "' + RP_BL_ABA + '" não encontrada.');
 
   const dados           = aba.getDataRange().getValues();
-  const mapaTipo        = {}; // sku → 'Simples' | 'Composto'
-  const mapaEstoque     = {}; // sku → saldo total
-  const mapaComponentes = {}; // skuPai → [{codEst, qtde}]
+  const mapaTipo        = {};
+  const mapaEstoque     = {};
+  const mapaComponentes = {};
 
   for (let i = 1; i < dados.length; i++) {
     const row  = dados[i];
@@ -720,7 +733,7 @@ function _rpCarregarBL() {
     if (!sku) continue;
     const saldo = Number(row[4]||0) + Number(row[5]||0) + Number(row[6]||0);
     if (tipo === 'Simples') { mapaTipo[sku] = 'Simples'; mapaEstoque[sku] = saldo; }
-    else if (tipo === 'PAI')    { mapaTipo[sku] = 'Composto'; mapaEstoque[sku] = saldo; }
+    else if (tipo === 'PAI') { mapaTipo[sku] = 'Composto'; mapaEstoque[sku] = saldo; }
   }
 
   for (let i = 1; i < dados.length; i++) {
@@ -738,6 +751,156 @@ function _rpCarregarBL() {
 }
 
 // ============================================================
+// SALVAR DADOS AUXILIARES NA ABA OCULTA (_RP_Data)
+// Permite que o onEdit recalcule a tabela de componentes
+// sem precisar acessar planilhas externas.
+// ============================================================
+function _rpSalvarDadosAuxiliares(ss, mapaComponentes, mapaEstoque) {
+  let abaData = ss.getSheetByName(ABA_RP_DATA);
+  if (!abaData) {
+    abaData = ss.insertSheet(ABA_RP_DATA);
+    abaData.hideSheet();
+  } else {
+    abaData.clearContents();
+  }
+
+  const rows = [['##COMP##', '', '']];
+  Object.entries(mapaComponentes).forEach(([pai, comps]) => {
+    comps.forEach(c => rows.push([pai, c.codEst, c.qtde]));
+  });
+  rows.push(['##BL##', '', '']);
+  Object.entries(mapaEstoque).forEach(([sku, est]) => {
+    rows.push([sku, est, '']);
+  });
+
+  abaData.getRange(1, 1, rows.length, 3).setValues(rows);
+}
+
+// ============================================================
+// ATUALIZAR TABELA DE COMPONENTES (AG-AN)
+// Chamado por gerarReposicaoFull e pelo onEdit (coluna AB)
+// ============================================================
+function _rpAtualizarComponentes(ss) {
+  const abaRep  = ss.getSheetByName(ABA_REPOSICAO);
+  const abaData = ss.getSheetByName(ABA_RP_DATA);
+  if (!abaRep || !abaData) return;
+
+  // Ler mapa de componentes e estoque BL da aba auxiliar
+  const rawData         = abaData.getDataRange().getValues();
+  const mapaComponentes = {};
+  const mapaEstoqueBL   = {};
+  let section           = null;
+
+  for (let i = 0; i < rawData.length; i++) {
+    const r = rawData[i];
+    if (r[0] === '##COMP##') { section = 'comp'; continue; }
+    if (r[0] === '##BL##')   { section = 'bl';   continue; }
+    if (section === 'comp') {
+      const pai  = String(r[0] || '').trim();
+      const comp = String(r[1] || '').trim();
+      const qtde = Number(r[2] || 0);
+      if (pai && comp) {
+        if (!mapaComponentes[pai]) mapaComponentes[pai] = [];
+        mapaComponentes[pai].push({ codEst: comp, qtde });
+      }
+    } else if (section === 'bl') {
+      const sku = String(r[0] || '').trim();
+      const est = Number(r[1] || 0);
+      if (sku) mapaEstoqueBL[sku] = est;
+    }
+  }
+
+  // Ler tabela principal: colunas A(1) a AB(28)
+  const PRIMA   = 3;
+  const lastRow = abaRep.getLastRow();
+  if (lastRow < PRIMA) return;
+  const nRows    = lastRow - PRIMA + 1;
+  const mainData = abaRep.getRange(PRIMA, 1, nRows, 28).getValues();
+
+  // Calcular necessidade por SKU simples
+  // AC efetivo = AB se for número, caso contrário AA
+  const skuNec = {};
+  mainData.forEach(row => {
+    const sku = String(row[4]  || '').trim(); // col E (idx 4)
+    const aa  = Number(row[26] || 0);          // col AA (idx 26)
+    const abv = row[27];                        // col AB (idx 27)
+    const ac  = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
+    if (!sku || ac <= 0) return;
+
+    if (mapaComponentes[sku]) {
+      mapaComponentes[sku].forEach(c => {
+        if (!skuNec[c.codEst]) skuNec[c.codEst] = { qtd: 0, afetados: new Set() };
+        skuNec[c.codEst].qtd += ac * c.qtde;
+        skuNec[c.codEst].afetados.add(sku);
+      });
+    } else {
+      if (!skuNec[sku]) skuNec[sku] = { qtd: 0, afetados: new Set() };
+      skuNec[sku].qtd += ac;
+    }
+  });
+
+  // Montar linhas da tabela de componentes
+  const linhasComp = Object.entries(skuNec)
+    .sort((a, b) => b[1].qtd - a[1].qtd)
+    .map(([skuS, data]) => {
+      const qtdNec  = Math.ceil(data.qtd);
+      const estB    = mapaEstoqueBL[skuS] !== undefined ? mapaEstoqueBL[skuS] : 0;
+      const saldo   = estB - qtdNec;
+      const alerta  = saldo < 0 ? 'Falta: ' + Math.abs(saldo) : '';
+      // AK-AN: mostrar SKUs afetados SOMENTE quando AI < 0 (falta estoque)
+      const af      = saldo < 0 ? Array.from(data.afetados).slice(0, 4) : [];
+      return [skuS, qtdNec, saldo, alerta, af[0]||'', af[1]||'', af[2]||'', af[3]||''];
+    });
+
+  const COL_AG  = 33;
+  const clearN  = Math.max(linhasComp.length + 5, nRows + 5);
+
+  // Limpar tabela anterior
+  abaRep.getRange(PRIMA, COL_AG, clearN, 8).clearContent().clearFormat();
+
+  if (linhasComp.length === 0) return;
+
+  // Escrever dados
+  abaRep.getRange(PRIMA, COL_AG, linhasComp.length, 8).setValues(linhasComp);
+  abaRep.getRange(PRIMA, COL_AG,     linhasComp.length, 1).setNumberFormat('@'); // AG: SKU texto
+  abaRep.getRange(PRIMA, COL_AG + 4, linhasComp.length, 4).setNumberFormat('@'); // AK-AN: texto
+
+  // Formatar linha a linha
+  linhasComp.forEach((comp, i) => {
+    const ln     = PRIMA + i;
+    const temFalta = comp[3] !== ''; // AI < 0
+
+    // AG-AJ: verde (ok) ou vermelho claro (falta)
+    abaRep.getRange(ln, COL_AG, 1, 4)
+          .setBackground(temFalta ? '#ffcdd2' : '#e8f5e9')
+          .setFontColor('#000000')
+          .setFontWeight('normal');
+
+    // AJ (alerta): vermelho escuro quando falta
+    if (temFalta) {
+      abaRep.getRange(ln, COL_AG + 3)
+            .setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
+    }
+
+    // AK-AN: destacar SKUs afetados SOMENTE quando há falta (AI < 0)
+    for (let k = 0; k < 4; k++) {
+      const cell = abaRep.getRange(ln, COL_AG + 4 + k);
+      if (comp[4 + k]) {
+        // SKU com destaque laranja — indica produto impactado pela falta
+        cell.setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
+      } else {
+        cell.setBackground(null).setFontColor(null).setFontWeight(null);
+      }
+    }
+  });
+
+  // Manter cabeçalho da seção de componentes (linha 2)
+  abaRep.getRange(2, COL_AG, 1, 8)
+        .setBackground('#c62828').setFontColor('#ffffff')
+        .setFontWeight('bold').setHorizontalAlignment('center');
+}
+
+// ============================================================
 // ESCREVER ABA REPOSIÇÃO FULL
 // Layout: 40 colunas (A=1 … AN=40)
 //
@@ -747,54 +910,57 @@ function _rpCarregarBL() {
 // X-Z  (24-26): Vendas 0-30, 30-60, 60-90
 // AA   (27):    Sugestão reposição (cálculo ponderado)
 // AB   (28):    Override manual
-// AC   (29):    Reposição final — fórmula =IF(AB<>"",AB,AA)
+// AC   (29):    Reposição final — fórmula R1C1 relativa
 // AD   (30):    Estoque BaseLinker
-// AE   (31):    Saldo — fórmula =MAX(0,AD-AC)
+// AE   (31):    Saldo — fórmula R1C1 relativa
 // AF   (32):    Coluna separadora (vazia)
 // AG   (33):    SKU simples (desmembrado)
-// AH   (34):    Qtd. total necessária
-// AI   (35):    BL − Necessário (fórmula)
+// AH   (34):    Qtd. total necessária (dinâmico via onEdit)
+// AI   (35):    BL − Necessário
 // AJ   (36):    Alerta (vermelho se falta)
-// AK-AN(37-40): Produtos afetados pela falta
+// AK-AN(37-40): SKUs afetados (somente quando AI < 0)
 // ============================================================
 function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
-  const { mapaTipo, mapaEstoque, mapaComponentes } = blData;
+  const { mapaEstoque, mapaComponentes } = blData;
   const NCOLS = 40;
-  const PRIMA = 3; // dados começam na linha 3
+  const PRIMA = 3;
 
-  // ── Preservar overrides manuais (AB) de runs anteriores ──
+  // ── Salvar dados auxiliares para o onEdit ─────────────────
+  _rpSalvarDadosAuxiliares(ss, mapaComponentes, mapaEstoque);
+
+  // ── Preservar overrides manuais (AB) ──────────────────────
   const mapaOverride = {};
   const abaExist     = ss.getSheetByName(ABA_REPOSICAO);
   if (abaExist) {
     const dadosAtual = abaExist.getDataRange().getValues();
     for (let i = PRIMA - 1; i < dadosAtual.length; i++) {
-      const invId = String(dadosAtual[i][3] || '').trim(); // col D
-      const conta = String(dadosAtual[i][2] || '').trim(); // col C
-      const abVal = dadosAtual[i][27];                     // col AB (índice 27)
+      const invId = String(dadosAtual[i][3] || '').trim();
+      const conta = String(dadosAtual[i][2] || '').trim();
+      const abVal = dadosAtual[i][27];
       if (invId && conta && abVal !== '' && abVal !== null && abVal !== undefined) {
         mapaOverride[invId + '|' + conta] = abVal;
       }
     }
   }
 
-  // ── Montar itens (mesma lógica ABC 2) ────────────────────
+  // ── Montar itens (mesma lógica ABC 2) ─────────────────────
   const itens = [];
   for (let i = 1; i < dadosML.length; i++) {
-    const l = dadosML[i];
+    const l           = dadosML[i];
     const inventoryId = String(l[1] || '').trim();
     if (!inventoryId || inventoryId.length < 4) continue;
     itens.push({
-      conta:        String(l[0] || '').trim(),
+      conta:       String(l[0]  || '').trim(),
       inventoryId,
-      sku:          String(l[2] || '').trim(),
-      produto:      String(l[3] || '').trim(),
-      variacao:     String(l[4] || '').trim(),
-      faturamento:  parseFloat(l[5]) || 0,
-      unidVend:     parseInt(l[6]) || 0,
-      estoqueApto:  parseInt(l[7]) || 0,
-      estoqueCam:   parseInt(l[8]) || 0,
-      nivel:        String(l[9] || '').trim(),
-      anuncioId:    String(l[12] || '').trim(), // # Anúncio (índice 12)
+      sku:         String(l[2]  || '').trim(),
+      produto:     String(l[3]  || '').trim(),
+      variacao:    String(l[4]  || '').trim(),
+      faturamento: parseFloat(l[5]) || 0,
+      unidVend:    parseInt(l[6])   || 0,
+      estoqueApto: parseInt(l[7])   || 0,
+      estoqueCam:  parseInt(l[8])   || 0,
+      nivel:       String(l[9]  || '').trim(),
+      anuncioId:   String(l[12] || '').trim(),
     });
   }
 
@@ -803,78 +969,36 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   let   fatAcum  = 0;
 
   const linhasMain = [];
-
   itens.forEach((item, idx) => {
     fatAcum += item.faturamento;
     const percAcum = fatTotal > 0 ? (fatAcum / fatTotal) * 100 : 0;
     const curva    = percAcum <= 80 ? 'A' : percAcum <= 95 ? 'B' : 'C';
+    const tm       = item.unidVend > 0 ? item.faturamento / item.unidVend : 0;
+    const estTotal = item.estoqueApto + item.estoqueCam;
+    const recML    = Math.max(0, item.unidVend - estTotal);
 
-    const tm         = item.unidVend > 0 ? item.faturamento / item.unidVend : 0;
-    const estTotal   = item.estoqueApto + item.estoqueCam;
-    const recML      = Math.max(0, item.unidVend - estTotal);
+    const ge     = (geData[item.sku] && geData[item.sku][item.conta]) || null;
+    const semanas = ge ? ge.semanas : [0,0,0,0,0,0,0];
+    const con030  = ge ? ge.cons['0-30']  : 0;
+    const con3060 = ge ? ge.cons['30-60'] : 0;
+    const con6090 = ge ? ge.cons['60-90'] : 0;
 
-    const ge         = geData[item.sku] && geData[item.sku][item.conta] || null;
-    const semanas    = ge ? ge.semanas : [0,0,0,0,0,0,0];
-    const con030     = ge ? ge.cons['0-30']  : 0;
-    const con3060    = ge ? ge.cons['30-60'] : 0;
-    const con6090    = ge ? ge.cons['60-90'] : 0;
-
-    // Taxa diária ponderada
     let taxa = 0;
     RP_PESOS.forEach((p, i) => { taxa += (semanas[i] / p.dias) * p.peso; });
     const sugestao = Math.round(taxa * (diasPorCurva[curva] || 30));
-
-    const estBL = mapaEstoque[item.sku] !== undefined ? mapaEstoque[item.sku] : 0;
+    const estBL    = mapaEstoque[item.sku] !== undefined ? mapaEstoque[item.sku] : 0;
 
     linhasMain.push({
-      // A-O
       ranking: idx + 1, curva, conta: item.conta,
       inventoryId: item.inventoryId, sku: item.sku,
       produto: item.produto + (item.variacao && item.variacao !== 'N/A' && item.variacao !== '-' ? ' - ' + item.variacao : ''),
       faturamento: item.faturamento, percAcum: percAcum.toFixed(1) + '%',
-      unidVend: item.unidVend, tm,
-      estoqueApto: item.estoqueApto, estoqueCam: item.estoqueCam, estTotal,
-      nivel: item.nivel, recML,
-      // P, Q-W, X-Z
+      unidVend: item.unidVend, tm, estoqueApto: item.estoqueApto,
+      estoqueCam: item.estoqueCam, estTotal, nivel: item.nivel, recML,
       anuncioId: item.anuncioId, semanas, con030, con3060, con6090,
-      // AA, AD
       sugestao, estBL,
     });
   });
-
-  // ── Tabela de componentes (AG-AN) ─────────────────────────
-  // Usa AC = override se existir, senão sugestao
-  const skuNec = {}; // skuSimples → { qtd, afetados:Set }
-
-  linhasMain.forEach(r => {
-    const key       = r.inventoryId + '|' + r.conta;
-    const override  = mapaOverride[key];
-    const reposicao = (override !== undefined && override !== '') ? Number(override) : r.sugestao;
-    if (reposicao <= 0) return;
-
-    const sku = r.sku;
-    if (mapaComponentes[sku]) {
-      mapaComponentes[sku].forEach(comp => {
-        if (!skuNec[comp.codEst]) skuNec[comp.codEst] = { qtd: 0, afetados: new Set() };
-        skuNec[comp.codEst].qtd += reposicao * comp.qtde;
-        skuNec[comp.codEst].afetados.add(sku);
-      });
-    } else {
-      if (!skuNec[sku]) skuNec[sku] = { qtd: 0, afetados: new Set() };
-      skuNec[sku].qtd += reposicao;
-    }
-  });
-
-  const linhasComp = Object.entries(skuNec)
-    .sort((a, b) => b[1].qtd - a[1].qtd)
-    .map(([skuS, data]) => {
-      const qtdNec  = Math.ceil(data.qtd);
-      const estB    = mapaEstoque[skuS] !== undefined ? mapaEstoque[skuS] : 0;
-      const saldo   = estB - qtdNec;
-      const alerta  = saldo < 0 ? 'Falta: ' + Math.abs(saldo) : '';
-      const af      = Array.from(data.afetados).slice(0, 4);
-      return [ skuS, qtdNec, saldo, alerta, af[0]||'', af[1]||'', af[2]||'', af[3]||'' ];
-    });
 
   // ── Criar/limpar aba ──────────────────────────────────────
   let aba = ss.getSheetByName(ABA_REPOSICAO);
@@ -914,37 +1038,37 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   aba.getRange(2, 1, 1, NCOLS).setValues([h2]);
 
   // Merges linha 1
-  aba.getRange(1, 1,  1, 15).merge(); // A-O
+  aba.getRange(1,  1, 1, 15).merge(); // A-O
   aba.getRange(1, 17, 1,  7).merge(); // Q-W
   aba.getRange(1, 24, 1,  3).merge(); // X-Z
   aba.getRange(1, 27, 1,  3).merge(); // AA-AC
   aba.getRange(1, 30, 1,  2).merge(); // AD-AE
   aba.getRange(1, 33, 1,  8).merge(); // AG-AN
 
-  // Cores dos headers linha 1
+  // Cores headers linha 1
   const secoes = [
-    [1,  15, '#1a73e8'], // Curva ABC
-    [16,  1, '#5f6368'], // Anúncio
-    [17,  7, '#0f9d58'], // Vendas Semanais
-    [24,  3, '#137333'], // Vendas Período
-    [27,  3, '#e37400'], // Reposição
-    [30,  2, '#7b1fa2'], // Estoque
-    [32,  1, '#ffffff'], // Separador
-    [33,  8, '#b71c1c'], // Componentes
+    [1,  15, '#1a73e8'],
+    [16,  1, '#5f6368'],
+    [17,  7, '#0f9d58'],
+    [24,  3, '#137333'],
+    [27,  3, '#e37400'],
+    [30,  2, '#7b1fa2'],
+    [32,  1, '#eceff1'],
+    [33,  8, '#b71c1c'],
   ];
   secoes.forEach(([col, qtd, bg]) => {
-    const fg = bg === '#ffffff' ? '#ffffff' : '#ffffff';
     aba.getRange(1, col, 1, qtd)
-       .setBackground(bg).setFontColor(fg)
-       .setFontWeight('bold').setHorizontalAlignment('center');
+       .setBackground(bg)
+       .setFontColor(bg === '#eceff1' ? '#eceff1' : '#ffffff')
+       .setFontWeight('bold')
+       .setHorizontalAlignment('center');
   });
 
   // Header linha 2
   aba.getRange(2, 1, 1, NCOLS)
      .setBackground('#eceff1').setFontWeight('bold')
      .setHorizontalAlignment('center')
-     .setBorder(true, true, true, true, true, true, '#90a4ae',
-                SpreadsheetApp.BorderStyle.SOLID);
+     .setBorder(true, true, true, true, true, true, '#90a4ae', SpreadsheetApp.BorderStyle.SOLID);
 
   if (linhasMain.length === 0) { SpreadsheetApp.flush(); return; }
 
@@ -971,35 +1095,34 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
     row[23] = r.con030;
     row[24] = r.con3060;
     row[25] = r.con6090;
-    row[26] = r.sugestao;   // AA
-    row[27] = '';            // AB (override manual — preenchido depois)
-    // row[28] AC = fórmula
-    row[29] = r.estBL;       // AD
-    // row[30] AE = fórmula
+    row[26] = r.sugestao; // AA
+    // row[27] AB = override — preenchido depois
+    // row[28] AC = fórmula R1C1
+    row[29] = r.estBL;   // AD
+    // row[30] AE = fórmula R1C1
     return row;
   });
 
   aba.getRange(PRIMA, 1, rows.length, NCOLS).setValues(rows);
 
-  // Restaurar overrides e escrever fórmulas AC + AE em batch
-  const formulasAC = [];
-  const formulasAE = [];
+  // ── Restaurar overrides (AB) ──────────────────────────────
   for (let i = 0; i < linhasMain.length; i++) {
-    const ln  = PRIMA + i;
     const key = linhasMain[i].inventoryId + '|' + linhasMain[i].conta;
     if (mapaOverride[key] !== undefined && mapaOverride[key] !== '') {
-      aba.getRange(ln, 28).setValue(mapaOverride[key]);
+      aba.getRange(PRIMA + i, 28).setValue(mapaOverride[key]);
     }
-    formulasAC.push([`=IF(ISNUMBER(AB${ln}),AB${ln},AA${ln})`]);
-    formulasAE.push([`=MAX(0,AD${ln}-AC${ln})`]);
-  }
-  if (formulasAC.length > 0) {
-    aba.getRange(PRIMA, 29, formulasAC.length, 1).setFormulas(formulasAC); // AC
-    aba.getRange(PRIMA, 31, formulasAE.length, 1).setFormulas(formulasAE); // AE
   }
 
+  // ── Fórmulas AC e AE com R1C1 relativo ───────────────────
+  // AC (col 29): RC[-1]=AB, RC[-2]=AA
+  aba.getRange(PRIMA, 29, linhasMain.length, 1)
+     .setFormulaR1C1('=IF(ISNUMBER(RC[-1]),RC[-1],RC[-2])');
+  // AE (col 31): RC[-1]=AD, RC[-2]=AC
+  aba.getRange(PRIMA, 31, linhasMain.length, 1)
+     .setFormulaR1C1('=MAX(0,RC[-1]-RC[-2])');
+
   // ── Formatação das linhas de dados ───────────────────────
-  const COR_CURVA = { A: '#e8f5e9', B: '#fffde7', C: '#fce4ec' };
+  const COR_CURVA  = { A: '#e8f5e9', B: '#fffde7', C: '#fce4ec' };
   const grupoCurva = { A: [], B: [], C: [] };
   linhasMain.forEach((r, i) => { grupoCurva[r.curva].push(PRIMA + i); });
 
@@ -1009,23 +1132,21 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
     });
   });
 
-  // Faixas com cores de seção
-  aba.getRange(PRIMA, 16, rows.length, 1).setBackground('#f5f5f5');          // P: Anúncio
-  aba.getRange(PRIMA, 17, rows.length, 10).setBackground('#f1f8e9');          // Q-Z: Vendas GE
-  aba.getRange(PRIMA, 27, rows.length, 1).setBackground('#fff8e1');           // AA: Sugestão
-  aba.getRange(PRIMA, 28, rows.length, 1).setBackground('#fff3e0');           // AB: Override
-  aba.getRange(PRIMA, 29, rows.length, 1).setBackground('#ffe0b2').setFontWeight('bold'); // AC: Final
-  aba.getRange(PRIMA, 30, rows.length, 1).setBackground('#f3e5f5');           // AD: BL
-  aba.getRange(PRIMA, 31, rows.length, 1).setBackground('#ede7f6');           // AE: Saldo
+  aba.getRange(PRIMA, 16, rows.length,  1).setBackground('#f5f5f5');           // P
+  aba.getRange(PRIMA, 17, rows.length, 10).setBackground('#f1f8e9');            // Q-Z
+  aba.getRange(PRIMA, 27, rows.length,  1).setBackground('#fff8e1');            // AA
+  aba.getRange(PRIMA, 28, rows.length,  1).setBackground('#fff3e0');            // AB
+  aba.getRange(PRIMA, 29, rows.length,  1).setBackground('#ffe0b2').setFontWeight('bold'); // AC
+  aba.getRange(PRIMA, 30, rows.length,  1).setBackground('#f3e5f5');            // AD
+  aba.getRange(PRIMA, 31, rows.length,  1).setBackground('#ede7f6');            // AE
 
-  // Formatos numéricos
-  aba.getRange(PRIMA, 4,  rows.length, 2).setNumberFormat('@');               // Inventory ID + SKU
-  aba.getRange(PRIMA, 7,  rows.length, 1).setNumberFormat('R$ #,##0.00');     // Faturamento
-  aba.getRange(PRIMA, 10, rows.length, 1).setNumberFormat('R$ #,##0.00');     // Ticket Médio
-  aba.getRange(PRIMA, 30, rows.length, 1).setNumberFormat('#,##0');           // BL
-  aba.getRange(PRIMA, 31, rows.length, 1).setNumberFormat('#,##0');           // Saldo
+  aba.getRange(PRIMA, 4,  rows.length, 2).setNumberFormat('@');                 // Inventory ID + SKU
+  aba.getRange(PRIMA, 7,  rows.length, 1).setNumberFormat('R$ #,##0.00');       // Faturamento
+  aba.getRange(PRIMA, 10, rows.length, 1).setNumberFormat('R$ #,##0.00');       // Ticket Médio
+  aba.getRange(PRIMA, 30, rows.length, 1).setNumberFormat('#,##0');             // BL
+  aba.getRange(PRIMA, 31, rows.length, 1).setNumberFormat('#,##0');             // Saldo
 
-  // Destacar AE = 0 quando AC > 0 (estoque não cobre reposição)
+  // Destacar AE vermelho quando BL=0 e sugestão>0
   const semEstoqueCells = [];
   linhasMain.forEach((r, i) => {
     if (r.estBL === 0 && r.sugestao > 0) {
@@ -1034,38 +1155,10 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   });
   if (semEstoqueCells.length) aba.getRangeList(semEstoqueCells).setBackground('#ef9a9a');
 
-  // Congelar apenas as 2 linhas de header (não congelar colunas para evitar
-  // conflito com a célula mesclada A-O da linha 1)
   aba.setFrozenRows(2);
 
-  // ── Tabela de componentes (AG-AN) ─────────────────────────
-  const COL_AG = 33;
-
-  if (linhasComp.length > 0) {
-    aba.getRange(PRIMA, COL_AG, linhasComp.length, 8).setValues(linhasComp);
-    aba.getRange(PRIMA, COL_AG, linhasComp.length, 1).setNumberFormat('@');     // SKU texto
-    aba.getRange(PRIMA, COL_AG + 4, linhasComp.length, 4).setNumberFormat('@'); // Afetados texto
-
-    linhasComp.forEach((comp, i) => {
-      const ln     = PRIMA + i;
-      const alerta = comp[3];
-      const bg     = alerta ? '#ffcdd2' : '#e8f5e9';
-      aba.getRange(ln, COL_AG, 1, 8).setBackground(bg);
-      if (alerta) {
-        aba.getRange(ln, COL_AG + 3, 1, 1)
-           .setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
-      }
-    });
-
-    // Fórmula dinâmica para AI (coluna 35) = BL daquele SKU simples - AH
-    // Já escrevemos o valor calculado em linhasComp[2] (AI = saldo)
-    // mas se quiser formula: aba.getRange(PRIMA+i, 35).setFormula(...)
-  }
-
-  // Header da tabela componentes (linha 2, colunas AG-AN)
-  aba.getRange(2, COL_AG, 1, 8)
-     .setBackground('#c62828').setFontColor('#ffffff')
-     .setFontWeight('bold').setHorizontalAlignment('center');
+  // ── Tabela de componentes (AG-AN) — dinâmica ─────────────
+  _rpAtualizarComponentes(ss);
 
   aba.autoResizeColumns(1, NCOLS);
   SpreadsheetApp.flush();
