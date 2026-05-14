@@ -62,12 +62,26 @@ function onOpen() {
 }
 
 // ============================================================
-// GATILHO: atualiza tabela de componentes quando AB é editado
+// GATILHO: quando AB é editado, recalcula AC, AE e tabela de componentes
 // ============================================================
 function onEdit(e) {
   try {
-    if (e.range.getSheet().getName() !== ABA_REPOSICAO) return;
+    const sheet = e.range.getSheet();
+    if (sheet.getName() !== ABA_REPOSICAO) return;
     if (e.range.getColumn() !== 28) return; // somente coluna AB
+    const row = e.range.getRow();
+    if (row < 3) return;
+
+    // Recalcular AC = AB se número, senão AA
+    const aa  = Number(sheet.getRange(row, 27).getValue()) || 0;
+    const abv = e.range.getValue();
+    const ac  = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
+    const ad  = Number(sheet.getRange(row, 30).getValue()) || 0;
+    const ae  = Math.max(0, ad - ac);
+
+    sheet.getRange(row, 29).setValue(ac); // AC
+    sheet.getRange(row, 31).setValue(ae); // AE
+
     _rpAtualizarComponentes(SpreadsheetApp.getActiveSpreadsheet());
   } catch(err) {
     Logger.log('onEdit error: ' + err);
@@ -810,21 +824,18 @@ function _rpAtualizarComponentes(ss) {
     }
   }
 
-  // Ler tabela principal: colunas A(1) a AB(28)
+  // Ler tabela principal: colunas A(1) a AC(29)
   const PRIMA   = 3;
   const lastRow = abaRep.getLastRow();
   if (lastRow < PRIMA) return;
   const nRows    = lastRow - PRIMA + 1;
-  const mainData = abaRep.getRange(PRIMA, 1, nRows, 28).getValues();
+  const mainData = abaRep.getRange(PRIMA, 1, nRows, 29).getValues();
 
-  // Calcular necessidade por SKU simples
-  // AC efetivo = AB se for número, caso contrário AA
+  // Usar AC diretamente (col 29, idx 28) — já calculado como valor
   const skuNec = {};
   mainData.forEach(row => {
     const sku = String(row[4]  || '').trim(); // col E (idx 4)
-    const aa  = Number(row[26] || 0);          // col AA (idx 26)
-    const abv = row[27];                        // col AB (idx 27)
-    const ac  = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
+    const ac  = Number(row[28] || 0);          // col AC (idx 28)
     if (!sku || ac <= 0) return;
 
     if (mapaComponentes[sku]) {
@@ -1072,8 +1083,14 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
 
   if (linhasMain.length === 0) { SpreadsheetApp.flush(); return; }
 
-  // ── Montar e escrever linhas ──────────────────────────────
+  // ── Montar e escrever linhas (AC e AE calculados como valores) ──
   const rows = linhasMain.map(r => {
+    const key   = r.inventoryId + '|' + r.conta;
+    const ovrd  = mapaOverride[key];
+    const abVal = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : '';
+    const acVal = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : r.sugestao;
+    const aeVal = Math.max(0, r.estBL - acVal);
+
     const row = new Array(NCOLS).fill('');
     row[0]  = r.ranking;
     row[1]  = r.curva;
@@ -1096,30 +1113,14 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
     row[24] = r.con3060;
     row[25] = r.con6090;
     row[26] = r.sugestao; // AA
-    // row[27] AB = override — preenchido depois
-    // row[28] AC = fórmula R1C1
-    row[29] = r.estBL;   // AD
-    // row[30] AE = fórmula R1C1
+    row[27] = abVal;       // AB (override ou vazio)
+    row[28] = acVal;       // AC = override se existe, senão sugestao
+    row[29] = r.estBL;    // AD
+    row[30] = aeVal;       // AE = MAX(0, AD - AC)
     return row;
   });
 
   aba.getRange(PRIMA, 1, rows.length, NCOLS).setValues(rows);
-
-  // ── Restaurar overrides (AB) ──────────────────────────────
-  for (let i = 0; i < linhasMain.length; i++) {
-    const key = linhasMain[i].inventoryId + '|' + linhasMain[i].conta;
-    if (mapaOverride[key] !== undefined && mapaOverride[key] !== '') {
-      aba.getRange(PRIMA + i, 28).setValue(mapaOverride[key]);
-    }
-  }
-
-  // ── Fórmulas AC e AE com R1C1 relativo ───────────────────
-  // AC (col 29): RC[-1]=AB, RC[-2]=AA
-  aba.getRange(PRIMA, 29, linhasMain.length, 1)
-     .setFormulaR1C1('=IF(ISNUMBER(RC[-1]),RC[-1],RC[-2])');
-  // AE (col 31): RC[-1]=AD, RC[-2]=AC
-  aba.getRange(PRIMA, 31, linhasMain.length, 1)
-     .setFormulaR1C1('=MAX(0,RC[-1]-RC[-2])');
 
   // ── Formatação das linhas de dados ───────────────────────
   const COR_CURVA  = { A: '#e8f5e9', B: '#fffde7', C: '#fce4ec' };
