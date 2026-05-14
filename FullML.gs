@@ -981,15 +981,21 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
 
   aba.getRange(PRIMA, 1, rows.length, NCOLS).setValues(rows);
 
-  // Restaurar overrides e escrever fórmulas AC + AE
+  // Restaurar overrides e escrever fórmulas AC + AE em batch
+  const formulasAC = [];
+  const formulasAE = [];
   for (let i = 0; i < linhasMain.length; i++) {
     const ln  = PRIMA + i;
     const key = linhasMain[i].inventoryId + '|' + linhasMain[i].conta;
     if (mapaOverride[key] !== undefined && mapaOverride[key] !== '') {
       aba.getRange(ln, 28).setValue(mapaOverride[key]);
     }
-    aba.getRange(ln, 29).setFormula(`=IF(AB${ln}<>"",VALUE(AB${ln}),AA${ln})`); // AC
-    aba.getRange(ln, 31).setFormula(`=MAX(0,AD${ln}-AC${ln})`);                  // AE
+    formulasAC.push([`=IF(ISNUMBER(AB${ln}),AB${ln},AA${ln})`]);
+    formulasAE.push([`=MAX(0,AD${ln}-AC${ln})`]);
+  }
+  if (formulasAC.length > 0) {
+    aba.getRange(PRIMA, 29, formulasAC.length, 1).setFormulas(formulasAC); // AC
+    aba.getRange(PRIMA, 31, formulasAE.length, 1).setFormulas(formulasAE); // AE
   }
 
   // ── Formatação das linhas de dados ───────────────────────
@@ -1028,9 +1034,9 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   });
   if (semEstoqueCells.length) aba.getRangeList(semEstoqueCells).setBackground('#ef9a9a');
 
-  // Congelar cabeçalhos e colunas iniciais
+  // Congelar apenas as 2 linhas de header (não congelar colunas para evitar
+  // conflito com a célula mesclada A-O da linha 1)
   aba.setFrozenRows(2);
-  aba.setFrozenColumns(5);
 
   // ── Tabela de componentes (AG-AN) ─────────────────────────
   const COL_AG = 33;
