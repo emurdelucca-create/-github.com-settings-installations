@@ -892,8 +892,8 @@ function _rpAtualizarComponentes(ss) {
       const saldo     = estB - qtdNec;
       const contagem  = skuContagemSimples[skuS] || 0;
       const alerta    = saldo < 0 ? 'Falta: ' + Math.abs(saldo) : '';
-      // Afetados: somente quando saldo < 0
-      const af = saldo < 0 ? Array.from(data.afetados).slice(0, 4) : [];
+      // Afetados: sempre mostrar (independente de ter estoque ou não)
+      const af = Array.from(data.afetados).slice(0, 4);
       return [
         skuS, qtdNec, saldo, contagem, alerta,
         af[0]||'', af[0] ? (skuContagem[af[0]] || 0) : '',
@@ -969,16 +969,24 @@ function _rpAtualizarComponentes(ss) {
              .setBackground('#e8f5e9').setFontColor('#000000').setFontWeight('normal');
     }
 
-    // Cols 6-13: pares [Afetado | QtdAC] — somente quando há falta
+    // Cols 6-13: pares [Afetado | QtdAC] — sempre visíveis
+    // Verde quando tem estoque, laranja quando falta
     for (let k = 0; k < 4; k++) {
       const colSku   = 6 + k * 2;  // 6, 8, 10, 12
       const colCount = 7 + k * 2;  // 7, 9, 11, 13
       const skuAfet  = comp[5 + k * 2];
       if (skuAfet) {
-        abaComp.getRange(ln, colSku)
-               .setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
-        abaComp.getRange(ln, colCount)
-               .setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
+        if (temFalta) {
+          abaComp.getRange(ln, colSku)
+                 .setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
+          abaComp.getRange(ln, colCount)
+                 .setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
+        } else {
+          abaComp.getRange(ln, colSku)
+                 .setBackground('#a5d6a7').setFontColor('#1b5e20').setFontWeight('bold');
+          abaComp.getRange(ln, colCount)
+                 .setBackground('#c8e6c9').setFontColor('#1b5e20').setFontWeight('normal');
+        }
       } else {
         abaComp.getRange(ln, colSku)
                .setBackground(null).setFontColor(null).setFontWeight(null);
