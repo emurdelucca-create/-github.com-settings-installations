@@ -2,10 +2,11 @@
 // FULL ML — v3 (Reposição Full com tabela de componentes dinâmica)
 // ============================================================
 
-const ABA_DADOS      = 'Full ML';
-const ABA_UPLOAD     = 'Uploads';
-const ABA_REPOSICAO  = 'Reposição Full';
-const ABA_RP_DATA    = '_RP_Data'; // aba auxiliar oculta para dados do onEdit
+const ABA_DADOS        = 'Full ML';
+const ABA_UPLOAD       = 'Uploads';
+const ABA_REPOSICAO    = 'Reposição Full';
+const ABA_COMPONENTES  = 'Componentes Full';
+const ABA_RP_DATA      = '_RP_Data'; // aba auxiliar oculta para dados do onEdit
 
 // # Anúncio adicionado ao final (índice 12) para não quebrar
 // código existente que lê colunas por índice 0-11
@@ -793,15 +794,18 @@ function _rpSalvarDadosAuxiliares(ss, mapaComponentes, mapaEstoque) {
 }
 
 // ============================================================
-// ATUALIZAR TABELA DE COMPONENTES (AG-AN)
+// ATUALIZAR ABA "Componentes Full"
 // Chamado por gerarReposicaoFull e pelo onEdit (coluna AB)
+// Colunas: SKU Simples | Qtd. Necessária | BL−Necessário | Contagem SKU |
+//          Alerta | Afetado1 | QtdAC1 | Afetado2 | QtdAC2 |
+//          Afetado3 | QtdAC3 | Afetado4 | QtdAC4
 // ============================================================
 function _rpAtualizarComponentes(ss) {
   const abaRep  = ss.getSheetByName(ABA_REPOSICAO);
   const abaData = ss.getSheetByName(ABA_RP_DATA);
   if (!abaRep || !abaData) return;
 
-  // Ler mapa de componentes e estoque BL da aba auxiliar
+  // ── Ler mapa de componentes e estoque BL da aba auxiliar ──
   const rawData         = abaData.getDataRange().getValues();
   const mapaComponentes = {};
   const mapaEstoqueBL   = {};
@@ -826,25 +830,44 @@ function _rpAtualizarComponentes(ss) {
     }
   }
 
-  // Ler tabela principal: colunas A(1) a AC(29)
+  // ── Ler tabela principal (Reposição Full): col A-AC ───────
   const PRIMA   = 3;
   const lastRow = abaRep.getLastRow();
   if (lastRow < PRIMA) return;
   const nRows    = lastRow - PRIMA + 1;
   const mainData = abaRep.getRange(PRIMA, 1, nRows, 29).getValues();
 
-  // Usar AC diretamente (col 29, idx 28) — já calculado como valor
-  const skuNec      = {};
-  const skuContagem = {}; // SKU → quantas linhas têm AC > 0
-
+  // Contagem por SKU: quantas linhas da Reposição Full têm AC > 0
+  const skuContagem = {}; // SKU → count (inclui PAI e Simples)
   mainData.forEach(row => {
-    const sku = String(row[4]  || '').trim(); // col E (idx 4)
-    const ac  = Number(row[28] || 0);          // col AC (idx 28)
+    const sku = String(row[4]  || '').trim();
+    const ac  = Number(row[28] || 0);
+    if (sku && ac > 0) skuContagem[sku] = (skuContagem[sku] || 0) + 1;
+  });
+
+  // Contagem por SKU simples (componente): soma das linhas dos PAIs que o usam
+  const skuContagemSimples = {};
+  mainData.forEach(row => {
+    const sku = String(row[4]  || '').trim();
+    const ac  = Number(row[28] || 0);
     if (!sku || ac <= 0) return;
+    if (mapaComponentes[sku]) {
+      // Produto composto: incrementa contagem para cada um de seus componentes
+      mapaComponentes[sku].forEach(c => {
+        skuContagemSimples[c.codEst] = (skuContagemSimples[c.codEst] || 0) + 1;
+      });
+    } else {
+      // Produto simples: incrementa a si mesmo
+      skuContagemSimples[sku] = (skuContagemSimples[sku] || 0) + 1;
+    }
+  });
 
-    // Contagem: quantas linhas do produto afetado têm AC > 0
-    skuContagem[sku] = (skuContagem[sku] || 0) + 1;
-
+  // ── Calcular necessidade por SKU simples ──────────────────
+  const skuNec = {};
+  mainData.forEach(row => {
+    const sku = String(row[4]  || '').trim();
+    const ac  = Number(row[28] || 0);
+    if (!sku || ac <= 0) return;
     if (mapaComponentes[sku]) {
       mapaComponentes[sku].forEach(c => {
         if (!skuNec[c.codEst]) skuNec[c.codEst] = { qtd: 0, afetados: new Set() };
@@ -857,19 +880,22 @@ function _rpAtualizarComponentes(ss) {
     }
   });
 
-  // Montar linhas da tabela de componentes (12 colunas: AG-AR)
-  // AK-AR intercalados: [Afetado1, Qtd1, Afetado2, Qtd2, Afetado3, Qtd3, Afetado4, Qtd4]
+  // ── Montar linhas (13 colunas) ────────────────────────────
+  // SKU Simples | Qtd. Nec. | BL−Nec. | Contagem SKU | Alerta |
+  // Af1 | QtdAC1 | Af2 | QtdAC2 | Af3 | QtdAC3 | Af4 | QtdAC4
+  const NCOLS_COMP = 13;
   const linhasComp = Object.entries(skuNec)
     .sort((a, b) => b[1].qtd - a[1].qtd)
     .map(([skuS, data]) => {
-      const qtdNec = Math.ceil(data.qtd);
-      const estB   = mapaEstoqueBL[skuS] !== undefined ? mapaEstoqueBL[skuS] : 0;
-      const saldo  = estB - qtdNec;
-      const alerta = saldo < 0 ? 'Falta: ' + Math.abs(saldo) : '';
-      // Afetados: mostrar SOMENTE quando AI < 0 (falta estoque)
+      const qtdNec    = Math.ceil(data.qtd);
+      const estB      = mapaEstoqueBL[skuS] !== undefined ? mapaEstoqueBL[skuS] : 0;
+      const saldo     = estB - qtdNec;
+      const contagem  = skuContagemSimples[skuS] || 0;
+      const alerta    = saldo < 0 ? 'Falta: ' + Math.abs(saldo) : '';
+      // Afetados: somente quando saldo < 0
       const af = saldo < 0 ? Array.from(data.afetados).slice(0, 4) : [];
       return [
-        skuS, qtdNec, saldo, alerta,
+        skuS, qtdNec, saldo, contagem, alerta,
         af[0]||'', af[0] ? (skuContagem[af[0]] || 0) : '',
         af[1]||'', af[1] ? (skuContagem[af[1]] || 0) : '',
         af[2]||'', af[2] ? (skuContagem[af[2]] || 0) : '',
@@ -877,62 +903,93 @@ function _rpAtualizarComponentes(ss) {
       ];
     });
 
-  const COL_AG = 33;
-  const NCOLS_COMP = 12;
-  const clearN = Math.max(linhasComp.length + 5, nRows + 5);
+  // ── Criar/limpar aba Componentes Full ─────────────────────
+  let abaComp = ss.getSheetByName(ABA_COMPONENTES);
+  if (!abaComp) {
+    abaComp = ss.insertSheet(ABA_COMPONENTES);
+  } else {
+    abaComp.getRange(1, 1, abaComp.getMaxRows(), abaComp.getMaxColumns())
+           .breakApart().clearContent().clearFormat();
+  }
 
-  // Limpar tabela anterior
-  abaRep.getRange(PRIMA, COL_AG, clearN, NCOLS_COMP).clearContent().clearFormat();
+  // ── Header linha 1 (seção) ────────────────────────────────
+  const h1Comp = new Array(NCOLS_COMP).fill('');
+  h1Comp[0] = 'Análise de Componentes (Desmembrado)';
+  abaComp.getRange(1, 1, 1, NCOLS_COMP).setValues([h1Comp]);
+  abaComp.getRange(1, 1, 1, NCOLS_COMP).merge()
+         .setBackground('#b71c1c').setFontColor('#ffffff')
+         .setFontWeight('bold').setHorizontalAlignment('center');
 
-  if (linhasComp.length === 0) return;
+  // ── Header linha 2 (colunas) ──────────────────────────────
+  const h2Comp = [
+    'SKU Simples','Qtd. Necessária','BL − Necessário','Contagem SKU','Alerta',
+    'Afetado 1','Qtd. AC 1',
+    'Afetado 2','Qtd. AC 2',
+    'Afetado 3','Qtd. AC 3',
+    'Afetado 4','Qtd. AC 4',
+  ];
+  abaComp.getRange(2, 1, 1, NCOLS_COMP).setValues([h2Comp])
+         .setBackground('#c62828').setFontColor('#ffffff')
+         .setFontWeight('bold').setHorizontalAlignment('center');
 
-  // Escrever dados
-  abaRep.getRange(PRIMA, COL_AG, linhasComp.length, NCOLS_COMP).setValues(linhasComp);
-  abaRep.getRange(PRIMA, COL_AG, linhasComp.length, 1).setNumberFormat('@'); // AG: SKU texto
-  // AK,AM,AO,AQ (idx +4,+6,+8,+10): SKU texto
-  [4, 6, 8, 10].forEach(offset => {
-    abaRep.getRange(PRIMA, COL_AG + offset, linhasComp.length, 1).setNumberFormat('@');
+  abaComp.setFrozenRows(2);
+
+  if (linhasComp.length === 0) { SpreadsheetApp.flush(); return; }
+
+  // ── Escrever dados ────────────────────────────────────────
+  const DATA_ROW = 3;
+  abaComp.getRange(DATA_ROW, 1, linhasComp.length, NCOLS_COMP).setValues(linhasComp);
+
+  // Formato texto para colunas de SKU
+  abaComp.getRange(DATA_ROW, 1, linhasComp.length, 1).setNumberFormat('@'); // SKU Simples
+  [5, 7, 9, 11].forEach(col => {                                             // Afetados 1-4
+    abaComp.getRange(DATA_ROW, col, linhasComp.length, 1).setNumberFormat('@');
   });
 
-  // Formatar linha a linha
+  // ── Formatar linha a linha ────────────────────────────────
   linhasComp.forEach((comp, i) => {
-    const ln       = PRIMA + i;
-    const temFalta = comp[3] !== '';
+    const ln       = DATA_ROW + i;
+    const temFalta = comp[4] !== ''; // coluna Alerta (idx 4)
 
-    // AG-AJ: verde (ok) ou vermelho claro (falta)
-    abaRep.getRange(ln, COL_AG, 1, 4)
-          .setBackground(temFalta ? '#ffcdd2' : '#e8f5e9')
-          .setFontColor('#000000')
-          .setFontWeight('normal');
+    // Col 1-3: SKU, Qtd, BL−Nec
+    abaComp.getRange(ln, 1, 1, 3)
+           .setBackground(temFalta ? '#ffcdd2' : '#e8f5e9')
+           .setFontColor('#000000').setFontWeight('normal');
 
-    // AJ (alerta): vermelho escuro quando falta
+    // Col 4: Contagem SKU — azul claro
+    abaComp.getRange(ln, 4)
+           .setBackground('#e3f2fd').setFontColor('#0d47a1').setFontWeight('bold');
+
+    // Col 5: Alerta
     if (temFalta) {
-      abaRep.getRange(ln, COL_AG + 3)
-            .setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
+      abaComp.getRange(ln, 5)
+             .setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
+    } else {
+      abaComp.getRange(ln, 5)
+             .setBackground('#e8f5e9').setFontColor('#000000').setFontWeight('normal');
     }
 
-    // AK-AR: pares [SKU afetado | contagem] — destaque laranja somente quando há falta
+    // Cols 6-13: pares [Afetado | QtdAC] — somente quando há falta
     for (let k = 0; k < 4; k++) {
-      const colSku   = COL_AG + 4 + k * 2;     // AK, AM, AO, AQ
-      const colCount = COL_AG + 4 + k * 2 + 1; // AL, AN, AP, AR
-      const skuAfet  = comp[4 + k * 2];
-      const count    = comp[5 + k * 2];
+      const colSku   = 6 + k * 2;  // 6, 8, 10, 12
+      const colCount = 7 + k * 2;  // 7, 9, 11, 13
+      const skuAfet  = comp[5 + k * 2];
       if (skuAfet) {
-        abaRep.getRange(ln, colSku)
-              .setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
-        abaRep.getRange(ln, colCount)
-              .setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
+        abaComp.getRange(ln, colSku)
+               .setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
+        abaComp.getRange(ln, colCount)
+               .setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
       } else {
-        abaRep.getRange(ln, colSku).setBackground(null).setFontColor(null).setFontWeight(null);
-        abaRep.getRange(ln, colCount).setBackground(null).setFontColor(null).setFontWeight(null);
+        abaComp.getRange(ln, colSku)
+               .setBackground(null).setFontColor(null).setFontWeight(null);
+        abaComp.getRange(ln, colCount)
+               .setBackground(null).setFontColor(null).setFontWeight(null);
       }
     }
   });
 
-  // Manter cabeçalho da seção de componentes (linha 2)
-  abaRep.getRange(2, COL_AG, 1, NCOLS_COMP)
-        .setBackground('#c62828').setFontColor('#ffffff')
-        .setFontWeight('bold').setHorizontalAlignment('center');
+  abaComp.autoResizeColumns(1, NCOLS_COMP);
+  SpreadsheetApp.flush();
 }
 
 // ============================================================
@@ -957,7 +1014,7 @@ function _rpAtualizarComponentes(ss) {
 // ============================================================
 function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   const { mapaEstoque, mapaComponentes } = blData;
-  const NCOLS = 44; // AG-AR: 4 afetados + 4 contagens intercaladas
+  const NCOLS = 32; // A até AF (AF = separador visual)
   const PRIMA = 3;
 
   // ── Salvar dados auxiliares para o onEdit ─────────────────
@@ -1053,7 +1110,6 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   h1[23] = 'Vendas por Período';
   h1[26] = 'Reposição';
   h1[29] = 'Estoque';
-  h1[32] = 'Análise de Componentes (Desmembrado)';
 
   const h2 = [
     'Ranking','Curva','Conta ML','Inventory ID','SKU','Produto',
@@ -1065,9 +1121,6 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
     'Sugestão Reposição','Override Manual','Reposição Final',
     'Estoque BL','Saldo (BL−Rep.)',
     '',
-    'SKU Simples','Qtd. Necessária','BL − Necessário','Alerta',
-    'Afetado 1','Qtd. AC 1','Afetado 2','Qtd. AC 2',
-    'Afetado 3','Qtd. AC 3','Afetado 4','Qtd. AC 4',
   ];
 
   aba.getRange(1, 1, 1, NCOLS).setValues([h1]);
@@ -1079,7 +1132,6 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   aba.getRange(1, 24, 1,  3).merge(); // X-Z
   aba.getRange(1, 27, 1,  3).merge(); // AA-AC
   aba.getRange(1, 30, 1,  2).merge(); // AD-AE
-  aba.getRange(1, 33, 1, 12).merge(); // AG-AR
 
   // Cores headers linha 1
   const secoes = [
@@ -1090,7 +1142,6 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
     [27,  3, '#e37400'],
     [30,  2, '#7b1fa2'],
     [32,  1, '#eceff1'],
-    [33, 12, '#b71c1c'],
   ];
   secoes.forEach(([col, qtd, bg]) => {
     aba.getRange(1, col, 1, qtd)
@@ -1184,7 +1235,7 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
 
   aba.setFrozenRows(2);
 
-  // ── Tabela de componentes (AG-AR) — dinâmica ─────────────
+  // ── Aba Componentes Full — gerada/atualizada separadamente ─
   _rpAtualizarComponentes(ss);
 
   aba.autoResizeColumns(1, NCOLS);
