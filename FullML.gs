@@ -75,9 +75,9 @@ function onEdit(e) {
     // Recalcular AC = MAX(0, (AB se número, senão AA) - Estoque Full (col M))
     const aa       = Number(sheet.getRange(row, 27).getValue()) || 0;
     const abv      = e.range.getValue();
-    const rawAc    = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
     const estTotal = Number(sheet.getRange(row, 13).getValue()) || 0; // col M
-    const ac       = Math.max(0, rawAc - estTotal);
+    // Override manual: usa exatamente o valor digitado; sem override: desconta estoque Full
+    const ac       = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : Math.max(0, aa - estTotal);
     const ad       = Number(sheet.getRange(row, 30).getValue()) || 0;
     const ae       = Math.max(0, ad - ac);
 
@@ -1089,9 +1089,9 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   const rows = linhasMain.map(r => {
     const key    = r.inventoryId + '|' + r.conta;
     const ovrd   = mapaOverride[key];
-    const rawAc  = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : r.sugestao;
+    const rawAc  = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : Math.max(0, r.sugestao - r.estTotal);
     const abVal  = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : '';
-    const acVal  = Math.max(0, rawAc - r.estTotal); // desconta estoque já no Full (col M)
+    const acVal  = rawAc; // override já é o valor final; sem override, desconta estoque Full
     const aeVal  = Math.max(0, r.estBL - acVal);
 
     const row = new Array(NCOLS).fill('');
