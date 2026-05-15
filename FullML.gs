@@ -72,12 +72,14 @@ function onEdit(e) {
     const row = e.range.getRow();
     if (row < 3) return;
 
-    // Recalcular AC = AB se número, senão AA
-    const aa  = Number(sheet.getRange(row, 27).getValue()) || 0;
-    const abv = e.range.getValue();
-    const ac  = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
-    const ad  = Number(sheet.getRange(row, 30).getValue()) || 0;
-    const ae  = Math.max(0, ad - ac);
+    // Recalcular AC = MAX(0, (AB se número, senão AA) - Estoque Full (col M))
+    const aa       = Number(sheet.getRange(row, 27).getValue()) || 0;
+    const abv      = e.range.getValue();
+    const rawAc    = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : aa;
+    const estTotal = Number(sheet.getRange(row, 13).getValue()) || 0; // col M
+    const ac       = Math.max(0, rawAc - estTotal);
+    const ad       = Number(sheet.getRange(row, 30).getValue()) || 0;
+    const ae       = Math.max(0, ad - ac);
 
     sheet.getRange(row, 29).setValue(ac); // AC
     sheet.getRange(row, 31).setValue(ae); // AE
@@ -1085,11 +1087,12 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
 
   // ── Montar e escrever linhas (AC e AE calculados como valores) ──
   const rows = linhasMain.map(r => {
-    const key   = r.inventoryId + '|' + r.conta;
-    const ovrd  = mapaOverride[key];
-    const abVal = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : '';
-    const acVal = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : r.sugestao;
-    const aeVal = Math.max(0, r.estBL - acVal);
+    const key    = r.inventoryId + '|' + r.conta;
+    const ovrd   = mapaOverride[key];
+    const rawAc  = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : r.sugestao;
+    const abVal  = (ovrd !== undefined && ovrd !== '') ? Number(ovrd) : '';
+    const acVal  = Math.max(0, rawAc - r.estTotal); // desconta estoque já no Full (col M)
+    const aeVal  = Math.max(0, r.estBL - acVal);
 
     const row = new Array(NCOLS).fill('');
     row[0]  = r.ranking;
