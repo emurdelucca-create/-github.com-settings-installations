@@ -8,6 +8,11 @@ const ABA_REPOSICAO    = 'Reposição Full';
 const ABA_COMPONENTES  = 'Componentes Full';
 const ABA_RP_DATA      = '_RP_Data'; // aba auxiliar oculta para dados do onEdit
 
+// Posições dos botões (checkbox) em cada aba
+const BTN_RP_COL = 34; // coluna AH — botão na aba Reposição Full
+const BTN_CP_COL = 15; // coluna O  — botão na aba Componentes Full
+const BTN_ROW    = 2;  // linha do checkbox (linha de cabeçalho 2)
+
 // # Anúncio adicionado ao final (índice 12) para não quebrar
 // código existente que lê colunas por índice 0-11
 const CABECALHOS = [
@@ -59,36 +64,90 @@ function onOpen() {
     .addSeparator()
     .addItem('🔄 Gerar Reposição Full',             'gerarReposicaoFull')
     .addItem('⚙️ Configurar Dias por Curva',        'abrirConfigDias')
+    .addItem('🔧 Configurar Gatilho do Botão',      '_configurarGatilho')
     .addToUi();
 }
 
 // ============================================================
-// GATILHO: quando AB é editado, recalcula AC, AE e tabela de componentes
+// GATILHO SIMPLES: AB editado → recalcula AC/AE e componentes
+//                  Botão Componentes Full (col O, linha 2) → atualiza
 // ============================================================
 function onEdit(e) {
   try {
     const sheet = e.range.getSheet();
+    const col   = e.range.getColumn();
+    const row   = e.range.getRow();
+
+    // Botão "Atualizar Componentes" (checkbox col O linha 2 na aba Componentes Full)
+    if (sheet.getName() === ABA_COMPONENTES && col === BTN_CP_COL && row === BTN_ROW) {
+      if (e.range.getValue() === true) {
+        e.range.setValue(false);
+        _rpAtualizarComponentes(SpreadsheetApp.getActiveSpreadsheet());
+      }
+      return;
+    }
+
+    // Edição na coluna AB (col 28) da aba Reposição Full
     if (sheet.getName() !== ABA_REPOSICAO) return;
-    if (e.range.getColumn() !== 28) return; // somente coluna AB
-    const row = e.range.getRow();
+    if (col !== 28) return;
     if (row < 3) return;
 
-    // Recalcular AC = MAX(0, (AB se número, senão AA) - Estoque Full (col M))
     const aa       = Number(sheet.getRange(row, 27).getValue()) || 0;
     const abv      = e.range.getValue();
-    const estTotal = Number(sheet.getRange(row, 13).getValue()) || 0; // col M
-    // Override manual: usa exatamente o valor digitado; sem override: desconta estoque Full
+    const estTotal = Number(sheet.getRange(row, 13).getValue()) || 0;
     const ac       = (typeof abv === 'number' && !isNaN(abv)) ? Number(abv) : Math.max(0, aa - estTotal);
     const ad       = Number(sheet.getRange(row, 30).getValue()) || 0;
     const ae       = Math.max(0, ad - ac);
 
-    sheet.getRange(row, 29).setValue(ac); // AC
-    sheet.getRange(row, 31).setValue(ae); // AE
+    sheet.getRange(row, 29).setValue(ac);
+    sheet.getRange(row, 31).setValue(ae);
 
     _rpAtualizarComponentes(SpreadsheetApp.getActiveSpreadsheet());
   } catch(err) {
     Logger.log('onEdit error: ' + err);
   }
+}
+
+// ============================================================
+// GATILHO INSTALÁVEL: Botão "Gerar Reposição Full" (col AH linha 2)
+// Precisa de acesso às planilhas externas → installable trigger
+// Execute "_configurarGatilho()" uma vez para ativá-lo.
+// ============================================================
+function onEditInstallable(e) {
+  try {
+    const sheet = e.range.getSheet();
+    const col   = e.range.getColumn();
+    const row   = e.range.getRow();
+    if (sheet.getName() === ABA_REPOSICAO && col === BTN_RP_COL && row === BTN_ROW) {
+      if (e.range.getValue() === true) {
+        e.range.setValue(false);
+        gerarReposicaoFull();
+      }
+    }
+  } catch(err) {
+    Logger.log('onEditInstallable error: ' + err);
+  }
+}
+
+// Configura o gatilho instalável (executar uma vez pelo menu ou editor)
+function _configurarGatilho() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ScriptApp.getUserTriggers(ss).forEach(t => {
+    if (t.getHandlerFunction() === 'onEditInstallable') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onEditInstallable').forSpreadsheet(ss).onEdit().create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('✅ Gatilho configurado!', '⚙️ Full ML', 4);
+}
+
+// Converte número de coluna para letra A1 (1→A, 27→AA, etc.)
+function _colToLetter(col) {
+  let s = '';
+  while (col > 0) {
+    const m = (col - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    col = Math.floor((col - 1) / 26);
+  }
+  return s;
 }
 
 // ============================================================
@@ -662,6 +721,14 @@ function gerarReposicaoFull() {
     const abaDados = ss.getSheetByName(ABA_DADOS);
     if (!abaDados) throw new Error('Aba "' + ABA_DADOS + '" não encontrada.');
 
+    // Garante que o gatilho instalável do botão está ativo
+    try {
+      const triggers = ScriptApp.getUserTriggers(ss);
+      if (!triggers.some(t => t.getHandlerFunction() === 'onEditInstallable')) {
+        ScriptApp.newTrigger('onEditInstallable').forSpreadsheet(ss).onEdit().create();
+      }
+    } catch(_) {}
+
     const dadosML = abaDados.getDataRange().getValues();
     const geData  = _rpCarregarGE();
     const blData  = _rpCarregarBL();
@@ -946,57 +1013,61 @@ function _rpAtualizarComponentes(ss) {
     abaComp.getRange(DATA_ROW, col, linhasComp.length, 1).setNumberFormat('@');
   });
 
-  // ── Formatar linha a linha ────────────────────────────────
+  // ── Formatação em lote (evita timeout por chamadas por célula) ──
+  const rFalta123 = [], rOk123 = [];
+  const rFalta5   = [], rOk5   = [];
+  const rCol4     = [];
+  const rSkuOrange = [], rCntOrange = [];
+  const rSkuGreen  = [], rCntGreen  = [];
+  const rSkuEmpty  = [], rCntEmpty  = [];
+
   linhasComp.forEach((comp, i) => {
     const ln       = DATA_ROW + i;
-    const temFalta = comp[4] !== ''; // coluna Alerta (idx 4)
+    const temFalta = comp[4] !== '';
 
-    // Col 1-3: SKU, Qtd, BL−Nec
-    abaComp.getRange(ln, 1, 1, 3)
-           .setBackground(temFalta ? '#ffcdd2' : '#e8f5e9')
-           .setFontColor('#000000').setFontWeight('normal');
+    (temFalta ? rFalta123 : rOk123).push('A' + ln + ':C' + ln);
+    (temFalta ? rFalta5   : rOk5  ).push('E' + ln);
+    rCol4.push('D' + ln);
 
-    // Col 4: Contagem SKU — azul claro
-    abaComp.getRange(ln, 4)
-           .setBackground('#e3f2fd').setFontColor('#0d47a1').setFontWeight('bold');
-
-    // Col 5: Alerta
-    if (temFalta) {
-      abaComp.getRange(ln, 5)
-             .setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
-    } else {
-      abaComp.getRange(ln, 5)
-             .setBackground('#e8f5e9').setFontColor('#000000').setFontWeight('normal');
-    }
-
-    // Cols 6-13: pares [Afetado | QtdAC] — sempre visíveis
-    // Verde quando tem estoque, laranja quando falta
     for (let k = 0; k < 4; k++) {
-      const colSku   = 6 + k * 2;  // 6, 8, 10, 12
-      const colCount = 7 + k * 2;  // 7, 9, 11, 13
+      const colSku   = 6 + k * 2;
+      const colCount = 7 + k * 2;
       const skuAfet  = comp[5 + k * 2];
+      const lSku   = _colToLetter(colSku)   + ln;
+      const lCount = _colToLetter(colCount) + ln;
       if (skuAfet) {
-        if (temFalta) {
-          abaComp.getRange(ln, colSku)
-                 .setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
-          abaComp.getRange(ln, colCount)
-                 .setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
-        } else {
-          abaComp.getRange(ln, colSku)
-                 .setBackground('#a5d6a7').setFontColor('#1b5e20').setFontWeight('bold');
-          abaComp.getRange(ln, colCount)
-                 .setBackground('#c8e6c9').setFontColor('#1b5e20').setFontWeight('normal');
-        }
+        (temFalta ? rSkuOrange : rSkuGreen).push(lSku);
+        (temFalta ? rCntOrange : rCntGreen).push(lCount);
       } else {
-        abaComp.getRange(ln, colSku)
-               .setBackground(null).setFontColor(null).setFontWeight(null);
-        abaComp.getRange(ln, colCount)
-               .setBackground(null).setFontColor(null).setFontWeight(null);
+        rSkuEmpty.push(lSku);
+        rCntEmpty.push(lCount);
       }
     }
   });
 
+  if (rFalta123.length)   abaComp.getRangeList(rFalta123).setBackground('#ffcdd2').setFontColor('#000000').setFontWeight('normal');
+  if (rOk123.length)      abaComp.getRangeList(rOk123).setBackground('#e8f5e9').setFontColor('#000000').setFontWeight('normal');
+  if (rFalta5.length)     abaComp.getRangeList(rFalta5).setBackground('#c62828').setFontColor('#ffffff').setFontWeight('bold');
+  if (rOk5.length)        abaComp.getRangeList(rOk5).setBackground('#e8f5e9').setFontColor('#000000').setFontWeight('normal');
+  if (rCol4.length)       abaComp.getRangeList(rCol4).setBackground('#e3f2fd').setFontColor('#0d47a1').setFontWeight('bold');
+  if (rSkuOrange.length)  abaComp.getRangeList(rSkuOrange).setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
+  if (rCntOrange.length)  abaComp.getRangeList(rCntOrange).setBackground('#ff8f00').setFontColor('#ffffff').setFontWeight('bold');
+  if (rSkuGreen.length)   abaComp.getRangeList(rSkuGreen).setBackground('#a5d6a7').setFontColor('#1b5e20').setFontWeight('bold');
+  if (rCntGreen.length)   abaComp.getRangeList(rCntGreen).setBackground('#c8e6c9').setFontColor('#1b5e20').setFontWeight('normal');
+  if (rSkuEmpty.length)   abaComp.getRangeList(rSkuEmpty).setBackground(null).setFontColor(null).setFontWeight('normal');
+  if (rCntEmpty.length)   abaComp.getRangeList(rCntEmpty).setBackground(null).setFontColor(null).setFontWeight('normal');
+
   abaComp.autoResizeColumns(1, NCOLS_COMP);
+
+  // ── Botão "Atualizar Componentes" (checkbox na col O, linha 2) ──
+  abaComp.getRange(1, BTN_CP_COL).setValue('🔄 Atualizar')
+         .setBackground('#c62828').setFontColor('#ffffff')
+         .setFontWeight('bold').setHorizontalAlignment('center');
+  const btnCp = abaComp.getRange(BTN_ROW, BTN_CP_COL);
+  if (!btnCp.isChecked()) btnCp.insertCheckboxes();
+  btnCp.setValue(false).setBackground('#ffebee').setHorizontalAlignment('center')
+       .setNote('Marque para atualizar os componentes');
+
   SpreadsheetApp.flush();
 }
 
@@ -1247,5 +1318,15 @@ function _rpEscreverAba(ss, dadosML, geData, blData, diasPorCurva) {
   _rpAtualizarComponentes(ss);
 
   aba.autoResizeColumns(1, NCOLS);
+
+  // ── Botão "Gerar Reposição Full" (checkbox na col AH, linha 2) ──
+  aba.getRange(1, BTN_RP_COL).setValue('🔄 Gerar Reposição')
+     .setBackground('#1a73e8').setFontColor('#ffffff')
+     .setFontWeight('bold').setHorizontalAlignment('center');
+  const btnRp = aba.getRange(BTN_ROW, BTN_RP_COL);
+  if (!btnRp.isChecked()) btnRp.insertCheckboxes();
+  btnRp.setValue(false).setBackground('#e8f0fe').setHorizontalAlignment('center')
+       .setNote('Marque para regerar a aba Reposição Full e Componentes Full');
+
   SpreadsheetApp.flush();
 }
