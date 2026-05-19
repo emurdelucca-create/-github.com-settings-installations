@@ -1,0 +1,4 @@
+requests==2.32.3
+openpyxl==3.1.5
+gspread==6.1.4
+google-auth==2.30.0

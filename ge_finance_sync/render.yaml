@@ -1,0 +1,14 @@
+services:
+  - type: cron
+    name: ge-finance-sync
+    runtime: python
+    schedule: "0 7 * * *"   # daily at 07:00 UTC (04:00 BRT)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: GE_EMAIL
+        sync: false          # fill in the Render dashboard
+      - key: GE_PASSWORD
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
