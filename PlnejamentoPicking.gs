@@ -24,6 +24,13 @@ const PK_ABA_ANALISE = 'Análise Picking';
 // A: 0–50% | B: 50–80% | C: 80–100%
 const PK_ABC = [0.50, 0.80];
 
+// Pesos por curva para o Score de Urgência (menor score = mais urgente)
+const PK_CURVE_WEIGHTS = {
+  'AA': 1.0, 'AB': 1.4, 'AC': 1.8,
+  'BA': 2.5, 'BB': 3.2, 'BC': 4.0,
+  'CA': 5.0, 'CB': 6.5, 'CC': 8.0,
+};
+
 const PK_CABECALHO = [
   'SKU',            // A
   'Quantidade',     // B
@@ -323,7 +330,7 @@ function atualizarAnalise() {
       });
     }
 
-    // ── 4. Calcular curva AAA sobre TODOS os SKUs vendidos ────
+    // ── 4. Calcular curva AA sobre TODOS os SKUs vendidos ────
     const todosItens = skusVendidos.map(sku => ({ sku, qty: skuAgg[sku].totalQty }));
     _atribuirCurvaAAA(todosItens);
     const curvaMap = {};
@@ -346,25 +353,17 @@ function atualizarAnalise() {
       // Filtro: só aparece se G > 0 e D < B (estoque Padrão não cobre demanda)
       if (G <= 0 || B - D <= 0) return;
 
-      const H = Math.min(G, B - D);        // Qntd. Movimentar
-      const I = B > 0 ? D / B : 0;         // % Cobertura = Padrão / Vendido
-      const curva = curvaMap[sku] || 'CCC';
+      const H    = Math.min(G, B - D);                          // Qntd. Movimentar
+      const dias = B > 0 ? Math.max(0, D) * 7 / B : 0;         // Dias de Cobertura (D≥0)
+      const curva = curvaMap[sku] || 'CC';
+      const peso  = PK_CURVE_WEIGHTS[curva] || 8.0;
+      const score = dias * peso;                                 // Score de Urgência
 
-      rows.push({ sku, B, C, D, E, F, G, H, I, curva });
+      rows.push({ sku, B, C, D, E, F, G, H, dias, curva, score });
     });
 
-    // ── 6. Ordenar: curva AAA→CCC, depois menor cobertura ─────
-    const CURVE_ORDER = {};
-    let idx = 0;
-    for (const l1 of ['A','B','C'])
-      for (const l2 of ['A','B','C'])
-        for (const l3 of ['A','B','C'])
-          CURVE_ORDER[l1+l2+l3] = idx++;
-
-    rows.sort((a, b) => {
-      const dc = (CURVE_ORDER[a.curva] || 0) - (CURVE_ORDER[b.curva] || 0);
-      return dc !== 0 ? dc : a.I - b.I;
-    });
+    // ── 6. Ordenar por Score de Urgência (menor = mais urgente) ──
+    rows.sort((a, b) => a.score - b.score);
 
     // ── 7. Escrever na aba ────────────────────────────────────
     let aba = ss.getSheetByName(PK_ABA_ANALISE);
@@ -376,15 +375,14 @@ function atualizarAnalise() {
     // Cabeçalho linha 1 (com merge de Estoque D:G)
     const h1 = ['SKU','Qntd. Vend.','Qntd. Status\nMovimentação',
                  'Estoque','','','',
-                 'Qntd.\nMovimentar','% de\nCobertura','Curva','','Última Atualização'];
+                 'Qntd.\nMovimentar','Dias de\nCobertura','Curva','Score','Última Atualização'];
     aba.getRange(1, 1, 1, 12).setValues([h1]);
-    aba.getRange(1, 4, 1, 4).merge(); // mescla D1:G1 → "Estoque"
+    aba.getRange(1, 4, 1, 4).merge();
 
     // Cabeçalho linha 2 (sub-títulos dos armazéns)
     const h2 = ['','','','Padrão','Armazenamento','Chegou','Saldo Total','','','','',''];
     aba.getRange(2, 1, 1, 12).setValues([h2]);
 
-    // Formatar os dois cabeçalhos
     aba.getRange(1, 1, 2, 12)
        .setBackground('#1a73e8')
        .setFontColor('#ffffff')
@@ -396,17 +394,20 @@ function atualizarAnalise() {
     // Dados (a partir da linha 3)
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
     if (rows.length > 0) {
-      // Formatar coluna A como texto puro
       aba.getRange(3, 1, rows.length, 1).setNumberFormat('@');
 
       const dataRows = rows.map(r => [
-        r.sku, r.B, r.C, r.D, r.E, r.F, r.G, r.H, r.I, r.curva, '', agora,
+        r.sku, r.B, r.C, r.D, r.E, r.F, r.G, r.H, r.dias, r.curva, r.score, '',
       ]);
       aba.getRange(3, 1, rows.length, 12).setValues(dataRows);
 
-      // Formatar coluna I (% Cobertura) como percentual
-      aba.getRange(3, 9, rows.length, 1).setNumberFormat('0.0%');
+      // Dias de Cobertura (col I) e Score (col K) com 1 decimal
+      aba.getRange(3, 9,  rows.length, 1).setNumberFormat('0.0');
+      aba.getRange(3, 11, rows.length, 1).setNumberFormat('0.0');
     }
+
+    // Última Atualização só na primeira célula (L3)
+    aba.getRange(3, 12).setValue(agora);
 
     aba.autoResizeColumns(1, 12);
     SpreadsheetApp.flush();
@@ -427,8 +428,8 @@ function atualizarAnalise() {
 }
 
 // ============================================================
-// CURVA AAA — classifica itens em 3 níveis ABC por volume
-// Modifica cada item adicionando a propriedade .curva (ex: "AAB")
+// CURVA AA — classifica itens em 2 níveis ABC por volume
+// Modifica cada item adicionando a propriedade .curva (ex: "AB")
 // ============================================================
 function _atribuirCurvaAAA(items) {
   if (!items || items.length === 0) return;
@@ -441,8 +442,7 @@ function _atribuirCurvaAAA(items) {
     grupo.forEach(item => {
       cum += item.qty;
       const pct = total > 0 ? cum / total : 1;
-      const letra = pct <= PK_ABC[0] ? 'A' : pct <= PK_ABC[1] ? 'B' : 'C';
-      item['_l' + nivel] = letra;
+      item['_l' + nivel] = pct <= PK_ABC[0] ? 'A' : pct <= PK_ABC[1] ? 'B' : 'C';
     });
   }
 
@@ -454,15 +454,8 @@ function _atribuirCurvaAAA(items) {
     classificar(items.filter(x => x._l1 === l1), 2);
   }
 
-  // Nível 3 — dentro de cada grupo do nível 2
-  for (const l1 of ['A', 'B', 'C']) {
-    for (const l2 of ['A', 'B', 'C']) {
-      classificar(items.filter(x => x._l1 === l1 && x._l2 === l2), 3);
-    }
-  }
-
-  // Montar string final
+  // Montar string final (2 letras: AA, AB, ... CC)
   items.forEach(item => {
-    item.curva = (item._l1 || 'C') + (item._l2 || 'C') + (item._l3 || 'C');
+    item.curva = (item._l1 || 'C') + (item._l2 || 'C');
   });
 }
