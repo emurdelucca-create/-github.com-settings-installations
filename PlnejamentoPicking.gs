@@ -6,7 +6,7 @@
 
 const PK_BL_TOKEN   = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2RR74VA1N2RE95PVYWGZ';
 const PK_BL_URL     = 'https://api.baselinker.com/connector.php';
-const PK_SLACK_HOOK = 'COLE_AQUI_O_WEBHOOK_DO_SLACK'; // preencher após criar o Incoming Webhook
+const PK_SLACK_HOOK = 'COLE_AQUI_O_WEBHOOK_DO_SLACK'; // substitua pela URL do seu Incoming Webhook
 
 // Métodos de envio a EXCLUIR (Full)
 const PK_EXCLUIR_METODOS = ['ME2 - Mercado Envios Full', 'Fulfilled by Shopee'];
@@ -126,6 +126,8 @@ function atualizarPicking() {
     aba.getRange(1, 1, 1, PK_CABECALHO.length).setValues([PK_CABECALHO]);
 
     if (rows.length > 0) {
+      // Formatar coluna A (SKU) como texto puro antes de escrever
+      aba.getRange(2, 1, rows.length, 1).setNumberFormat('@');
       aba.getRange(2, 1, rows.length, PK_CABECALHO.length).setValues(rows);
     }
 
@@ -224,7 +226,7 @@ function _pkMapaStatus() {
 }
 
 function _pkSlack(texto) {
-  if (!PK_SLACK_HOOK || PK_SLACK_HOOK === 'COLE_AQUI_O_WEBHOOK_DO_SLACK') {
+  if (!PK_SLACK_HOOK || !PK_SLACK_HOOK.startsWith('https://')) {
     Logger.log('Slack (sem webhook): ' + texto);
     return;
   }
