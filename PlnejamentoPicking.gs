@@ -357,7 +357,7 @@ function atualizarAnalise() {
       const dias = B > 0 ? Math.max(0, D) * 7 / B : 0;         // Dias de Cobertura (D≥0)
       const curva = curvaMap[sku] || 'CC';
       const peso  = PK_CURVE_WEIGHTS[curva] || 8.0;
-      const score = dias * peso;                                 // Score de Urgência
+      const score = (dias + 1) * peso / B;                      // Score: quanto menor, mais urgente
 
       rows.push({ sku, B, C, D, E, F, G, H, dias, curva, score });
     });
