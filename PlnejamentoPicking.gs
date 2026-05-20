@@ -103,6 +103,7 @@ function atualizarPicking() {
         // Filtro de status: pula Cancelado
         const statusNome = statusMap[String(pedido.order_status_id)] || '';
         if (statusNome.toLowerCase().includes('cancelad')) continue;
+        if (statusNome.includes('[Full]')) continue;
 
         // Filtro de método de envio: pula Full
         const metodo = String(pedido.delivery_method || '');
