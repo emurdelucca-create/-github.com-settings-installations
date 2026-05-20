@@ -122,12 +122,14 @@ function atualizarPicking() {
     }
 
     // ---- Escrever na planilha (batch) ----
+    // Formatar coluna A inteira como texto ANTES de qualquer escrita
+    aba.getRange(1, 1, aba.getMaxRows(), 1).setNumberFormat('@');
+    SpreadsheetApp.flush();
+
     aba.clearContents();
     aba.getRange(1, 1, 1, PK_CABECALHO.length).setValues([PK_CABECALHO]);
 
     if (rows.length > 0) {
-      // Formatar coluna A (SKU) como texto puro antes de escrever
-      aba.getRange(2, 1, rows.length, 1).setNumberFormat('@');
       aba.getRange(2, 1, rows.length, PK_CABECALHO.length).setValues(rows);
     }
 
