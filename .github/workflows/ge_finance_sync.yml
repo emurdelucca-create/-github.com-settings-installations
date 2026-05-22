@@ -1,0 +1,28 @@
+name: GE Finance → Google Sheets Sync
+
+on:
+  schedule:
+    # Todo dia às 07:30 BRT (10:30 UTC)
+    - cron: "30 10 * * *"
+  workflow_dispatch:  # permite rodar manualmente
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install -r ge_finance_sync/requirements.txt
+
+      - name: Rodar sync
+        env:
+          GE_EMAIL:                    ${{ secrets.GE_EMAIL }}
+          GE_PASSWORD:                 ${{ secrets.GE_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python ge_finance_sync/main.py
