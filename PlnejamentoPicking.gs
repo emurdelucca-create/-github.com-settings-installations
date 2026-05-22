@@ -442,3 +442,52 @@ function listarTodosStatus() {
   const nomes = (resp.statuses || []).map(s => s.id + ' → ' + s.name).join('\n');
   SpreadsheetApp.getUi().alert(nomes);
 }
+
+// ============================================================
+// UTILITÁRIO — inspeciona dados completos de um produto por SKU
+// ============================================================
+function inspecionarProduto() {
+  const ui  = SpreadsheetApp.getUi();
+  const res = ui.prompt('Inspetor de Produto', 'Digite o SKU do produto:', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const skuBusca = res.getResponseText().trim();
+  if (!skuBusca) return;
+
+  // Encontrar o productId pelo SKU
+  let productId = null;
+  let page = 1;
+  while (!productId) {
+    const resp    = _pkAPI('getInventoryProductsList', { inventory_id: PK_INVENTORY_ID, page });
+    const entries = Object.entries(resp.products || {});
+    if (entries.length === 0) break;
+    for (const [pid, p] of entries) {
+      if (String(p.sku || '').trim() === skuBusca) { productId = pid; break; }
+    }
+    if (entries.length < 1000) break;
+    page++;
+  }
+
+  if (!productId) {
+    ui.alert('SKU "' + skuBusca + '" não encontrado no inventário.');
+    return;
+  }
+
+  const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: [productId] });
+  const produto = (resp.products || {})[productId];
+  if (!produto) {
+    ui.alert('Produto encontrado (ID ' + productId + ') mas sem dados retornados.');
+    return;
+  }
+
+  // Logar JSON completo no console e exibir resumo no alerta
+  Logger.log('=== PRODUTO: ' + skuBusca + ' (ID: ' + productId + ') ===\n' + JSON.stringify(produto, null, 2));
+
+  const location = produto.location || produto.locations || produto.storage_location || '(campo não encontrado)';
+  const estoque  = JSON.stringify(produto.stock || {});
+  ui.alert(
+    'SKU: ' + skuBusca + '\nID BaseLinker: ' + productId +
+    '\n\nlocation: ' + JSON.stringify(location) +
+    '\nstock: ' + estoque +
+    '\n\n⚠ JSON completo disponível em: Visualizar > Logs'
+  );
+}
