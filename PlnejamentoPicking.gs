@@ -552,6 +552,34 @@ function listarTodosStatus() {
 }
 
 // ============================================================
+// UTILITÁRIO — diagnóstico da aba Locações
+// ============================================================
+function debugLocacoes() {
+  // Pega os primeiros 5 IDs do inventário
+  const resp1   = _pkAPI('getInventoryProductsList', { inventory_id: PK_INVENTORY_ID, page: 1 });
+  const entries = Object.entries(resp1.products || {});
+  const primeirosCinco = entries.slice(0, 5).map(([pid]) => pid);
+
+  Logger.log('Primeiros 5 IDs: ' + JSON.stringify(primeirosCinco));
+
+  // Busca dados completos desses 5
+  const resp2   = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: primeirosCinco });
+  const produtos = resp2.products || {};
+
+  let resumo = '';
+  Object.entries(produtos).forEach(([pid, p]) => {
+    resumo += '\n--- ID: ' + pid + ' SKU: ' + (p.sku || '') + ' ---\n';
+    resumo += 'is_bundle: ' + JSON.stringify(p.is_bundle) + '\n';
+    resumo += 'variants keys: ' + JSON.stringify(Object.keys(p.variants || {})) + '\n';
+    resumo += 'location: ' + JSON.stringify(p.location) + '\n';
+    resumo += 'stock: ' + JSON.stringify(p.stock) + '\n';
+  });
+
+  Logger.log(resumo);
+  SpreadsheetApp.getUi().alert('Diagnóstico salvo nos Logs.\n\nResumo dos primeiros ' + Object.keys(produtos).length + ' produtos:\n' + resumo.slice(0, 800));
+}
+
+// ============================================================
 // UTILITÁRIO — inspeciona dados completos de um produto por SKU
 // ============================================================
 function inspecionarProduto() {
