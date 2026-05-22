@@ -59,8 +59,11 @@ def ge_login(email: str, password: str) -> dict:
 
 def _extrair_auth(data: dict) -> tuple[str, str, str]:
     """Extrai token, customerId e customerPlanId da resposta de login."""
-    # Tenta diferentes formatos de resposta
+    log.info("Login response keys: %s", list(data.keys()))
     inner = data.get("data") or data
+    if isinstance(inner, dict):
+        log.info("Inner keys: %s", list(inner.keys()))
+
     token = (
         inner.get("token")
         or inner.get("accessToken")
@@ -72,13 +75,41 @@ def _extrair_auth(data: dict) -> tuple[str, str, str]:
         or inner.get("customer_id")
         or data.get("customerId")
     )
-    plan_ids = (
+
+    # customerPlanIds pode vir como lista, string JSON ou inteiro
+    raw_plans = (
         inner.get("customerPlanIds")
         or inner.get("customerPlanId")
         or data.get("customerPlanIds")
         or data.get("customerPlanId")
     )
-    plan_id = plan_ids[0] if isinstance(plan_ids, list) else plan_ids
+    log.info("customerPlanIds raw: %s (type=%s)", raw_plans, type(raw_plans).__name__)
+
+    if isinstance(raw_plans, list) and raw_plans:
+        plan_id = str(raw_plans[0])
+    elif isinstance(raw_plans, str):
+        # Pode ser string JSON "[1099,1274,...]" ou só "1099"
+        try:
+            parsed = json.loads(raw_plans)
+            plan_id = str(parsed[0]) if isinstance(parsed, list) else str(parsed)
+        except Exception:
+            plan_id = raw_plans.strip()
+    elif raw_plans is not None:
+        plan_id = str(raw_plans)
+    else:
+        # Fallback: extrair do token JWT (campo customerPlanIds)
+        try:
+            import base64
+            payload = token.split(".")[1]
+            payload += "=" * (4 - len(payload) % 4)
+            jwt_data = json.loads(base64.b64decode(payload))
+            raw_jwt = jwt_data.get("customerPlanIds", "")
+            parsed_jwt = json.loads(raw_jwt) if isinstance(raw_jwt, str) else raw_jwt
+            plan_id = str(parsed_jwt[0]) if isinstance(parsed_jwt, list) else str(parsed_jwt)
+            log.info("customerPlanId extraído do JWT: %s", plan_id)
+        except Exception as e:
+            log.warning("Falha ao extrair planId do JWT: %s", e)
+            plan_id = "1099"  # fallback conhecido
 
     if not token:
         raise ValueError(f"Não foi possível extrair o token da resposta: {data}")
