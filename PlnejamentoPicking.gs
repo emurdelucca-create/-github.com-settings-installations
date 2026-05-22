@@ -5,8 +5,8 @@
 
 const PK_BL_TOKEN   = '8004176-8026704-5DUYJBOPVCCE3W6VATUJEEAJY8P7Z4YS2IHQCWEU8YAM2RR74VA1N2RE95PVYWGZ';
 const PK_BL_URL     = 'https://api.baselinker.com/connector.php';
-// Slack webhook URL — store via: File > Project properties > Script properties
-// Key: SLACK_HOOK  Value: https://hooks.slack.com/services/...
+// Slack webhook URL — salve via: Projeto > Propriedades do script
+// Chave: SLACK_HOOK  Valor: URL do seu Incoming Webhook
 const PK_SLACK_HOOK = PropertiesService.getScriptProperties().getProperty('SLACK_HOOK') || '';
 
 // Métodos de envio a EXCLUIR (Full)
@@ -37,6 +37,7 @@ const PK_WH_NOMES = {
   [PK_WH_ARMAZENAMENTO]: 'Armazenamento',
   [PK_WH_CHEGOU]:        'Chegou',
 };
+
 const PK_ABC = [0.50, 0.80];
 
 const PK_CURVE_WEIGHTS = {
@@ -95,10 +96,8 @@ function atualizarPicking() {
       for (const pedido of pedidos) {
         if (pedido.date_confirmed > tsTo) { continuar = false; break; }
 
-        // Filtro de status por ID exato
         if (PK_STATUS_EXCLUIR.has(String(pedido.order_status_id))) continue;
 
-        // Filtro de método de envio: pula Full
         const metodo = String(pedido.delivery_method || '');
         if (PK_EXCLUIR_METODOS.includes(metodo)) continue;
 
@@ -201,8 +200,7 @@ function atualizarAnalise() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // 1. Ler Página1 e agregar por SKU
-    const abaBase = ss.getSheets()[0];
+    const abaBase = ss.getSheetByName('Página1') || ss.getSheets()[0];
     const dados   = abaBase.getDataRange().getValues();
     const skuAgg  = {};
     for (let i = 1; i < dados.length; i++) {
@@ -218,7 +216,6 @@ function atualizarAnalise() {
     const skusVendidos = Object.keys(skuAgg);
     if (skusVendidos.length === 0) throw new Error('Página1 está vazia. Atualize a base de vendas primeiro.');
 
-    // 2. Carregar mapa SKU → productId do BaseLinker
     const skuToId = {};
     let page = 1;
     while (true) {
@@ -230,7 +227,6 @@ function atualizarAnalise() {
       page++;
     }
 
-    // 3. Buscar estoque por productId
     const productIds = skusVendidos.map(s => skuToId[s]).filter(Boolean);
     const stockMap   = {};
     const LOTE = 1000;
@@ -242,13 +238,11 @@ function atualizarAnalise() {
       });
     }
 
-    // 4. Calcular curva AA sobre todos os SKUs vendidos
     const todosItens = skusVendidos.map(sku => ({ sku, qty: skuAgg[sku].totalQty }));
     _atribuirCurvaAA(todosItens);
     const curvaMap = {};
     todosItens.forEach(item => { curvaMap[item.sku] = item.curva; });
 
-    // 5. Montar linhas filtradas
     const rows = [];
     skusVendidos.forEach(sku => {
       const agg = skuAgg[sku];
@@ -258,18 +252,16 @@ function atualizarAnalise() {
       const D = est.pad, E = est.arm, F = est.chg;
       const G = D + E + F;
       if (G <= 0 || B - D <= 0) return;
-      const H     = Math.min(G, B - D);
-      const dias  = B > 0 ? Math.max(0, D) * 7 / B : 0;
+      const H    = Math.min(G, B - D);
+      const dias = B > 0 ? Math.max(0, D) * 7 / B : 0;
       const curva = curvaMap[sku] || 'CC';
       const peso  = PK_CURVE_WEIGHTS[curva] || 8.0;
       const score = (dias + 1) * peso / B;
       rows.push({ sku, B, C, D, E, F, G, H, dias, curva, score });
     });
 
-    // 6. Ordenar por Score de Urgência (menor = mais urgente)
     rows.sort((a, b) => a.score - b.score);
 
-    // 7. Escrever na aba
     let aba = ss.getSheetByName(PK_ABA_ANALISE);
     if (!aba) aba = ss.insertSheet(PK_ABA_ANALISE);
     aba.clearContents();
@@ -345,8 +337,7 @@ function atualizarExcesso() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // 1. Ler Página1 e agregar por SKU
-    const abaBase = ss.getSheets()[0];
+    const abaBase = ss.getSheetByName('Página1') || ss.getSheets()[0];
     const dados   = abaBase.getDataRange().getValues();
     const skuAgg  = {};
     for (let i = 1; i < dados.length; i++) {
@@ -360,7 +351,6 @@ function atualizarExcesso() {
     const skusVendidos = Object.keys(skuAgg);
     if (skusVendidos.length === 0) throw new Error('Página1 está vazia. Atualize a base de vendas primeiro.');
 
-    // 2. Carregar mapa SKU → productId do BaseLinker
     const skuToId = {};
     let page = 1;
     while (true) {
@@ -372,7 +362,6 @@ function atualizarExcesso() {
       page++;
     }
 
-    // 3. Buscar estoque por productId
     const productIds = skusVendidos.map(s => skuToId[s]).filter(Boolean);
     const stockMap   = {};
     const LOTE = 1000;
@@ -384,13 +373,11 @@ function atualizarExcesso() {
       });
     }
 
-    // 4. Calcular curva AA
     const todosItens = skusVendidos.map(sku => ({ sku, qty: skuAgg[sku].totalQty }));
     _atribuirCurvaAA(todosItens);
     const curvaMap = {};
     todosItens.forEach(item => { curvaMap[item.sku] = item.curva; });
 
-    // 5. Filtrar apenas SKUs com excesso (estoque padrão > vendas 7 dias)
     const rows = [];
     skusVendidos.forEach(sku => {
       const B   = skuAgg[sku].totalQty;
@@ -402,10 +389,8 @@ function atualizarExcesso() {
       rows.push({ sku, B, D, excesso, curva });
     });
 
-    // 6. Ordenar por excesso decrescente (mais excesso primeiro)
     rows.sort((a, b) => b.excesso - a.excesso);
 
-    // 7. Escrever na aba
     let aba = ss.getSheetByName(PK_ABA_EXCESSO);
     if (!aba) aba = ss.insertSheet(PK_ABA_EXCESSO);
     aba.clearContents();
@@ -444,7 +429,7 @@ function atualizarExcesso() {
 }
 
 // ============================================================
-// LOCAÇÕES — varredura completa do inventário (produtos simples)
+// LOCAÇÕES — varredura completa (1 produto por chamada para garantir location)
 // ============================================================
 function atualizarLocacoes() {
   const inicio = new Date();
@@ -454,56 +439,74 @@ function atualizarLocacoes() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // 1. Coletar todos os productIds do inventário
-    const todosIds = [];
+    // 1. Coletar todos os IDs + SKUs + estoque básico via ProductsList
+    const todosProdutos = []; // [{pid, sku, temEstoque}]
     let page = 1;
     while (true) {
       const resp    = _pkAPI('getInventoryProductsList', { inventory_id: PK_INVENTORY_ID, page });
       const entries = Object.entries(resp.products || {});
       if (entries.length === 0) break;
-      entries.forEach(([pid]) => todosIds.push(pid));
+      entries.forEach(([pid, p]) => {
+        const sku = String(p.sku || '').trim();
+        todosProdutos.push({ pid, sku });
+      });
       if (entries.length < 1000) break;
       page++;
       Utilities.sleep(200);
     }
+    if (todosProdutos.length === 0) throw new Error('Nenhum produto encontrado no inventário.');
+    Logger.log('Total de produtos: ' + todosProdutos.length);
 
-    if (todosIds.length === 0) throw new Error('Nenhum produto encontrado no inventário.');
-    Logger.log('Total de produtos no inventário: ' + todosIds.length);
-
-    // 2. Buscar dados completos em lotes de 1000
-    const rows = [];
+    // 2. Filtrar quem tem estoque > 0 via getInventoryProductsData em lotes de 1000
+    //    (nesse endpoint stock vem mesmo em lote; location não vem — buscamos depois)
+    const idsComEstoque = new Set();
+    const skuMap = {};
+    todosProdutos.forEach(p => { skuMap[p.pid] = p.sku; });
+    const todosIds = todosProdutos.map(p => p.pid);
     const LOTE = 1000;
     for (let i = 0; i < todosIds.length; i += LOTE) {
-      const lote = todosIds.slice(i, i + LOTE);
-      const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: lote });
+      const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: todosIds.slice(i, i + LOTE) });
+      Object.entries(resp.products || {}).forEach(([pid, d]) => {
+        if (d.is_bundle == 1 || d.is_bundle === true) return;
+        const estoques = d.stock || {};
+        const total = Object.values(estoques).reduce((s, v) => s + Number(v || 0), 0);
+        if (total > 0) idsComEstoque.add(pid);
+      });
+      if (i + LOTE < todosIds.length) Utilities.sleep(200);
+    }
+    Logger.log('Produtos com estoque > 0: ' + idsComEstoque.size);
 
-      Object.entries(resp.products || {}).forEach(([pid, produto]) => {
-        // Pula bundles; inclui produtos simples e variantes individuais
-        if (produto.is_bundle == 1 || produto.is_bundle === true) return;
+    // 3. Para cada produto com estoque, buscar individualmente para obter location
+    const rows = [];
+    const idsArray = Array.from(idsComEstoque);
+    for (let i = 0; i < idsArray.length; i++) {
+      const pid  = idsArray[i];
+      const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: [pid] });
+      const produto = (resp.products || {})[pid];
+      if (!produto) continue;
 
-        const sku       = String(produto.sku || '').trim();
-        const locacoes  = produto.location  || {};
-        const estoques  = produto.stock     || {};
+      const sku      = skuMap[pid] || String(produto.sku || '').trim();
+      const locacoes = produto.location || {};
+      const estoques = produto.stock    || {};
 
-        Object.entries(locacoes).forEach(([whId, nomeLoc]) => {
-          if (!nomeLoc || !String(nomeLoc).trim()) return; // pula locação vazia
-          const qtd    = Number(estoques[whId] || 0);
-          const whNome = PK_WH_NOMES[whId] || whId;
-          rows.push([pid, sku, qtd, String(nomeLoc).trim(), whNome]);
-        });
+      Object.entries(locacoes).forEach(([whId, nomeLoc]) => {
+        if (!nomeLoc || !String(nomeLoc).trim()) return;
+        const qtd    = Number(estoques[whId] || 0);
+        const whNome = PK_WH_NOMES[whId] || whId;
+        rows.push([pid, sku, qtd, String(nomeLoc).trim(), whNome]);
       });
 
-      if (i + LOTE < todosIds.length) Utilities.sleep(300);
+      if ((i + 1) % 20 === 0) Utilities.sleep(300);
     }
 
-    // 3. Ordenar por Armazém → Nome Localização → SKU
+    // 4. Ordenar por Armazém → Nome Localização → SKU
     rows.sort((a, b) => {
       if (a[4] !== b[4]) return a[4].localeCompare(b[4]);
       if (a[3] !== b[3]) return a[3].localeCompare(b[3]);
       return a[1].localeCompare(b[1]);
     });
 
-    // 4. Escrever na aba
+    // 5. Escrever na aba
     let aba = ss.getSheetByName(PK_ABA_LOCACOES);
     if (!aba) aba = ss.insertSheet(PK_ABA_LOCACOES);
     aba.clearContents();
@@ -517,7 +520,6 @@ function atualizarLocacoes() {
     aba.setFrozenRows(1);
 
     if (rows.length > 0) {
-      // Colunas ID Produto e SKU como texto puro
       aba.getRange(2, 1, rows.length, 1).setNumberFormat('@');
       aba.getRange(2, 2, rows.length, 1).setNumberFormat('@');
       const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
@@ -552,34 +554,6 @@ function listarTodosStatus() {
 }
 
 // ============================================================
-// UTILITÁRIO — diagnóstico da aba Locações
-// ============================================================
-function debugLocacoes() {
-  // Pega os primeiros 5 IDs do inventário
-  const resp1   = _pkAPI('getInventoryProductsList', { inventory_id: PK_INVENTORY_ID, page: 1 });
-  const entries = Object.entries(resp1.products || {});
-  const primeirosCinco = entries.slice(0, 5).map(([pid]) => pid);
-
-  Logger.log('Primeiros 5 IDs: ' + JSON.stringify(primeirosCinco));
-
-  // Busca dados completos desses 5
-  const resp2   = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: primeirosCinco });
-  const produtos = resp2.products || {};
-
-  let resumo = '';
-  Object.entries(produtos).forEach(([pid, p]) => {
-    resumo += '\n--- ID: ' + pid + ' SKU: ' + (p.sku || '') + ' ---\n';
-    resumo += 'is_bundle: ' + JSON.stringify(p.is_bundle) + '\n';
-    resumo += 'variants keys: ' + JSON.stringify(Object.keys(p.variants || {})) + '\n';
-    resumo += 'location: ' + JSON.stringify(p.location) + '\n';
-    resumo += 'stock: ' + JSON.stringify(p.stock) + '\n';
-  });
-
-  Logger.log(resumo);
-  SpreadsheetApp.getUi().alert('Diagnóstico salvo nos Logs.\n\nResumo dos primeiros ' + Object.keys(produtos).length + ' produtos:\n' + resumo.slice(0, 800));
-}
-
-// ============================================================
 // UTILITÁRIO — inspeciona dados completos de um produto por SKU
 // ============================================================
 function inspecionarProduto() {
@@ -589,7 +563,6 @@ function inspecionarProduto() {
   const skuBusca = res.getResponseText().trim();
   if (!skuBusca) return;
 
-  // Encontrar o productId pelo SKU
   let productId = null;
   let page = 1;
   while (!productId) {
@@ -615,7 +588,6 @@ function inspecionarProduto() {
     return;
   }
 
-  // Logar JSON completo no console e exibir resumo no alerta
   Logger.log('=== PRODUTO: ' + skuBusca + ' (ID: ' + productId + ') ===\n' + JSON.stringify(produto, null, 2));
 
   const location = produto.location || produto.locations || produto.storage_location || '(campo não encontrado)';
