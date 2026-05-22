@@ -73,7 +73,8 @@ function atualizarPicking() {
 
   try {
     const ss  = SpreadsheetApp.getActiveSpreadsheet();
-    const aba = ss.getActiveSheet();
+    let aba   = ss.getSheetByName('Página1');
+    if (!aba) aba = ss.getSheets()[0];
     const statusMap = _pkMapaStatus();
 
     const agora     = new Date();
@@ -477,9 +478,8 @@ function atualizarLocacoes() {
       const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: lote });
 
       Object.entries(resp.products || {}).forEach(([pid, produto]) => {
-        // Filtrar apenas produtos simples: sem variantes e sem bundle
-        if (produto.is_bundle) return;
-        if (Object.keys(produto.variants || {}).length > 0) return;
+        // Pula bundles; inclui produtos simples e variantes individuais
+        if (produto.is_bundle == 1 || produto.is_bundle === true) return;
 
         const sku       = String(produto.sku || '').trim();
         const locacoes  = produto.location  || {};
