@@ -30,6 +30,13 @@ const PK_WH_CHEGOU         = 'bl_51442';
 
 const PK_ABA_ANALISE  = 'Análise Picking';
 const PK_ABA_EXCESSO  = 'Picking em Excesso';
+const PK_ABA_LOCACOES = 'Locações';
+
+const PK_WH_NOMES = {
+  [PK_WH_PADRAO]:        'Padrão',
+  [PK_WH_ARMAZENAMENTO]: 'Armazenamento',
+  [PK_WH_CHEGOU]:        'Chegou',
+};
 const PK_ABC = [0.50, 0.80];
 
 const PK_CURVE_WEIGHTS = {
@@ -49,6 +56,7 @@ function onOpen() {
     .addItem('🔄 Atualizar base de vendas (Página1)', 'atualizarPicking')
     .addItem('📊 Atualizar análise de movimentação', 'atualizarAnalise')
     .addItem('📦 Atualizar picking em excesso', 'atualizarExcesso')
+    .addItem('📍 Atualizar locações', 'atualizarLocacoes')
     .addSeparator()
     .addItem('▶ Ativar atualização automática (3x/dia)', 'ativarTriggerPicking')
     .addItem('⏹ Desativar atualização automática', 'desativarTriggerPicking')
@@ -431,6 +439,106 @@ function atualizarExcesso() {
     _pkSlack('❌ *Picking em Excesso — Erro*\nErro: `' + erroMsg + '`\nDuração: ' + duracao + 's');
   } else {
     _pkSlack('✅ *Picking em Excesso — Atualizado*\n📦 ' + totalLinhas + ' SKUs em excesso | ⏱ ' + duracao + 's');
+  }
+}
+
+// ============================================================
+// LOCAÇÕES — varredura completa do inventário (produtos simples)
+// ============================================================
+function atualizarLocacoes() {
+  const inicio = new Date();
+  let erroMsg  = null;
+  let totalLinhas = 0;
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Coletar todos os productIds do inventário
+    const todosIds = [];
+    let page = 1;
+    while (true) {
+      const resp    = _pkAPI('getInventoryProductsList', { inventory_id: PK_INVENTORY_ID, page });
+      const entries = Object.entries(resp.products || {});
+      if (entries.length === 0) break;
+      entries.forEach(([pid]) => todosIds.push(pid));
+      if (entries.length < 1000) break;
+      page++;
+      Utilities.sleep(200);
+    }
+
+    if (todosIds.length === 0) throw new Error('Nenhum produto encontrado no inventário.');
+    Logger.log('Total de produtos no inventário: ' + todosIds.length);
+
+    // 2. Buscar dados completos em lotes de 1000
+    const rows = [];
+    const LOTE = 1000;
+    for (let i = 0; i < todosIds.length; i += LOTE) {
+      const lote = todosIds.slice(i, i + LOTE);
+      const resp = _pkAPI('getInventoryProductsData', { inventory_id: PK_INVENTORY_ID, products: lote });
+
+      Object.entries(resp.products || {}).forEach(([pid, produto]) => {
+        // Filtrar apenas produtos simples: sem variantes e sem bundle
+        if (produto.is_bundle) return;
+        if (Object.keys(produto.variants || {}).length > 0) return;
+
+        const sku       = String(produto.sku || '').trim();
+        const locacoes  = produto.location  || {};
+        const estoques  = produto.stock     || {};
+
+        Object.entries(locacoes).forEach(([whId, nomeLoc]) => {
+          if (!nomeLoc || !String(nomeLoc).trim()) return; // pula locação vazia
+          const qtd    = Number(estoques[whId] || 0);
+          const whNome = PK_WH_NOMES[whId] || whId;
+          rows.push([pid, sku, qtd, String(nomeLoc).trim(), whNome]);
+        });
+      });
+
+      if (i + LOTE < todosIds.length) Utilities.sleep(300);
+    }
+
+    // 3. Ordenar por Armazém → Nome Localização → SKU
+    rows.sort((a, b) => {
+      if (a[4] !== b[4]) return a[4].localeCompare(b[4]);
+      if (a[3] !== b[3]) return a[3].localeCompare(b[3]);
+      return a[1].localeCompare(b[1]);
+    });
+
+    // 4. Escrever na aba
+    let aba = ss.getSheetByName(PK_ABA_LOCACOES);
+    if (!aba) aba = ss.insertSheet(PK_ABA_LOCACOES);
+    aba.clearContents();
+    aba.clearFormats();
+
+    const cabecalho = ['ID Produto','SKU','Quantidade','Nome Localização','Armazém','Última Atualização'];
+    aba.getRange(1, 1, 1, cabecalho.length).setValues([cabecalho]);
+    aba.getRange(1, 1, 1, cabecalho.length)
+       .setBackground('#0f9d58').setFontColor('#ffffff').setFontWeight('bold')
+       .setHorizontalAlignment('center');
+    aba.setFrozenRows(1);
+
+    if (rows.length > 0) {
+      // Colunas ID Produto e SKU como texto puro
+      aba.getRange(2, 1, rows.length, 1).setNumberFormat('@');
+      aba.getRange(2, 2, rows.length, 1).setNumberFormat('@');
+      const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const dataRows = rows.map((r, i) => [...r, i === 0 ? agora : '']);
+      aba.getRange(2, 1, rows.length, cabecalho.length).setValues(dataRows);
+    }
+
+    aba.autoResizeColumns(1, cabecalho.length);
+    SpreadsheetApp.flush();
+    totalLinhas = rows.length;
+
+  } catch (e) {
+    erroMsg = e.message;
+    Logger.log('Erro atualizarLocacoes: ' + e.stack);
+  }
+
+  const duracao = ((new Date() - inicio) / 1000).toFixed(1);
+  if (erroMsg) {
+    _pkSlack('❌ *Locações — Erro*\nErro: `' + erroMsg + '`\nDuração: ' + duracao + 's');
+  } else {
+    _pkSlack('✅ *Locações — Atualizado*\n📍 ' + totalLinhas + ' locações | ⏱ ' + duracao + 's');
   }
 }
 
