@@ -191,11 +191,13 @@ def ge_aguardar_e_baixar(token: str, customer_id: str, plan_id: str,
         log.info("Poll resposta: %s", str(data)[:300])
 
         url = (
-            data.get("url")
+            data.get("download_link")
+            or data.get("url")
             or data.get("downloadUrl")
             or data.get("fileUrl")
-            or (data.get("data") if isinstance(data.get("data"), str) and data.get("data", "").startswith("http") else None)
+            or (data.get("data") if isinstance(data.get("data"), str) and str(data.get("data", "")).startswith("http") else None)
             or (data.get("data", {}).get("url") if isinstance(data.get("data"), dict) else None)
+            or (data.get("data", {}).get("download_link") if isinstance(data.get("data"), dict) else None)
         )
         if url:
             log.info("Arquivo pronto! Baixando de: %s", url[:80])
