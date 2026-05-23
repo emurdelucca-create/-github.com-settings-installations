@@ -284,7 +284,7 @@ def main():
     auth_data              = ge_login(email, password)
     token, cid, plan_id   = _extrair_auth(auth_data)
     request_id             = ge_solicitar_exportacao(token, cid, plan_id)
-    content                = ge_aguardar_e_baixar(token, cid, plan_id, request_id, max_espera=2700, intervalo=20)
+    content                = ge_aguardar_e_baixar(token, cid, plan_id, request_id, max_espera=3600, intervalo=20)
     rows                   = parsear_excel(content)
 
     if not rows:
