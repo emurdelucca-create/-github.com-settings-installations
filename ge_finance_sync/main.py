@@ -237,6 +237,16 @@ def upload_google_sheets(rows: list[list]) -> None:
         return str(v)
 
     linhas = [[_limpar(c) for c in row] for row in rows]
+
+    # Força colunas de SKU como texto puro para evitar conversão numérica
+    if linhas:
+        header = [str(h).strip().lower() for h in linhas[0]]
+        sku_cols = [i for i, h in enumerate(header) if "sku" in h]
+        for row in linhas[1:]:
+            for i in sku_cols:
+                if i < len(row) and row[i] != "":
+                    row[i] = "'" + str(row[i])
+
     log.info("Enviando %d linhas para Google Sheets…", len(linhas))
 
     sa_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
