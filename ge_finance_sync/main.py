@@ -264,13 +264,15 @@ def upload_google_sheets(rows: list[list]) -> None:
         log.info("Aba '%s' criada.", TARGET_TAB)
 
     # Limpa e atualiza em sequência; se update falhar a exceção propaga antes de limpar a aba
+    num_rows = len(linhas)
+    num_cols = len(linhas[0]) if linhas else 1
+
+    # Redimensiona para o tamanho exato antes de limpar/atualizar,
+    # evitando ultrapassar o limite de 10 milhões de células do Google Sheets
+    ws.resize(rows=num_rows, cols=num_cols)
     ws.clear()
-    try:
-        ws.update(linhas, value_input_option="RAW")
-    except Exception:
-        log.exception("Falha no ws.update com RAW, tentando USER_ENTERED…")
-        ws.update(linhas, value_input_option="USER_ENTERED")
-    log.info("Aba '%s' atualizada com %d linhas.", TARGET_TAB, len(linhas))
+    ws.update(linhas, value_input_option="RAW")
+    log.info("Aba '%s' atualizada com %d linhas × %d colunas.", TARGET_TAB, num_rows, num_cols)
 
 
 # ---------------------------------------------------------------------------
