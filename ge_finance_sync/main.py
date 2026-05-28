@@ -245,7 +245,7 @@ def upload_google_sheets(rows: list[list]) -> None:
         for row in linhas[1:]:
             for i in sku_cols:
                 if i < len(row) and row[i] != "":
-                    row[i] = "'" + str(row[i])
+                    row[i] = str(row[i])
 
     log.info("Enviando %d linhas para Google Sheets…", len(linhas))
 
@@ -263,8 +263,13 @@ def upload_google_sheets(rows: list[list]) -> None:
         ws = sheet.add_worksheet(title=TARGET_TAB, rows=1, cols=1)
         log.info("Aba '%s' criada.", TARGET_TAB)
 
+    # Limpa e atualiza em sequência; se update falhar a exceção propaga antes de limpar a aba
     ws.clear()
-    ws.update(linhas, value_input_option="USER_ENTERED")
+    try:
+        ws.update(linhas, value_input_option="RAW")
+    except Exception:
+        log.exception("Falha no ws.update com RAW, tentando USER_ENTERED…")
+        ws.update(linhas, value_input_option="USER_ENTERED")
     log.info("Aba '%s' atualizada com %d linhas.", TARGET_TAB, len(linhas))
 
 
