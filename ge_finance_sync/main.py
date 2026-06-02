@@ -263,15 +263,21 @@ def upload_google_sheets(rows: list[list]) -> None:
         ws = sheet.add_worksheet(title=TARGET_TAB, rows=1, cols=1)
         log.info("Aba '%s' criada.", TARGET_TAB)
 
-    # Limpa e atualiza em sequência; se update falhar a exceção propaga antes de limpar a aba
-    num_rows = len(linhas)
-    num_cols = len(linhas[0]) if linhas else 1
-
     # Redimensiona para o tamanho exato antes de limpar/atualizar,
     # evitando ultrapassar o limite de 10 milhões de células do Google Sheets
+    num_rows = len(linhas)
+    num_cols = len(linhas[0]) if linhas else 1
     ws.resize(rows=num_rows, cols=num_cols)
     ws.clear()
-    ws.update(linhas, value_input_option="RAW")
+
+    # Envia em lotes de 5000 linhas para evitar erro 500 do Sheets API (payload grande demais)
+    LOTE = 5000
+    for inicio in range(0, num_rows, LOTE):
+        lote = linhas[inicio:inicio + LOTE]
+        cell_range = f"A{inicio + 1}"
+        ws.update(lote, cell_range, value_input_option="RAW")
+        log.info("Lote enviado: linhas %d–%d de %d", inicio + 1, inicio + len(lote), num_rows)
+
     log.info("Aba '%s' atualizada com %d linhas × %d colunas.", TARGET_TAB, num_rows, num_cols)
 
 
