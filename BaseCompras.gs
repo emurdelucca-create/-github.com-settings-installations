@@ -41,17 +41,27 @@ const RCFG = {
   ABC_B: 0.90,
 };
 
-const CANAIS_ML     = ['ML Edmotos', 'ML Humble', 'ML Najumi', 'ML Sky', 'ML Moto Vibe'];
-const CANAIS_SHOPEE = ['Shopee Humble', 'Shopee Najumi', 'Shopee Sky'];
+const CANAIS_ML = [
+  'ML Edmotos',    'ML Edmotos FULL',
+  'ML Humble',     'ML Humble FULL',
+  'ML Najumi',     'ML Najumi FULL',
+  'ML Sky',        'ML Sky FULL',
+  'ML Moto Vibe',  'ML Moto Vibe FULL',
+];
+const CANAIS_SHOPEE = [
+  'Shopee Humble',
+  'Shopee Najumi', 'Shopee Najumi FULL',
+  'Shopee Sky',
+];
 const CANAIS_TODOS  = [...CANAIS_ML, ...CANAIS_SHOPEE];
 
 // Agrupamento por empresa para colunas AX-BB
 const EMPRESAS = [
-  { canais: ['ML Humble',    'Shopee Humble']  },  // AX
-  { canais: ['ML Najumi',    'Shopee Najumi']  },  // AY
-  { canais: ['ML Sky',       'Shopee Sky']     },  // AZ
-  { canais: ['ML Edmotos']                     },  // BA
-  { canais: ['ML Moto Vibe']                   },  // BB
+  { canais: ['ML Humble',    'ML Humble FULL',    'Shopee Humble']                       },  // AX
+  { canais: ['ML Najumi',    'ML Najumi FULL',    'Shopee Najumi', 'Shopee Najumi FULL'] },  // AY
+  { canais: ['ML Sky',       'ML Sky FULL',       'Shopee Sky']                          },  // AZ
+  { canais: ['ML Edmotos',   'ML Edmotos FULL']                                          },  // BA
+  { canais: ['ML Moto Vibe', 'ML Moto Vibe FULL']                                        },  // BB
 ];
 
 const PER_SEM = [
@@ -321,6 +331,19 @@ function _carregarEstoque(blDados, apenasSimples) {
 }
 
 // ============================================================
+// PARSE DD/MM/YYYY — novo Date() não consegue interpretar esse
+// formato corretamente: trata o dia como mês e vice-versa.
+// ============================================================
+function _parseDDMMYYYY(v) {
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  const s = String(v || '').trim();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+// ============================================================
 // CARREGAR VENDAS DO GE FINANCE
 // ============================================================
 function _carregarVendas(desmembrar, blInfo) {
@@ -334,15 +357,15 @@ function _carregarVendas(desmembrar, blInfo) {
 
   let dataMax = new Date(0);
   for (let i = 1; i < geDados.length; i++) {
-    const d = new Date(geDados[i][RCFG.GE_DATA]);
-    if (!isNaN(d) && d > dataMax) dataMax = d;
+    const d = _parseDDMMYYYY(geDados[i][RCFG.GE_DATA]);
+    if (d && d > dataMax) dataMax = d;
   }
   dataMax.setHours(23, 59, 59, 999);
 
   const diasPorLinha = geDados.map((row, i) => {
     if (i === 0) return -1;
-    const d = new Date(row[RCFG.GE_DATA]);
-    return isNaN(d) ? -1 : Math.floor((dataMax - d) / 86400000);
+    const d = _parseDDMMYYYY(row[RCFG.GE_DATA]);
+    return d ? Math.floor((dataMax - d) / 86400000) : -1;
   });
 
   const mapaCompostos = (desmembrar && blInfo.mapaCompostos) || {};
