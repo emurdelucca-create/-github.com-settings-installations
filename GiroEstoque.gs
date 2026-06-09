@@ -343,11 +343,23 @@ function _ge_escreverAba(nomeAba, itens, sortFn) {
   let   aba = ss.getSheetByName(nomeAba);
   if (!aba) aba = ss.insertSheet(nomeAba);
 
-  aba.clearContents();
-  aba.clearFormats();
-
   const PRIMA = GCFG.HEADER_ROWS + 1;
   const NCOLS = GCFG.NCOLS;
+
+  // Cabeçalho: limpa totalmente (é 100% do script)
+  aba.getRange(1, 1, GCFG.HEADER_ROWS, NCOLS + 2).clearContent().clearFormat();
+
+  // Dados: limpa só o conteúdo (preserva formatação manual do usuário)
+  // Reseta o formato apenas nas colunas que o script colore
+  const lastRow = aba.getLastRow();
+  if (lastRow >= PRIMA) {
+    const nRows = lastRow - PRIMA + 1;
+    aba.getRange(PRIMA, 1, nRows, NCOLS).clearContent();
+    // E(5) = custo vermelho | M(13) O(15) Q(17) S(19) = ABC | U(21) W(23) Y(25) AA(27) = AABBCC
+    [5, 13, 15, 17, 19, 21, 23, 25, 27].forEach(col => {
+      aba.getRange(PRIMA, col, nRows, 1).setBackground(null).setFontColor(null);
+    });
+  }
 
   // ── Cabeçalho 3 linhas ──
   const h1 = Array(NCOLS).fill('');
