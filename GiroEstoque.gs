@@ -397,6 +397,10 @@ function _ge_escreverAba(nomeAba, itens, sortFn) {
 
   // ── Dados ──
   const sorted = [...itens].sort(sortFn);
+  // Data/hora de atualização em AE1:AE2
+  aba.getRange(1, 31).setValue('Data Atualização');
+  aba.getRange(2, 31).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'));
+
   if (sorted.length === 0) { SpreadsheetApp.flush(); return; }
 
   const tz   = Session.getScriptTimeZone();
