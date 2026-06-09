@@ -1,7 +1,7 @@
 // ============================================================
-// GIRO DE ESTOQUE — v1
+// GIRO DE ESTOQUE — v3
 // 3 abas: Menor Giro / Maior Giro / Maior Estoque
-// Produtos sempre desmembrados (SKUs unitários)
+// Apenas SKUs Simples/PAI desmembrados (Composto excluído)
 // ============================================================
 
 const GCFG = {
@@ -13,22 +13,29 @@ const GCFG = {
   ABA_CUSTOS: 'Soma Composições',
   ID_PEND:    '1bYe0kxiHCUzPPHszQiK8JarKqzj5lxijAy7M3zpy1mg',
 
-  // "Dados Completos" — índices de coluna (base 0)
-  GE_SKU:  1, GE_QTD: 2, GE_DATA: 3, GE_FAT: 21,
-
-  // BaseLinker
+  GE_SKU: 1, GE_QTD: 2, GE_DATA: 3, GE_FAT: 21,
   BL_SKU: 1, BL_COD_EST: 2, BL_QTDE_EST: 3,
   BL_SALDO_PAD: 4, BL_SALDO_ARM: 5, BL_SALDO_CHG: 6,
   BL_TIPO: 7,
-
   CUST_SKU: 0, CUST_VALOR: 1,
-  PEND_SKU: 1, PEND_QTD:   2,
+  PEND_SKU: 1, PEND_QTD: 2,
 
   ABC_A: 0.70,
   ABC_B: 0.90,
-  HEADER_ROWS: 4,
+  HEADER_ROWS: 3,
   NCOLS: 29,
 };
+
+// Paleta de cores por grupo de colunas
+const GE_CORES = [
+  { de:1,  ate:5,  bgTop:'#455a64', bgBot:'#263238', fg:'#ffffff' }, // Info base
+  { de:6,  ate:8,  bgTop:'#1976d2', bgBot:'#0d47a1', fg:'#ffffff' }, // Qtd. Vendida
+  { de:9,  ate:11, bgTop:'#e53935', bgBot:'#b71c1c', fg:'#ffffff' }, // Diferença R$
+  { de:12, ate:12, bgTop:'#8e24aa', bgBot:'#4a148c', fg:'#ffffff' }, // Custo Estoque
+  { de:13, ate:20, bgTop:'#43a047', bgBot:'#1b5e20', fg:'#ffffff' }, // Curva ABC
+  { de:21, ate:28, bgTop:'#00897b', bgBot:'#004d40', fg:'#ffffff' }, // Curva AABBCC
+  { de:29, ate:29, bgTop:'#6d4c41', bgBot:'#3e2723', fg:'#ffffff' }, // Compras Pendentes
+];
 
 // ============================================================
 // MENU
@@ -36,38 +43,46 @@ const GCFG = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Giro de Estoque')
-    .addItem('🔄 Atualizar Dados', 'gerarGiroEstoque')
+    .addItem('📉 Menor Giro',    'gerarMenorGiro')
+    .addItem('📈 Maior Giro',    'gerarMaiorGiro')
+    .addItem('📦 Maior Estoque', 'gerarMaiorEstoque')
+    .addSeparator()
+    .addItem('🔄 Todas as Abas', 'gerarGiroEstoque')
     .addToUi();
 }
 
 // ============================================================
-// ENTRADA PRINCIPAL
+// FUNÇÕES PÚBLICAS — uma por aba para não estourar o tempo
 // ============================================================
+function gerarMenorGiro()    { _ge_gerarUmaAba('Giro — Menor Giro',    (a, b) => a.dijSum  - b.dijSum);  }
+function gerarMaiorGiro()    { _ge_gerarUmaAba('Giro — Maior Giro',    (a, b) => b.dijSum  - a.dijSum);  }
+function gerarMaiorEstoque() { _ge_gerarUmaAba('Giro — Maior Estoque', (a, b) => b.estPend - a.estPend); }
+
 function gerarGiroEstoque() {
+  gerarMenorGiro();
+  gerarMaiorGiro();
+  gerarMaiorEstoque();
+}
+
+function _ge_gerarUmaAba(nomeAba, sortFn) {
   const ui = SpreadsheetApp.getUi();
-  ui.alert('⏳ Atualizando Giro de Estoque... Aguarde.');
-
+  ui.alert('⏳ Gerando "' + nomeAba + '"... Aguarde.');
   try {
-    const mapaCustos                         = _ge_carregarCustos();
+    const mapaCustos                             = _ge_carregarCustos();
     const { mapaCompostos, proporcoes, estoque } = _ge_carregarBL(mapaCustos);
-    const pivotPend                          = _ge_carregarPendentes();
-    const vendas                             = _ge_carregarVendas(mapaCompostos, proporcoes);
-
-    const itens = _ge_montarItens(vendas, estoque, mapaCustos, pivotPend);
+    const pivotPend                              = _ge_carregarPendentes();
+    const vendas                                 = _ge_carregarVendas(mapaCompostos, proporcoes);
+    const itens                                  = _ge_montarItens(vendas, estoque, mapaCustos, pivotPend, mapaCompostos);
     _ge_calcularCurvas(itens);
-
-    _ge_escreverAba('Giro — Menor Giro',    itens, (a, b) => a.dijSum  - b.dijSum);
-    _ge_escreverAba('Giro — Maior Giro',    itens, (a, b) => b.dijSum  - a.dijSum);
-    _ge_escreverAba('Giro — Maior Estoque', itens, (a, b) => b.estPend - a.estPend);
-
-    ui.alert('✅ Giro de Estoque atualizado! ' + itens.length + ' SKUs.');
+    _ge_escreverAba(nomeAba, itens, sortFn);
+    ui.alert('✅ "' + nomeAba + '" atualizada! ' + itens.length + ' SKUs.');
   } catch (e) {
     ui.alert('❌ Erro: ' + e.message + '\n\nStack:\n' + e.stack);
   }
 }
 
 // ============================================================
-// PARSE DD/MM/YYYY  (idêntico ao BaseCompras)
+// PARSE DD/MM/YYYY
 // ============================================================
 function _ge_parseData(v) {
   if (v instanceof Date) return isNaN(v) ? null : v;
@@ -76,6 +91,19 @@ function _ge_parseData(v) {
   if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
   const d = new Date(s);
   return isNaN(d) ? null : d;
+}
+
+// ============================================================
+// HELPER: converte número de coluna em letra (A, B, ... AA, AB...)
+// ============================================================
+function _ge_colLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
 
 // ============================================================
@@ -93,12 +121,12 @@ function _ge_getAba(ss, nomeDesejado) {
 }
 
 // ============================================================
-// CARREGAR CUSTOS (aba "Soma Composições")
+// CARREGAR CUSTOS
 // ============================================================
 function _ge_carregarCustos() {
   const ss  = SpreadsheetApp.openById(GCFG.ID_CUSTOS);
   const aba = _ge_getAba(ss, GCFG.ABA_CUSTOS);
-  if (!aba) throw new Error('Aba Custos "' + GCFG.ABA_CUSTOS + '" não encontrada.');
+  if (!aba) throw new Error('Aba "' + GCFG.ABA_CUSTOS + '" não encontrada.');
   const dados = aba.getDataRange().getValues();
   const mapa  = {};
   for (let i = 1; i < dados.length; i++) {
@@ -116,8 +144,7 @@ function _ge_carregarBL(mapaCustos) {
   const ss  = SpreadsheetApp.openById(GCFG.ID_BL);
   const aba = _ge_getAba(ss, GCFG.ABA_BL);
   if (!aba) throw new Error('Aba BaseLinker "' + GCFG.ABA_BL + '" não encontrada.');
-  const dados = aba.getDataRange().getValues();
-
+  const dados         = aba.getDataRange().getValues();
   const estoque       = {};
   const mapaCompostos = {};
 
@@ -130,7 +157,6 @@ function _ge_carregarBL(mapaCustos) {
     const saldo  = Number(row[GCFG.BL_SALDO_PAD] || 0)
                  + Number(row[GCFG.BL_SALDO_ARM] || 0)
                  + Number(row[GCFG.BL_SALDO_CHG] || 0);
-
     if (!sku) continue;
 
     if (tipo === 'Composto') {
@@ -138,12 +164,10 @@ function _ge_carregarBL(mapaCustos) {
       if (!mapaCompostos[sku]) mapaCompostos[sku] = [];
       mapaCompostos[sku].push({ codEst, qtde });
     } else {
-      // Simples e PAI: estoque unitário direto
       estoque[sku] = (estoque[sku] || 0) + saldo;
     }
   }
 
-  // Proporções de custo para desmembrar faturamento dos kits
   const proporcoes = {};
   for (const pai in mapaCompostos) {
     const comps = mapaCompostos[pai];
@@ -178,7 +202,7 @@ function _ge_carregarPendentes() {
 }
 
 // ============================================================
-// CARREGAR VENDAS + DESMEMBRAMENTO
+// CARREGAR VENDAS + DESMEMBRAMENTO DE KITS
 // ============================================================
 function _ge_carregarVendas(mapaCompostos, proporcoes) {
   const geSS  = SpreadsheetApp.openById(GCFG.ID_GE);
@@ -186,7 +210,6 @@ function _ge_carregarVendas(mapaCompostos, proporcoes) {
   if (!geAba) throw new Error('Aba GE Finance "' + GCFG.ABA_GE + '" não encontrada.');
   const dados = geAba.getDataRange().getValues();
 
-  // dataMax = data mais recente na planilha → base para calcular "dias atrás"
   let dataMax = new Date(0);
   for (let i = 1; i < dados.length; i++) {
     const d = _ge_parseData(dados[i][GCFG.GE_DATA]);
@@ -198,24 +221,15 @@ function _ge_carregarVendas(mapaCompostos, proporcoes) {
 
   function acum(sku, dataVenda, dias, qtd, fat) {
     if (!vendas[sku]) {
-      vendas[sku] = {
-        qtd030: 0, qtd060: 0, qtd090: 0,
-        fat030: 0, fat3060: 0, fat6090: 0,
-        ultimaVenda: null,
-      };
+      vendas[sku] = { qtd030: 0, qtd060: 0, qtd090: 0, fat030: 0, fat3060: 0, fat6090: 0, ultimaVenda: null };
     }
     const v = vendas[sku];
-
-    // Qtd acumulada (0-30 ⊂ 0-60 ⊂ 0-90)
     if      (dias < 30) { v.qtd030 += qtd; v.qtd060 += qtd; v.qtd090 += qtd; }
     else if (dias < 60) {                  v.qtd060 += qtd; v.qtd090 += qtd; }
     else                {                                    v.qtd090 += qtd; }
-
-    // Fat por período exclusivo (para curvas ABC)
     if      (dias < 30) v.fat030  += fat;
     else if (dias < 60) v.fat3060 += fat;
     else                v.fat6090 += fat;
-
     if (!v.ultimaVenda || dataVenda > v.ultimaVenda) v.ultimaVenda = dataVenda;
   }
 
@@ -245,18 +259,19 @@ function _ge_carregarVendas(mapaCompostos, proporcoes) {
 }
 
 // ============================================================
-// MONTAR ITENS (1 objeto por SKU)
+// MONTAR ITENS — exclui chaves do mapaCompostos (SKUs de kit)
 // ============================================================
-function _ge_montarItens(vendas, estoque, mapaCustos, pivotPend) {
-  const hoje = new Date();
+function _ge_montarItens(vendas, estoque, mapaCustos, pivotPend, mapaCompostos) {
+  const hoje    = new Date();
   hoje.setHours(0, 0, 0, 0);
-
   const allSkus = new Set([...Object.keys(vendas), ...Object.keys(estoque)]);
   const itens   = [];
 
   allSkus.forEach(sku => {
-    const v    = vendas[sku] || { qtd030: 0, qtd060: 0, qtd090: 0, fat030: 0, fat3060: 0, fat6090: 0, ultimaVenda: null };
-    const est  = estoque[sku] !== undefined ? estoque[sku] : 0;
+    if (mapaCompostos[sku]) return; // Composto: excluir
+
+    const v     = vendas[sku] || { qtd030: 0, qtd060: 0, qtd090: 0, fat030: 0, fat3060: 0, fat6090: 0, ultimaVenda: null };
+    const est   = estoque[sku] !== undefined ? estoque[sku] : 0;
     const custo = mapaCustos[sku] || 0;
     const pend  = pivotPend[sku]  || 0;
 
@@ -270,15 +285,10 @@ function _ge_montarItens(vendas, estoque, mapaCustos, pivotPend) {
 
     itens.push({
       sku, est, ultimaVenda, diasUltVenda, custo,
-      qtd030:  v.qtd030,
-      qtd060:  v.qtd060,
-      qtd090:  v.qtd090,
+      qtd030: v.qtd030, qtd060: v.qtd060, qtd090: v.qtd090,
       i_030, i_060, i_090,
       custoEst: est > 0 ? est * custo : 0,
-      fat030:  v.fat030,
-      fat3060: v.fat3060,
-      fat6090: v.fat6090,
-      fat090,
+      fat030: v.fat030, fat3060: v.fat3060, fat6090: v.fat6090, fat090,
       pend,
       dijSum:  i_030 + i_060 + i_090,
       estPend: est + pend,
@@ -289,7 +299,7 @@ function _ge_montarItens(vendas, estoque, mapaCustos, pivotPend) {
 }
 
 // ============================================================
-// CURVAS ABC + AABBCC (4 períodos × 2 tipos)
+// CURVAS ABC + AABBCC
 // ============================================================
 function _ge_calcularCurvas(itens) {
   const periodos = [
@@ -303,7 +313,6 @@ function _ge_calcularCurvas(itens) {
     const sorted = [...itens].sort((a, b) => b[fatKey] - a[fatKey]);
     const total  = sorted.reduce((s, x) => s + x[fatKey], 0);
 
-    // Curva ABC primária
     let cum = 0;
     sorted.forEach(item => {
       cum += item[fatKey];
@@ -312,7 +321,6 @@ function _ge_calcularCurvas(itens) {
       item[abcKey] = { letra, pct };
     });
 
-    // AABBCC: sub-classificação ABC dentro de cada grupo primário
     ['A', 'B', 'C'].forEach(grp => {
       const grpItems = sorted.filter(x => x[abcKey].letra === grp);
       const grpTotal = grpItems.reduce((s, x) => s + x[fatKey], 0);
@@ -329,36 +337,6 @@ function _ge_calcularCurvas(itens) {
 
 // ============================================================
 // ESCREVER ABA
-// Layout (29 colunas):
-//  A(1)   SKU
-//  B(2)   Qntd. Estoque
-//  C(3)   Data Última Venda
-//  D(4)   Qntd. Dias Última Venda
-//  E(5)   Custo Unitário  ← vermelho se ≤ 0
-//  F(6)   Qtd Vendida 0-30
-//  G(7)   Qtd Vendida 0-60
-//  H(8)   Qtd Vendida 0-90
-//  I(9)   Diferença R$ 0-30  = (F-B)×E
-//  J(10)  Diferença R$ 0-60
-//  K(11)  Diferença R$ 0-90
-//  L(12)  Custo Estoque = B×E (0 se estoque ≤ 0)
-//  M(13)  Curva ABC 0-30  letra
-//  N(14)  Curva ABC 0-30  %
-//  O(15)  Curva ABC 30-60 letra
-//  P(16)  Curva ABC 30-60 %
-//  Q(17)  Curva ABC 60-90 letra
-//  R(18)  Curva ABC 60-90 %
-//  S(19)  Curva ABC 0-90  letra
-//  T(20)  Curva ABC 0-90  %
-//  U(21)  Curva AABBCC 0-30  letra
-//  V(22)  Curva AABBCC 0-30  %
-//  W(23)  Curva AABBCC 30-60 letra
-//  X(24)  Curva AABBCC 30-60 %
-//  Y(25)  Curva AABBCC 60-90 letra
-//  Z(26)  Curva AABBCC 60-90 %
-//  AA(27) Curva AABBCC 0-90  letra
-//  AB(28) Curva AABBCC 0-90  %
-//  AC(29) Compras Pendentes Qtd.
 // ============================================================
 function _ge_escreverAba(nomeAba, itens, sortFn) {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
@@ -371,45 +349,61 @@ function _ge_escreverAba(nomeAba, itens, sortFn) {
   const PRIMA = GCFG.HEADER_ROWS + 1;
   const NCOLS = GCFG.NCOLS;
 
-  // ── Cabeçalho 4 linhas ──
-  const h = [
-    Array(NCOLS).fill(''),
-    Array(NCOLS).fill(''),
-    Array(NCOLS).fill(''),
-    ['SKU','Qntd. Estoque','Data Última Venda','Qntd. Dias Última Venda','Custo Unitário',
-     '0-30','0-60','0-90','0-30','0-60','0-90','Custo Estoque',
-     'Curva','%','Curva','%','Curva','%','Curva','%',
-     'Curva','%','Curva','%','Curva','%','Curva','%',
-     'Qntd.'],
-  ];
-  // Linha 1: grupos de alto nível
-  h[0][12] = 'Curva ABC';
-  h[0][28] = 'Compras Pendentes';
-  // Linha 2: períodos (ABC cols 13–20, AABBCC cols 21–28, base-0 = 12–27)
-  h[1][12] = '0-30';  h[1][14] = '30-60'; h[1][16] = '60-90'; h[1][18] = '0-90';
-  h[1][20] = '0-30';  h[1][22] = '30-60'; h[1][24] = '60-90'; h[1][26] = '0-90';
-  // Linha 3: sub-grupos
-  h[2][5]  = 'Qntd. Vendida';
-  h[2][8]  = 'Diferença em R$';
-  h[2][20] = 'Curva AABBCC';
+  // ── Cabeçalho 3 linhas ──
+  const h1 = Array(NCOLS).fill('');
+  const h2 = Array(NCOLS).fill('');
+  const h3 = Array(NCOLS).fill('');
 
-  aba.getRange(1, 1, 4, NCOLS).setValues(h);
+  // Linha 1: grupos
+  h1[0]  = 'Informações do Produto';
+  h1[5]  = 'Qtd. Vendida';
+  h1[8]  = 'Diferença em R$';
+  h1[11] = 'Custo Estoque';
+  h1[12] = 'Curva ABC';
+  h1[20] = 'Curva AABBCC';
+  h1[28] = 'Compras Pendentes';
+
+  // Linha 2: períodos
+  h2[5]  = '0-30';  h2[6]  = '0-60';  h2[7]  = '0-90';
+  h2[8]  = '0-30';  h2[9]  = '0-60';  h2[10] = '0-90';
+  h2[12] = '0-30';  h2[14] = '30-60'; h2[16] = '60-90'; h2[18] = '0-90';
+  h2[20] = '0-30';  h2[22] = '30-60'; h2[24] = '60-90'; h2[26] = '0-90';
+
+  // Linha 3: nomes das colunas
+  h3[0]  = 'SKU';           h3[1]  = 'Estoque';
+  h3[2]  = 'Dt. Últ. Venda'; h3[3]  = 'Dias';      h3[4]  = 'Custo Unit.';
+  h3[5]  = 'Qtd.';          h3[6]  = 'Qtd.';       h3[7]  = 'Qtd.';
+  h3[8]  = 'Dif. R$';       h3[9]  = 'Dif. R$';    h3[10] = 'Dif. R$';
+  h3[11] = 'Custo Est.';
+  h3[12] = 'Curva'; h3[13] = '%'; h3[14] = 'Curva'; h3[15] = '%';
+  h3[16] = 'Curva'; h3[17] = '%'; h3[18] = 'Curva'; h3[19] = '%';
+  h3[20] = 'Curva'; h3[21] = '%'; h3[22] = 'Curva'; h3[23] = '%';
+  h3[24] = 'Curva'; h3[25] = '%'; h3[26] = 'Curva'; h3[27] = '%';
+  h3[28] = 'Qtd.';
+
+  aba.getRange(1, 1, 3, NCOLS).setValues([h1, h2, h3]);
+
+  // Data/hora de atualização (coluna AE = 31)
+  aba.getRange(1, 31).setValue('Data Atualização');
+  aba.getRange(2, 31).setValue(
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+  );
+
+  _ge_estilizarCabecalho(aba);
 
   // ── Dados ──
   const sorted = [...itens].sort(sortFn);
-  // Data/hora de atualização em AE1:AE2
-  aba.getRange(1, 31).setValue('Data Atualização');
-  aba.getRange(2, 31).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'));
-
   if (sorted.length === 0) { SpreadsheetApp.flush(); return; }
+
+  // Formata coluna A como texto ANTES de escrever (evita conversão numérica de SKUs)
+  aba.getRange(PRIMA, 1, sorted.length, 1).setNumberFormat('@');
 
   const tz   = Session.getScriptTimeZone();
   const rows = sorted.map(item => [
-    item.sku,                                                                // A
+    String(item.sku),                                                        // A
     item.est,                                                                // B
     item.ultimaVenda
-      ? Utilities.formatDate(item.ultimaVenda, tz, 'dd/MM/yyyy')
-      : '',                                                                  // C
+      ? Utilities.formatDate(item.ultimaVenda, tz, 'dd/MM/yyyy') : '',      // C
     item.diasUltVenda !== null ? item.diasUltVenda : '',                     // D
     item.custo,                                                              // E
     item.qtd030,                                                             // F
@@ -440,36 +434,94 @@ function _ge_escreverAba(nomeAba, itens, sortFn) {
 
   aba.getRange(PRIMA, 1, rows.length, NCOLS).setValues(rows);
 
-  // SKU como texto (evita conversão numérica)
-  aba.getRange(PRIMA, 1, rows.length, 1).setNumberFormat('@');
-
   // Percentuais: N(14), P(16), R(18), T(20), V(22), X(24), Z(26), AB(28)
   [14, 16, 18, 20, 22, 24, 26, 28].forEach(col => {
     aba.getRange(PRIMA, col, rows.length, 1).setNumberFormat('0.0%');
   });
 
-  // Fundo vermelho na col E onde custo ≤ 0
+  // Vermelho col E onde custo ≤ 0
   const redA1 = [];
   sorted.forEach((item, i) => {
-    if (item.custo <= 0) redA1.push(aba.getRange(PRIMA + i, 5).getA1Notation());
+    if (item.custo <= 0) redA1.push('E' + (PRIMA + i));
   });
   if (redA1.length) aba.getRangeList(redA1).setBackground('#ffcdd2');
 
-  // Colorir letras ABC (M=13, O=15, Q=17, S=19)
   _ge_colorirABC(aba, sorted, PRIMA,
-    [13, 15, 17, 19],
-    ['abc030', 'abc3060', 'abc6090', 'abc090']);
-
-  // Colorir letras AABBCC (U=21, W=23, Y=25, AA=27)
+    [13, 15, 17, 19], ['abc030', 'abc3060', 'abc6090', 'abc090']);
   _ge_colorirAABBCC(aba, sorted, PRIMA,
-    [21, 23, 25, 27],
-    ['aabbcc030', 'aabbcc3060', 'aabbcc6090', 'aabbcc090']);
+    [21, 23, 25, 27], ['aabbcc030', 'aabbcc3060', 'aabbcc6090', 'aabbcc090']);
 
   SpreadsheetApp.flush();
 }
 
 // ============================================================
-// COLORIR ABC
+// ESTILIZAR CABEÇALHO (cores, merges, freeze)
+// ============================================================
+function _ge_estilizarCabecalho(aba) {
+  const HEADER = GCFG.HEADER_ROWS;
+
+  // Cores por grupo
+  GE_CORES.forEach(g => {
+    const w = g.ate - g.de + 1;
+    // Linhas 1-2: tom mais claro
+    aba.getRange(1, g.de, 2, w)
+       .setBackground(g.bgTop).setFontColor(g.fg)
+       .setFontWeight('bold').setHorizontalAlignment('center')
+       .setVerticalAlignment('middle');
+    // Linha 3 (nomes): tom mais escuro
+    aba.getRange(3, g.de, 1, w)
+       .setBackground(g.bgBot).setFontColor(g.fg)
+       .setFontWeight('bold').setHorizontalAlignment('center')
+       .setVerticalAlignment('middle').setWrap(true);
+  });
+
+  // Coluna AE (31) — Data Atualização
+  aba.getRange(1, 31, 3, 1)
+     .setBackground('#263238').setFontColor('#ffffff')
+     .setFontWeight('bold').setHorizontalAlignment('center')
+     .setVerticalAlignment('middle');
+
+  // Merges linha 1 — grupos
+  aba.getRange(1, 1,  1, 5).merge();  // Informações do Produto
+  aba.getRange(1, 6,  1, 3).merge();  // Qtd. Vendida
+  aba.getRange(1, 9,  1, 3).merge();  // Diferença em R$
+  aba.getRange(1, 13, 1, 8).merge();  // Curva ABC
+  aba.getRange(1, 21, 1, 8).merge();  // Curva AABBCC
+
+  // Merges linha 2 — pares de período (Curva/%) para ABC e AABBCC
+  [[13,2],[15,2],[17,2],[19,2],   // ABC: 0-30 | 30-60 | 60-90 | 0-90
+   [21,2],[23,2],[25,2],[27,2],   // AABBCC: idem
+  ].forEach(([c, w]) => aba.getRange(2, c, 1, w).merge());
+
+  // Merges linha 2 — info base (A-E, L) e compras (AC)
+  aba.getRange(2, 1, 1, 5).merge();
+  aba.getRange(2, 6, 1, 1);  // sem merge — já tem período
+  aba.getRange(2, 12, 1, 1); // Custo Estoque — sem merge
+  aba.getRange(2, 29, 1, 1); // Compras Pendentes — sem merge
+
+  // Alturas de linha
+  aba.setRowHeight(1, 28);
+  aba.setRowHeight(2, 28);
+  aba.setRowHeight(3, 40);
+
+  // Larguras de coluna
+  aba.setColumnWidth(1, 110); // SKU
+  aba.setColumnWidth(3, 105); // Dt. Última Venda
+  aba.setColumnWidth(5, 85);  // Custo Unit.
+  aba.setColumnWidth(12, 90); // Custo Est.
+
+  // Congelar cabeçalho + coluna A
+  aba.setFrozenRows(HEADER);
+  aba.setFrozenColumns(1);
+
+  // Borda inferior no cabeçalho
+  aba.getRange(HEADER, 1, 1, GCFG.NCOLS)
+     .setBorder(null, null, true, null, null, null, '#000000',
+                SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+}
+
+// ============================================================
+// COLORIR ABC — constrói A1 notation sem chamar getRange por célula
 // ============================================================
 function _ge_colorirABC(aba, itens, prima, cols, keys) {
   const BG = { 'A': '#c8e6c9', 'B': '#fff9c4', 'C': '#ffcdd2' };
@@ -477,10 +529,11 @@ function _ge_colorirABC(aba, itens, prima, cols, keys) {
 
   cols.forEach((col, idx) => {
     const key    = keys[idx];
+    const letter = _ge_colLetter(col);
     const grupos = { 'A': [], 'B': [], 'C': [] };
     itens.forEach((item, i) => {
       const l = item[key] && item[key].letra;
-      if (l) grupos[l].push(aba.getRange(prima + i, col).getA1Notation());
+      if (l) grupos[l].push(letter + (prima + i));
     });
     Object.keys(grupos).forEach(l => {
       if (!grupos[l].length) return;
@@ -506,12 +559,13 @@ function _ge_colorirAABBCC(aba, itens, prima, cols, keys) {
 
   cols.forEach((col, idx) => {
     const key    = keys[idx];
+    const letter = _ge_colLetter(col);
     const grupos = {};
     itens.forEach((item, i) => {
       const l = item[key] && item[key].letra;
       if (!l || !BG[l]) return;
       if (!grupos[l]) grupos[l] = [];
-      grupos[l].push(aba.getRange(prima + i, col).getA1Notation());
+      grupos[l].push(letter + (prima + i));
     });
     Object.keys(grupos).forEach(l => {
       aba.getRangeList(grupos[l]).setBackground(BG[l]).setFontColor(FG[l]);
