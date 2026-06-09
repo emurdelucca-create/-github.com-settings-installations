@@ -510,9 +510,8 @@ function _ge_estilizarCabecalho(aba) {
   aba.setColumnWidth(5, 85);  // Custo Unit.
   aba.setColumnWidth(12, 90); // Custo Est.
 
-  // Congelar cabeçalho + coluna A
+  // Congelar cabeçalho
   aba.setFrozenRows(HEADER);
-  aba.setFrozenColumns(1);
 
   // Borda inferior no cabeçalho
   aba.getRange(HEADER, 1, 1, GCFG.NCOLS)
