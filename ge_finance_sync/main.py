@@ -2,9 +2,9 @@
 GE Finance → Google Sheets daily sync.
 Flow:
   1. Login na API do GE Finance com email/senha
-  2. Solicita exportação dos últimos 90 dias
-  3. Aguarda o arquivo ficar pronto (polling S3)
-  4. Baixa o Excel
+  2. Solicita exportação em dois períodos (0-45 dias e 45-90 dias)
+  3. Aguarda cada arquivo ficar pronto (polling S3)
+  4. Baixa os dois Excels e mescla (cabeçalho do primeiro, dados de ambos)
   5. Faz upload na aba "Dados Completos" do Google Sheets
 """
 import io
@@ -29,7 +29,8 @@ GE_BASE        = "https://gateway-web.ge.finance"
 GE_APP         = "https://app.ge.finance"
 SPREADSHEET_ID = "1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo"
 TARGET_TAB     = "Dados Completos"
-EXPORT_DAYS    = 90
+EXPORT_DAYS    = 90   # janela total
+SPLIT_DAYS     = 45   # cada pedido cobre metade
 BUCKET_NAME    = "prod-gecom-spreadsheet-excelexport-production"
 STATUS_ORDERS  = ["Entregue", "Enviado", "Aprovado", "Pronto para envio"]
 
@@ -118,13 +119,11 @@ def _extrair_auth(data: dict) -> tuple[str, str, str]:
 
 
 # ---------------------------------------------------------------------------
-# 2. Solicitar exportação
+# 2. Solicitar exportação (período explícito)
 # ---------------------------------------------------------------------------
-def ge_solicitar_exportacao(token: str, customer_id: str, plan_id: str) -> str:
-    hoje      = datetime.now(timezone.utc).date()
-    end_date  = hoje.strftime("%Y-%m-%d")
-    start_date = (hoje - timedelta(days=EXPORT_DAYS)).strftime("%Y-%m-%d")
-    refresh   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+def ge_solicitar_exportacao(token: str, customer_id: str, plan_id: str,
+                             start_date: str, end_date: str) -> str:
+    refresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
 
     params = [
         ("pageSize",       500),
@@ -310,14 +309,33 @@ def main():
     email    = os.environ["GE_EMAIL"]
     password = os.environ["GE_PASSWORD"]
 
-    auth_data              = ge_login(email, password)
-    token, cid, plan_id   = _extrair_auth(auth_data)
-    request_id             = ge_solicitar_exportacao(token, cid, plan_id)
-    content                = ge_aguardar_e_baixar(token, cid, plan_id, request_id, max_espera=3600, intervalo=20)
-    rows                   = parsear_excel(content)
+    auth_data            = ge_login(email, password)
+    token, cid, plan_id = _extrair_auth(auth_data)
 
-    if not rows:
-        raise ValueError("Arquivo Excel vazio.")
+    hoje   = datetime.now(timezone.utc).date()
+    meio   = hoje - timedelta(days=SPLIT_DAYS)       # ponto de corte
+    antigo = hoje - timedelta(days=EXPORT_DAYS)       # início da janela
+
+    # Período 1: 45-90 dias atrás (dados mais antigos)
+    log.info("=== Período 1: %s → %s ===", antigo, meio)
+    rid1   = ge_solicitar_exportacao(token, cid, plan_id, antigo.strftime("%Y-%m-%d"), meio.strftime("%Y-%m-%d"))
+    rows1  = parsear_excel(ge_aguardar_e_baixar(token, cid, plan_id, rid1, max_espera=3600, intervalo=20))
+
+    # Período 2: 0-45 dias atrás (dados mais recentes)
+    log.info("=== Período 2: %s → %s ===", meio, hoje)
+    rid2   = ge_solicitar_exportacao(token, cid, plan_id, meio.strftime("%Y-%m-%d"), hoje.strftime("%Y-%m-%d"))
+    rows2  = parsear_excel(ge_aguardar_e_baixar(token, cid, plan_id, rid2, max_espera=3600, intervalo=20))
+
+    if not rows1 and not rows2:
+        raise ValueError("Ambos os arquivos Excel estão vazios.")
+
+    # Mescla: cabeçalho do período 1 + dados de ambos (sem repetir cabeçalho do período 2)
+    if rows1 and rows2:
+        rows = rows1 + rows2[1:]   # rows2[0] é o cabeçalho duplicado
+    else:
+        rows = rows1 or rows2
+
+    log.info("Total após mesclagem: %d linhas.", len(rows))
 
     upload_google_sheets(rows)
     log.info("✅ Sync concluído!")
