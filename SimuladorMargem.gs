@@ -1,12 +1,19 @@
 // ============================================================
-// SIMULADOR DE MARGEM — v1
+// SIMULADOR DE MARGEM — v2
 // Calcula impacto de aumento de custo na margem por SKU/período
 // Entradas: col A = SKU (texto), col B = custo novo
+// Inclui desmembramento de Compostos → Simples (mesma lógica do BaseCompras)
 // ============================================================
 
 const FMCFG = {
   ID_GE:  '1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo',
   ABA_GE: 'Dados Completos',
+
+  ID_BL:      '1wy-tJoDxGDjfnd0AXQfdQ0bw9qmTtxz7wV4UKDlQrik',
+  ABA_BL:     'estoque',
+
+  ID_CUSTOS:  '1C9Z4vT9SaamEGJ_hCWXdOm8vWOMhxw_vAb049mvtrP0',
+  ABA_CUSTOS: 'Soma Composições',
 
   // "Dados Completos" — índices de coluna (base 0)
   // SKUs na col B estão armazenados como TEXTO — comparação sempre via String()
@@ -18,6 +25,16 @@ const FMCFG = {
   GE_VENDA:  25,  // Z
   GE_LIQ:    44,  // AS (valor líquido, já com imposto deduzido)
   GE_MARGEM: 45,  // AT
+
+  // BL estoque — índices de coluna (base 0)
+  BL_SKU:     1,
+  BL_COD_EST: 2,
+  BL_QTDE_EST:3,
+  BL_TIPO:    7,
+
+  // Custos — índices de coluna (base 0)
+  CUST_SKU:   0,
+  CUST_VALOR: 1,
 
   HEADER_ROWS:    3,
   NCOLS:          26,  // A–Z
@@ -74,8 +91,9 @@ function _fm_calcular(nomeAba, canaisFiltro) {
     const nRows  = lastRow - PRIMA + 1;
     const inputs = aba.getRange(PRIMA, 1, nRows, 2).getValues();
 
-    // Carregar e indexar dados do GE Finance
+    // Carregar dados do GE Finance e estrutura de Compostos
     const { dados, diasPorLinha } = _fm_carregarGE();
+    const { mapaCompostos, proporcoes } = _fm_carregarBL();
 
     // Recria cabeçalho e limpa colunas C–Z dos dados
     _fm_escreverCabecalho(aba, nomeAba);
@@ -86,10 +104,10 @@ function _fm_calcular(nomeAba, canaisFiltro) {
     let calculados = 0;
 
     inputs.forEach(([skuRaw, custoNovoRaw]) => {
-      const sku      = String(skuRaw     || '').trim();
+      const sku       = String(skuRaw     || '').trim();
       const custoNovo = Number(custoNovoRaw) || 0;
       if (!sku) { resultRows.push(Array(FMCFG.NCOLS - 2).fill('')); return; }
-      resultRows.push(_fm_calcularSku(dados, diasPorLinha, sku, custoNovo, canaisFiltro));
+      resultRows.push(_fm_calcularSku(dados, diasPorLinha, sku, custoNovo, canaisFiltro, mapaCompostos, proporcoes));
       calculados++;
     });
 
@@ -112,7 +130,7 @@ function _fm_calcular(nomeAba, canaisFiltro) {
     }
 
     SpreadsheetApp.flush();
-    ui.alert('✅ "' + nomeAba + '" calculada! ' + calculados + ' SKUs processados.');
+    ui.alert('✅ "' + nomeAba + '" calculada! ' + calculados + ' SKUs processados (com desmembramento de Compostos).');
   } catch (e) {
     ui.alert('❌ Erro: ' + e.message + '\n\nStack:\n' + e.stack);
   }
@@ -146,10 +164,63 @@ function _fm_carregarGE() {
 }
 
 // ============================================================
+// CARREGAR ESTRUTURA DE COMPOSTOS (BL + Custos)
+// Retorna mapaCompostos e proporcoes, idêntico ao BaseCompras
+// ============================================================
+function _fm_carregarBL() {
+  // BL estoque → estrutura dos kits
+  const blSS  = SpreadsheetApp.openById(FMCFG.ID_BL);
+  const blAba = blSS.getSheetByName(FMCFG.ABA_BL);
+  if (!blAba) throw new Error('Aba BL "' + FMCFG.ABA_BL + '" não encontrada.');
+  const blDados = blAba.getDataRange().getValues();
+
+  const mapaCompostos = {}; // skuComposto → [{codEst, qtde}]
+  for (let i = 1; i < blDados.length; i++) {
+    const row    = blDados[i];
+    const sku    = String(row[FMCFG.BL_SKU]      || '').trim();
+    const codEst = String(row[FMCFG.BL_COD_EST]  || '').trim();
+    const qtde   = Number(row[FMCFG.BL_QTDE_EST] || 0);
+    const tipo   = String(row[FMCFG.BL_TIPO]     || '').trim();
+    if (!sku || tipo !== 'Composto' || !codEst) continue;
+    if (!mapaCompostos[sku]) mapaCompostos[sku] = [];
+    mapaCompostos[sku].push({ codEst, qtde });
+  }
+
+  // Custos → proporções por componente dentro de cada Composto
+  const custSS  = SpreadsheetApp.openById(FMCFG.ID_CUSTOS);
+  const custAba = custSS.getSheetByName(FMCFG.ABA_CUSTOS);
+  if (!custAba) throw new Error('Aba Custos "' + FMCFG.ABA_CUSTOS + '" não encontrada.');
+  const custDados  = custAba.getDataRange().getValues();
+  const mapaCustos = {};
+  for (let i = 1; i < custDados.length; i++) {
+    const sku   = String(custDados[i][FMCFG.CUST_SKU]   || '').trim();
+    const custo = parseFloat(String(custDados[i][FMCFG.CUST_VALOR] || '0').replace(',', '.')) || 0;
+    if (sku && !mapaCustos[sku]) mapaCustos[sku] = custo;
+  }
+
+  // proporcoes[skuPai][skuComp] = fração do valor total do kit
+  const proporcoes = {};
+  for (const pai in mapaCompostos) {
+    const comps = mapaCompostos[pai];
+    let total = 0;
+    comps.forEach(c => { total += (mapaCustos[c.codEst] || 0) * c.qtde; });
+    proporcoes[pai] = {};
+    comps.forEach(c => {
+      proporcoes[pai][c.codEst] = total > 0
+        ? ((mapaCustos[c.codEst] || 0) * c.qtde) / total
+        : 1 / comps.length;
+    });
+  }
+
+  return { mapaCompostos, proporcoes };
+}
+
+// ============================================================
 // CALCULAR MÉTRICAS PARA UM SKU
+// Inclui vendas diretas (Simples) + vendas desmembradas (via Compostos)
 // Retorna array de 24 valores (8 por período × 3 períodos)
 // ============================================================
-function _fm_calcularSku(dados, diasPorLinha, skuBusca, custoNovo, canaisFiltro) {
+function _fm_calcularSku(dados, diasPorLinha, skuBusca, custoNovo, canaisFiltro, mapaCompostos, proporcoes) {
   // Acumuladores por período: 0-30 / 30-60 / 60-90
   const acc = [
     { qtd:0, venda:0, custo:0, liq:0, margem:0 },
@@ -158,10 +229,6 @@ function _fm_calcularSku(dados, diasPorLinha, skuBusca, custoNovo, canaisFiltro)
   ];
 
   for (let i = 1; i < dados.length; i++) {
-    // SKU na planilha é TEXTO — comparação String × String
-    const skuGE = String(dados[i][FMCFG.GE_SKU] || '').trim();
-    if (skuGE !== skuBusca) continue;
-
     const dias = diasPorLinha[i];
     if (dias < 0 || dias >= 90) continue;
 
@@ -170,6 +237,9 @@ function _fm_calcularSku(dados, diasPorLinha, skuBusca, custoNovo, canaisFiltro)
       if (!canaisFiltro.some(c => c.toLowerCase() === canal.toLowerCase())) continue;
     }
 
+    // SKU na planilha é TEXTO — comparação String × String
+    const skuGE = String(dados[i][FMCFG.GE_SKU] || '').trim();
+
     const qtd    = Number(dados[i][FMCFG.GE_QTD]    || 0);
     const venda  = Number(dados[i][FMCFG.GE_VENDA]  || 0);
     const custo  = Number(dados[i][FMCFG.GE_CUSTO]  || 0);
@@ -177,11 +247,28 @@ function _fm_calcularSku(dados, diasPorLinha, skuBusca, custoNovo, canaisFiltro)
     const margem = Number(dados[i][FMCFG.GE_MARGEM] || 0);
 
     const p = dias < 30 ? 0 : dias < 60 ? 1 : 2;
-    acc[p].qtd    += qtd;
-    acc[p].venda  += venda;
-    acc[p].custo  += custo;   // sum(col L) / qtd = custo médio
-    acc[p].liq    += liq;
-    acc[p].margem += margem;
+
+    if (skuGE === skuBusca) {
+      // Venda direta do Simples (ou PAI)
+      acc[p].qtd    += qtd;
+      acc[p].venda  += venda;
+      acc[p].custo  += custo;
+      acc[p].liq    += liq;
+      acc[p].margem += margem;
+
+    } else if (mapaCompostos[skuGE]) {
+      // Este SKU é um Composto — verificar se skuBusca é componente
+      const comps = mapaCompostos[skuGE];
+      const comp  = comps.find(c => c.codEst === skuBusca);
+      if (comp) {
+        const prop = (proporcoes[skuGE] && proporcoes[skuGE][skuBusca]) || 0;
+        acc[p].qtd    += qtd * comp.qtde;  // unidades físicas do componente
+        acc[p].venda  += venda  * prop;
+        acc[p].custo  += custo  * prop;
+        acc[p].liq    += liq    * prop;
+        acc[p].margem += margem * prop;
+      }
+    }
   }
 
   const cols = [];
@@ -316,12 +403,11 @@ function _fm_colorirMargemNova(aba, rows, prima) {
   [10, 18, 26].forEach(col => {
     const verde = [], amarelo = [], vermelho = [];
     const idxRow = col - FMCFG.DATA_START_COL; // índice no array resultRows
-    const letter = _fm_colLetter(col);
 
     rows.forEach((row, i) => {
       const val = row[idxRow];
       if (val === '' || val === null || val === undefined) return;
-      const a1 = letter + (prima + i);
+      const a1 = _fm_colLetter(col) + (prima + i);
       if      (val >= 0.15) verde.push(a1);
       else if (val >= 0.10) amarelo.push(a1);
       else                  vermelho.push(a1);
