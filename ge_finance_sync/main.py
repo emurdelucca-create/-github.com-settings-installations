@@ -148,12 +148,18 @@ def ge_solicitar_exportacao(token: str, customer_id: str, plan_id: str) -> str:
     for s in STATUS_ORDERS:
         params.append(("StatusOrder", s))
 
-    resp = requests.get(
-        f"{GE_BASE}/api/SpreadSheet/GetSpreadSheetSystemNew",
-        headers=_headers(token, customer_id, plan_id),
-        params=params,
-        timeout=60,
-    )
+    for tentativa in range(1, 5):
+        resp = requests.get(
+            f"{GE_BASE}/api/SpreadSheet/GetSpreadSheetSystemNew",
+            headers=_headers(token, customer_id, plan_id),
+            params=params,
+            timeout=60,
+        )
+        if resp.status_code < 500:
+            break
+        wait = 2 ** tentativa
+        log.warning("Tentativa %d: status %d — aguardando %ds antes de tentar novamente.", tentativa, resp.status_code, wait)
+        time.sleep(wait)
     resp.raise_for_status()
     data = resp.json()
     log.debug("Resposta exportação: %s", json.dumps(data, ensure_ascii=False)[:500])
