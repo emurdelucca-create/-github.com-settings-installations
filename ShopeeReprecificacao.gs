@@ -213,7 +213,7 @@ function gerarReprecificacao() {
       produtos  = _sr_carregarProdutos(ss);
       mapaPromo = _sr_carregarPromocoes(ss);
     }
-    const mapaVendas    = _sr_carregarVendas(ss);
+    const mapaVendas = _sr_carregarVendas(ss);
 
     if (!produtos.length) {
       ui.alert('❌ Nenhum produto encontrado em "' + SRCFG.ABA_PRODUTOS + '".\nCole a exportação e tente novamente.');
@@ -226,12 +226,151 @@ function gerarReprecificacao() {
     );
 
     _sr_calcularCurvas(itens);
+
+    // Ordena por receita total 90 dias decrescente
+    itens.sort((a, b) =>
+      (b.fat030 + b.fat3060 + b.fat6090) - (a.fat030 + a.fat3060 + a.fat6090)
+    );
+
     _sr_escreverAba(ss, itens, taxa);
+    _sr_salvarCaches(ss, mapaCompostos, mapaCustos);
 
     ui.alert('✅ Reprecificação atualizada! ' + itens.length + ' variações processadas.');
   } catch (e) {
     ui.alert('❌ Erro: ' + e.message + '\n\n' + e.stack);
   }
+}
+
+// ============================================================
+// CACHE — salva estrutura de compostos e custos base para o onEdit
+// ============================================================
+function _sr_salvarCaches(ss, mapaCompostos, mapaCustos) {
+  // Cache compostos: PAI | COMP | QTDE
+  let abaC = ss.getSheetByName('_sr_compostos_cache');
+  if (!abaC) { abaC = ss.insertSheet('_sr_compostos_cache'); abaC.hideSheet(); }
+  abaC.clearContents();
+  const rowsC = [['pai', 'comp', 'qtde']];
+  for (const pai in mapaCompostos) {
+    mapaCompostos[pai].forEach(c => rowsC.push([pai, c.codEst, c.qtde]));
+  }
+  if (rowsC.length > 1) abaC.getRange(1, 1, rowsC.length, 3).setValues(rowsC);
+
+  // Cache custos base (Soma Composições): SKU | CUSTO
+  let abaK = ss.getSheetByName('_sr_custos_base_cache');
+  if (!abaK) { abaK = ss.insertSheet('_sr_custos_base_cache'); abaK.hideSheet(); }
+  abaK.clearContents();
+  const rowsK = [['sku', 'custo']];
+  for (const sku in mapaCustos) rowsK.push([sku, mapaCustos[sku]]);
+  if (rowsK.length > 1) abaK.getRange(1, 1, rowsK.length, 2).setValues(rowsK);
+}
+
+// ============================================================
+// ON EDIT — detecta mudança em "Novo Custo" e recalcula S-AB
+// ============================================================
+function onEdit(e) {
+  if (!e) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== SRCFG.ABA_NOVO_CUSTO) return;
+  if (e.range.getColumn() !== 2) return; // só coluna B (custo)
+  if (e.range.getRow() < 2)     return; // ignora cabeçalho
+
+  const sku = sheet.getRange(e.range.getRow(), 1).getValue();
+  if (!sku) return;
+
+  _sr_atualizarNovoCusto(e.source, String(sku).trim());
+}
+
+/**
+ * Recalcula W (Novo Custo), S (Preço Reverso), T, U para todas as linhas
+ * da aba Reprecificação afetadas pelo SKU editado — simples e compostos.
+ */
+function _sr_atualizarNovoCusto(ss, skuEditado) {
+  const abaRep = ss.getSheetByName(SRCFG.ABA_SAIDA);
+  if (!abaRep || abaRep.getLastRow() < SRCFG.HEADER_ROWS + 1) return;
+
+  const mapaNovoCusto = _sr_carregarNovoCusto(ss);
+  const taxa          = _sr_carregarTaxa(ss);
+
+  // Carrega cache de compostos
+  const mapaCompostos = {};
+  const abaCmp = ss.getSheetByName('_sr_compostos_cache');
+  if (abaCmp && abaCmp.getLastRow() > 1) {
+    abaCmp.getDataRange().getValues().slice(1).forEach(r => {
+      const pai = String(r[0]).trim();
+      if (!mapaCompostos[pai]) mapaCompostos[pai] = [];
+      mapaCompostos[pai].push({ codEst: String(r[1]).trim(), qtde: Number(r[2]) || 1 });
+    });
+  }
+
+  // Carrega cache de custos base (fallback quando não há Novo Custo)
+  const mapaCustosBase = {};
+  const abaKB = ss.getSheetByName('_sr_custos_base_cache');
+  if (abaKB && abaKB.getLastRow() > 1) {
+    abaKB.getDataRange().getValues().slice(1).forEach(r => {
+      mapaCustosBase[String(r[0]).trim()] = Number(r[1]) || 0;
+    });
+  }
+
+  // SKUs afetados: o próprio + todos os compostos que o usam como componente
+  const skusAfetados = new Set([skuEditado]);
+  for (const pai in mapaCompostos) {
+    if (mapaCompostos[pai].some(c => c.codEst === skuEditado)) skusAfetados.add(pai);
+  }
+
+  const PRIMA   = SRCFG.HEADER_ROWS + 1;
+  const lastRow = abaRep.getLastRow();
+  const numRows = lastRow - PRIMA + 1;
+  if (numRows < 1) return;
+
+  // Lê colunas necessárias: F(6)=skuFinal, R(18)=margemPct — índices 0-based 5 e 17
+  const dados = abaRep.getRange(PRIMA, 1, numRows, 18).getValues();
+
+  // Acumula mudanças para escrever em lote por coluna
+  const updW = [], updS = [], updT = [], updU = [];
+
+  dados.forEach((row, idx) => {
+    const skuFinal = String(row[5]).trim(); // col F
+    if (!skusAfetados.has(skuFinal)) return;
+
+    const rowNum    = PRIMA + idx;
+    const margemPct = Number(row[17]) || 0; // col R
+
+    // Calcula novo custo
+    let novoCusto;
+    if (mapaCompostos[skuFinal]) {
+      novoCusto = mapaCompostos[skuFinal].reduce((s, c) => {
+        const custoComp = (mapaNovoCusto[c.codEst] !== undefined && mapaNovoCusto[c.codEst] > 0)
+          ? mapaNovoCusto[c.codEst]
+          : (mapaCustosBase[c.codEst] || 0);
+        return s + custoComp * c.qtde;
+      }, 0);
+    } else {
+      novoCusto = (mapaNovoCusto[skuFinal] !== undefined && mapaNovoCusto[skuFinal] > 0)
+        ? mapaNovoCusto[skuFinal]
+        : (mapaCustosBase[skuFinal] || 0);
+    }
+
+    // Recalcula Preço Reverso
+    const precoRev = novoCusto > 0 ? _sr_calcPrecoReverso(margemPct, novoCusto, taxa) : 0;
+    const comRev   = precoRev  > 0 ? _sr_calcComissao(precoRev) : 0;
+    const mgrRev   = precoRev  > 0 ? precoRev - comRev - precoRev * taxa - novoCusto : 0;
+    const mgrPctRev= precoRev  > 0 ? mgrRev / precoRev : 0;
+
+    updW.push({ row: rowNum, val: novoCusto > 0 ? novoCusto : '' });
+    updS.push({ row: rowNum, val: precoRev  > 0 ? precoRev  : '' });
+    updT.push({ row: rowNum, val: precoRev  > 0 ? mgrRev    : '' });
+    updU.push({ row: rowNum, val: precoRev  > 0 ? mgrPctRev : '' });
+  });
+
+  // Escreve em lote por coluna
+  const writeCol = (col, updates) => {
+    updates.forEach(u => abaRep.getRange(u.row, col).setValue(u.val));
+  };
+  writeCol(23, updW); // W
+  writeCol(19, updS); // S
+  writeCol(20, updT); // T
+  writeCol(21, updU); // U
+  SpreadsheetApp.flush();
 }
 
 // ============================================================
@@ -687,13 +826,13 @@ function _sr_escreverAba(ss, itens, taxa) {
     const cv = `V${r}`;
     const cw = `W${r}`;
     const co = `O${r}`;
-    const com = `IF(${cv}<=79.99,0.2*${cv}+4,IF(${cv}<=99.99,0.14*${cv}+16,IF(${cv}<=199.99,0.14*${cv}+20,0.14*${cv}+26)))`;
+    const com = `IF(${cv}<=79.99;0.2*${cv}+4;IF(${cv}<=99.99;0.14*${cv}+16;IF(${cv}<=199.99;0.14*${cv}+20;0.14*${cv}+26)))`;
     return [
-      `=IF(OR(${cv}="",${cv}=0),"",${com})`,                                         // X 24 comissão
-      `=IF(OR(${cv}="",${cv}=0),"",${cv}-X${r})`,                                    // Y 25 repasse
-      `=IF(OR(${cv}="",${cv}=0),"",${cv}-X${r}-${cv}*${co}-IF(${cw}="",P${r},${cw}))`, // Z 26 margem R$
-      `=IF(OR(${cv}="",${cv}=0),"",Y${r}/${cv})`,                                    // AA 27 repasse %
-      `=IF(OR(${cv}="",${cv}=0),"",Z${r}/${cv})`,                                    // AB 28 margem %
+      `=IF(OR(${cv}="";${cv}=0);"";${com})`,                                              // X 24 comissão
+      `=IF(OR(${cv}="";${cv}=0);"";${cv}-X${r})`,                                         // Y 25 repasse
+      `=IF(OR(${cv}="";${cv}=0);"";${cv}-X${r}-${cv}*${co}-IF(${cw}="";P${r};${cw}))`,   // Z 26 margem R$
+      `=IF(OR(${cv}="";${cv}=0);"";Y${r}/${cv})`,                                         // AA 27 repasse %
+      `=IF(OR(${cv}="";${cv}=0);"";Z${r}/${cv})`,                                         // AB 28 margem %
     ];
   });
   aba.getRange(PRIMA, 24, itens.length, 5).setFormulas(fmls);
