@@ -826,7 +826,7 @@ function _sr_escreverAba(ss, itens, taxa) {
     const cv = `V${r}`;
     const cw = `W${r}`;
     const co = `O${r}`;
-    const com = `IF(${cv}<=79.99;0.2*${cv}+4;IF(${cv}<=99.99;0.14*${cv}+16;IF(${cv}<=199.99;0.14*${cv}+20;0.14*${cv}+26)))`;
+    const com = `IF(${cv}<=79,99;0,2*${cv}+4;IF(${cv}<=99,99;0,14*${cv}+16;IF(${cv}<=199,99;0,14*${cv}+20;0,14*${cv}+26)))`;
     return [
       `=IF(OR(${cv}="";${cv}=0);"";${com})`,                                              // X 24 comissão
       `=IF(OR(${cv}="";${cv}=0);"";${cv}-X${r})`,                                         // Y 25 repasse
