@@ -857,7 +857,7 @@ function _sr_escreverCabecalho(aba) {
   aba.setColumnWidth(6, 110);  // SKU Final
   aba.setColumnWidth(22, 100); // Preço Novo
   aba.setFrozenRows(2);
-  aba.setFrozenColumns(6); // Freezar até SKU Final
+  aba.setFrozenColumns(5); // Freezar A-E (merge da linha 1 começa em F)
 }
 
 // ============================================================
