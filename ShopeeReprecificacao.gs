@@ -79,8 +79,8 @@ function criarAbas() {
     },
     {
       nome: SRCFG.ABA_VENDAS,
-      header: ['Data do Pedido','SKU do Usuário','SKU da Variação','Quantidade','Receita (R$)'],
-      nota: 'Cole aqui a exportação de Meus Pedidos (acumule até 90 dias). Cabeçalho na linha 1.',
+      header: ['Status do pedido','Data de criação do pedido','Número de referência SKU','Quantidade','Subtotal do produto'],
+      nota: 'Cole o export original de Meus Pedidos da Shopee direto nesta aba (pode acumular até 90 dias).',
     },
     {
       nome: SRCFG.ABA_NOVO_CUSTO,
@@ -341,7 +341,11 @@ function _sr_carregarPromocoes(ss) {
 
 // ============================================================
 // CARREGAR VENDAS SHOPEE — acumulado, bin 0-30/30-60/60-90 dias
+// Referência: dataMax = data mais recente nos dados (não "hoje")
+// Status aceitos: Concluído, Entregue, Enviado, Order Received, A Enviar
 // ============================================================
+const SR_STATUS_OK = ['concluido', 'entregue', 'enviado', 'order received', 'a enviar'];
+
 function _sr_carregarVendas(ss) {
   const aba  = ss.getSheetByName(SRCFG.ABA_VENDAS);
   const mapa = {}; // sku → { fat030, qtd030, fat3060, qtd3060, fat6090, qtd6090 }
@@ -349,35 +353,48 @@ function _sr_carregarVendas(ss) {
 
   const dados = aba.getDataRange().getValues();
   const cols  = _sr_detectarColunas(dados[0], {
-    data:    ['data do pedido', 'data de criacao', 'data criacao', 'criado em', 'data'],
-    skuUsr:  ['sku do usuario', 'sku usuario', 'sku'],
-    skuVar:  ['sku da variacao', 'sku variacao', 'codigo do produto'],
+    status:  ['status do pedido', 'status'],
+    data:    ['data de criacao do pedido', 'data de criacao', 'data do pedido', 'data criacao', 'data'],
+    sku:     ['numero de referencia sku', 'referencia sku', 'sku'],
     qtd:     ['quantidade', 'qtd', 'qty'],
-    receita: ['receita', 'valor', 'preco total', 'preco do produto', 'total'],
+    receita: ['subtotal do produto', 'subtotal', 'receita', 'valor'],
   });
 
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
+  // Primeiro passo: encontrar dataMax em todos os dados válidos
+  let dataMax = new Date(0);
+  for (let i = 1; i < dados.length; i++) {
+    const d = cols.data >= 0 ? _sr_parseData(dados[i][cols.data]) : null;
+    if (d && d > dataMax) dataMax = d;
+  }
+  dataMax = new Date(dataMax.getFullYear(), dataMax.getMonth(), dataMax.getDate());
 
+  // Segundo passo: acumular vendas relativas a dataMax
   for (let i = 1; i < dados.length; i++) {
     const row = dados[i];
-    const d   = cols.data >= 0 ? _sr_parseData(row[cols.data]) : null;
+
+    // Filtro de status
+    if (cols.status >= 0) {
+      const st = String(row[cols.status] || '').normalize('NFD')
+        .replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+      if (!SR_STATUS_OK.some(s => st.includes(s))) continue;
+    }
+
+    const d = cols.data >= 0 ? _sr_parseData(row[cols.data]) : null;
     if (!d) continue;
     const dNorm = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const dias  = Math.floor((hoje - dNorm) / 86400000);
+    const dias  = Math.floor((dataMax - dNorm) / 86400000);
     if (dias < 0 || dias >= 90) continue;
 
-    const skuUsr = cols.skuUsr >= 0 ? String(row[cols.skuUsr] || '').trim() : '';
-    const skuVar = cols.skuVar >= 0 ? String(row[cols.skuVar] || '').trim() : '';
-    const sku    = skuUsr || skuVar;
+    const sku = cols.sku >= 0 ? String(row[cols.sku] || '').trim() : '';
     if (!sku) continue;
 
-    const qtd = cols.qtd >= 0
-      ? (typeof row[cols.qtd] === 'number' ? row[cols.qtd] : parseFloat(String(row[cols.qtd]).replace(',', '.')) || 0)
-      : 0;
-    const rec = cols.receita >= 0
-      ? (typeof row[cols.receita] === 'number' ? row[cols.receita] : parseFloat(String(row[cols.receita]).replace(',', '.')) || 0)
-      : 0;
+    const getN = (k) => {
+      if (cols[k] < 0) return 0;
+      const v = row[cols[k]];
+      return typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.')) || 0;
+    };
+    const qtd = getN('qtd');
+    const rec = getN('receita');
 
     if (!mapa[sku]) mapa[sku] = { fat030: 0, qtd030: 0, fat3060: 0, qtd3060: 0, fat6090: 0, qtd6090: 0 };
     const v = mapa[sku];
@@ -399,6 +416,7 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
     const precoFinal = precoPromo > 0 ? precoPromo : p.precoNorm;
 
     // Tipo e estoque BL
+    // Custo: mapaNovoCusto é fonte primária; mapaCustos (Soma Composições) é fallback
     let tipo, estoqueBL, custo;
     if (mapaCompostos[skuFinal]) {
       tipo = 'Composto';
@@ -408,11 +426,14 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
         return Math.min(min, disp);
       }, Infinity);
       if (!isFinite(estoqueBL)) estoqueBL = 0;
-      custo = comps.reduce((s, c) => s + (mapaCustos[c.codEst] || 0) * c.qtde, 0);
+      custo = comps.reduce((s, c) => {
+        const custoComp = mapaNovoCusto[c.codEst] || mapaCustos[c.codEst] || 0;
+        return s + custoComp * c.qtde;
+      }, 0);
     } else {
       tipo      = 'Simples';
       estoqueBL = estBL[skuFinal] || 0;
-      custo     = mapaCustos[skuFinal] || 0;
+      custo     = mapaNovoCusto[skuFinal] || mapaCustos[skuFinal] || 0;
     }
 
     // Comissão e margens com preço atual
