@@ -122,7 +122,7 @@
               var ci = {
                 orderId: findCol(header, ['numero do pedido', 'order id', 'pedido']),
                 status:  findCol(header, ['status do pedido', 'status']),
-                data:    findCol(header, ['data de criacao do pedido', 'data de criacao', 'data do pedido', 'data']),
+                data:    findColOuFixo(header, ['data de criacao do pedido', 'data de criacao', 'data do pedido'], 9),
                 sku:     findCol(header, ['numero de referencia sku', 'referencia sku', 'sku']),
                 qtd:     findCol(header, ['quantidade', 'qtd', 'qty']),
                 receita: findCol(header, ['subtotal do produto', 'subtotal', 'receita', 'valor']),
@@ -165,6 +165,12 @@
         }
       }
       return -1;
+    }
+
+    // Tenta detectar pelo cabeçalho; se não achar usa o índice fixo informado
+    function findColOuFixo(headers, aliases, fixo) {
+      var idx = findCol(headers, aliases);
+      return idx >= 0 ? idx : fixo;
     }
 
     function enviar(rows, erros) {
