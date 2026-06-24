@@ -57,7 +57,12 @@ function onOpen() {
     .createMenu('🛍️ Shopee Reprecificação')
     .addItem('🔄 Atualizar Reprecificação', 'gerarReprecificacao')
     .addSeparator()
-    .addItem('⚙️ Criar abas de entrada',    'criarAbas')
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔑 Autorizar Shopee Humble')
+      .addItem('1️⃣  Gerar link de autorização', 'gerarLinkAutorizacaoShopee')
+      .addItem('2️⃣  Salvar token (colar URL)',   'mostrarDialogSalvarToken')
+      .addItem('🔍 Verificar status do token',   'verificarStatusToken'))
+    .addSeparator()
+    .addItem('⚙️ Criar abas de entrada', 'criarAbas')
     .addToUi();
 }
 
@@ -138,9 +143,20 @@ function gerarReprecificacao() {
     const mapaNovoCusto = _sr_carregarNovoCusto(ss);
     const mapaCustos    = _sr_carregarCustos();
     const { mapaCompostos, proporcoes, estBL } = _sr_carregarBL(mapaCustos);
-    const mapaPromo     = _sr_carregarPromocoes(ss);
+    // Tenta API primeiro; cai para aba local se token não configurado
+    let produtos, mapaPromo;
+    const temToken = !!PropertiesService.getScriptProperties().getProperty('SHOPEE_ACCESS_TOKEN');
+    if (temToken) {
+      log_('🛍️ Buscando produtos via API Shopee...');
+      produtos  = _sr_buscarProdutosAPI();
+      log_('🏷️ Buscando promoções via API Shopee...');
+      mapaPromo = _sr_buscarPromocoesAPI();
+    } else {
+      log_('📋 Token não configurado — usando abas locais.');
+      produtos  = _sr_carregarProdutos(ss);
+      mapaPromo = _sr_carregarPromocoes(ss);
+    }
     const mapaVendas    = _sr_carregarVendas(ss);
-    const produtos      = _sr_carregarProdutos(ss);
 
     if (!produtos.length) {
       ui.alert('❌ Nenhum produto encontrado em "' + SRCFG.ABA_PRODUTOS + '".\nCole a exportação e tente novamente.');
@@ -859,6 +875,10 @@ function _sr_colorirAABBCC(aba, itens, prima, cols, keys) {
 // ============================================================
 // HELPERS
 // ============================================================
+function log_(msg) {
+  Logger.log(msg);
+}
+
 function _sr_parseData(v) {
   if (v instanceof Date) return isNaN(v) ? null : v;
   const s = String(v || '').trim();
