@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    body { padding: 20px; background: #f5f5f5; }
+    h3 { color: #ee4d2d; margin-bottom: 8px; }
+    p  { font-size: 13px; color: #555; margin-bottom: 16px; }
+    .drop-zone {
+      border: 2px dashed #ee4d2d;
+      border-radius: 8px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      background: #fff;
+      transition: background 0.2s;
+    }
+    .drop-zone:hover { background: #fff3f1; }
+    .drop-zone input { display: none; }
+    .drop-zone label { cursor: pointer; font-size: 14px; color: #444; }
+    .drop-zone .icon { font-size: 32px; display: block; margin-bottom: 8px; }
+    #fileList { margin: 12px 0; font-size: 13px; color: #333; min-height: 20px; }
+    button {
+      background: #ee4d2d; color: #fff; border: none; border-radius: 4px;
+      padding: 10px 24px; font-size: 14px; cursor: pointer; width: 100%;
+      margin-top: 8px;
+    }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    #status {
+      margin-top: 14px; padding: 10px; border-radius: 4px;
+      font-size: 13px; display: none;
+    }
+    .ok  { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .err { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+    .info{ background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+    .progress { width: 100%; background: #eee; border-radius: 4px; margin-top: 10px; display: none; }
+    .progress-bar { height: 8px; background: #ee4d2d; border-radius: 4px; width: 0%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <h3>📤 Importar Pedidos Shopee</h3>
+  <p>Selecione um ou mais arquivos de exportação "Meus Pedidos" (.xlsx ou .csv).<br>
+     Pedidos duplicados (mesmo Nº Pedido + SKU) são ignorados automaticamente.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <span class="icon">📁</span>
+    <label for="fileInput">Clique para selecionar arquivos</label>
+    <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv">
+  </div>
+  <div id="fileList"></div>
+
+  <div class="progress" id="progressWrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <button id="btnImportar" onclick="processar()" disabled>Importar</button>
+
+  <div id="status"></div>
+
+  <script>
+    var selectedFiles = [];
+
+    document.getElementById('fileInput').addEventListener('change', function() {
+      selectedFiles = Array.from(this.files);
+      atualizarListagem();
+    });
+
+    var dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover',  function(e) { e.preventDefault(); dz.style.background='#fff3f1'; });
+    dz.addEventListener('dragleave', function()  { dz.style.background='#fff'; });
+    dz.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dz.style.background = '#fff';
+      selectedFiles = Array.from(e.dataTransfer.files).filter(function(f) {
+        return f.name.match(/\.(xlsx|xls|csv)$/i);
+      });
+      atualizarListagem();
+    });
+
+    function atualizarListagem() {
+      var list = document.getElementById('fileList');
+      if (!selectedFiles.length) { list.innerHTML = ''; document.getElementById('btnImportar').disabled = true; return; }
+      list.innerHTML = selectedFiles.map(function(f) {
+        return '<span style="margin-right:12px">📄 ' + f.name + '</span>';
+      }).join('');
+      document.getElementById('btnImportar').disabled = false;
+      setStatus('', '');
+    }
+
+    function processar() {
+      if (!selectedFiles.length) return;
+      document.getElementById('btnImportar').disabled = true;
+      setStatus('⏳ Processando arquivos...', 'info');
+
+      var progressWrap = document.getElementById('progressWrap');
+      var progressBar  = document.getElementById('progressBar');
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+
+      var allRows = [];
+      var seen    = {};
+      var total   = selectedFiles.length;
+      var done    = 0;
+      var erros   = [];
+
+      selectedFiles.forEach(function(file, idx) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var data = new Uint8Array(e.target.result);
+            var wb   = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
+            var ws   = wb.Sheets[wb.SheetNames[0]];
+            var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+
+            if (rows.length > 1) {
+              var header = rows[0].map(function(h) {
+                return String(h || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+              });
+
+              var ci = {
+                orderId: findCol(header, ['numero do pedido', 'order id', 'pedido']),
+                status:  findCol(header, ['status do pedido', 'status']),
+                data:    findCol(header, ['data de criacao do pedido', 'data de criacao', 'data do pedido', 'data']),
+                sku:     findCol(header, ['numero de referencia sku', 'referencia sku', 'sku']),
+                qtd:     findCol(header, ['quantidade', 'qtd', 'qty']),
+                receita: findCol(header, ['subtotal do produto', 'subtotal', 'receita', 'valor']),
+              };
+
+              for (var i = 1; i < rows.length; i++) {
+                var r       = rows[i];
+                var orderId = ci.orderId >= 0 ? String(r[ci.orderId] || '').trim() : '';
+                var sku     = ci.sku     >= 0 ? String(r[ci.sku]     || '').trim() : '';
+                if (!orderId || !sku) continue;
+                var key = orderId + '||' + sku;
+                if (seen[key]) continue;
+                seen[key] = true;
+                allRows.push([
+                  orderId,
+                  ci.status  >= 0 ? String(r[ci.status]  || '').trim() : '',
+                  ci.data    >= 0 ? String(r[ci.data]    || '').trim() : '',
+                  sku,
+                  ci.qtd     >= 0 ? String(r[ci.qtd]     || '0').trim() : '0',
+                  ci.receita >= 0 ? String(r[ci.receita] || '0').trim() : '0',
+                ]);
+              }
+            }
+          } catch(err) {
+            erros.push(file.name + ': ' + err.message);
+          }
+
+          done++;
+          progressBar.style.width = Math.round(done / total * 80) + '%';
+          if (done === total) enviar(allRows, erros);
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function findCol(headers, aliases) {
+      for (var a = 0; a < aliases.length; a++) {
+        for (var h = 0; h < headers.length; h++) {
+          if (headers[h].indexOf(aliases[a]) >= 0) return h;
+        }
+      }
+      return -1;
+    }
+
+    function enviar(rows, erros) {
+      if (!rows.length) {
+        var msg = erros.length
+          ? 'Erros: ' + erros.join('; ')
+          : 'Nenhuma linha válida encontrada. Verifique se os arquivos têm as colunas esperadas.';
+        setStatus('⚠️ ' + msg, 'err');
+        document.getElementById('btnImportar').disabled = false;
+        return;
+      }
+
+      setStatus('⏳ Enviando ' + rows.length + ' linhas para a planilha...', 'info');
+      document.getElementById('progressBar').style.width = '90%';
+
+      google.script.run
+        .withSuccessHandler(function(msg) {
+          document.getElementById('progressBar').style.width = '100%';
+          var tipo = msg.indexOf('✅') >= 0 ? 'ok' : 'info';
+          setStatus(msg + (erros.length ? '\n⚠️ Erros em alguns arquivos: ' + erros.join('; ') : ''), tipo);
+          document.getElementById('btnImportar').disabled = false;
+        })
+        .withFailureHandler(function(err) {
+          setStatus('❌ Erro ao salvar: ' + err.message, 'err');
+          document.getElementById('btnImportar').disabled = false;
+        })
+        ._sr_salvarPedidos(rows);
+    }
+
+    function setStatus(msg, tipo) {
+      var el = document.getElementById('status');
+      if (!msg) { el.style.display = 'none'; return; }
+      el.className = tipo || 'info';
+      el.style.display = 'block';
+      el.style.whiteSpace = 'pre-wrap';
+      el.textContent = msg;
+    }
+  </script>
+</body>
+</html>

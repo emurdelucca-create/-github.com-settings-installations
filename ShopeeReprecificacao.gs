@@ -33,7 +33,7 @@ const SRCFG = {
 
   ABA_PRODUTOS:   'Produtos Shopee',
   ABA_PROMOCOES:  'Promoções Shopee',
-  ABA_VENDAS:     'Vendas Shopee',
+  ABA_PEDIDOS:    '_sr_pedidos',     // aba oculta — preenchida via upload
   ABA_NOVO_CUSTO: 'Novo Custo',
   ABA_CONFIG:     'Configurações',
   ABA_SAIDA:      'Reprecificação',
@@ -56,6 +56,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('🛍️ Shopee Reprecificação')
     .addItem('🔄 Atualizar Reprecificação', 'gerarReprecificacao')
+    .addItem('📤 Importar Pedidos',          'importarPedidosShopee')
     .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('🔑 Autorizar Shopee Humble')
       .addItem('1️⃣  Gerar link de autorização', 'gerarLinkAutorizacaoShopee')
@@ -81,11 +82,6 @@ function criarAbas() {
       nome: SRCFG.ABA_PROMOCOES,
       header: ['SKU do Usuário','SKU da Variação','ID do Item','Preço Promocional'],
       nota: 'Cole aqui a exportação de promoções/descontos. Cabeçalho na linha 1.',
-    },
-    {
-      nome: SRCFG.ABA_VENDAS,
-      header: ['Status do pedido','Data de criação do pedido','Número de referência SKU','Quantidade','Subtotal do produto'],
-      nota: 'Cole o export original de Meus Pedidos da Shopee direto nesta aba (pode acumular até 90 dias).',
     },
     {
       nome: SRCFG.ABA_NOVO_CUSTO,
@@ -122,11 +118,72 @@ function criarAbas() {
     '✅ Abas criadas!\n\n' +
     '• "Produtos Shopee"  — cole a exportação "Editar em Massa"\n' +
     '• "Promoções Shopee" — cole a exportação de descontos\n' +
-    '• "Vendas Shopee"    — cole Meus Pedidos (até 90 dias acumulado)\n' +
     '• "Novo Custo"       — SKU + novo custo para simulação\n' +
     '• "Configurações"    — taxa % já pré-preenchida com 6%\n\n' +
+    'Para pedidos use 📤 Importar Pedidos no menu.\n' +
     'Depois clique em 🔄 Atualizar Reprecificação.'
   );
+}
+
+// ============================================================
+// IMPORTAR PEDIDOS — dialog de upload com SheetJS
+// ============================================================
+function importarPedidosShopee() {
+  const html = HtmlService.createHtmlOutputFromFile('ShopeeUpload')
+    .setWidth(520)
+    .setHeight(400)
+    .setTitle('Importar Pedidos Shopee');
+  SpreadsheetApp.getUi().showModalDialog(html, '📤 Importar Pedidos Shopee');
+}
+
+/**
+ * Recebe linhas do dialog: [[orderId, status, data, sku, qtd, receita], ...]
+ * Grava na aba oculta _sr_pedidos com dedup Order ID+SKU (acumula com o que já existe).
+ */
+function _sr_salvarPedidos(novasLinhas) {
+  if (!novasLinhas || !novasLinhas.length) return '⚠️ Nenhuma linha recebida.';
+
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  let   aba  = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
+  const HEADER = ['Número do Pedido','Status do pedido','Data de criação do pedido',
+                  'Número de referência SKU','Quantidade','Subtotal do produto'];
+
+  if (!aba) {
+    aba = ss.insertSheet(SRCFG.ABA_PEDIDOS);
+    aba.getRange(1, 1, 1, HEADER.length).setValues([HEADER]).setFontWeight('bold');
+    ss.setActiveSheet(ss.getSheets()[0]); // volta para a primeira aba
+    aba.hideSheet();
+  }
+
+  // Carrega dedup keys já existentes
+  const seen = new Set();
+  const lastRow = aba.getLastRow();
+  if (lastRow > 1) {
+    const existing = aba.getRange(2, 1, lastRow - 1, 4).getValues();
+    existing.forEach(r => {
+      const key = String(r[0]).trim() + '||' + String(r[3]).trim();
+      if (r[0]) seen.add(key);
+    });
+  }
+
+  const toAdd = [];
+  novasLinhas.forEach(r => {
+    const orderId = String(r[0] || '').trim();
+    const sku     = String(r[3] || '').trim();
+    if (!orderId || !sku) return;
+    const key = orderId + '||' + sku;
+    if (seen.has(key)) return;
+    seen.add(key);
+    toAdd.push(r);
+  });
+
+  if (toAdd.length) {
+    const nextRow = aba.getLastRow() + 1;
+    aba.getRange(nextRow, 1, toAdd.length, HEADER.length).setValues(toAdd);
+  }
+
+  const total = lastRow > 1 ? lastRow - 1 + toAdd.length : toAdd.length;
+  return '✅ ' + toAdd.length + ' linha(s) novas adicionadas. Total acumulado: ' + total + ' pedidos.';
 }
 
 // ============================================================
@@ -363,7 +420,7 @@ function _sr_carregarPromocoes(ss) {
 const SR_STATUS_OK = ['concluido', 'entregue', 'enviado', 'order received', 'a enviar'];
 
 function _sr_carregarVendas(ss) {
-  const aba  = ss.getSheetByName(SRCFG.ABA_VENDAS);
+  const aba  = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
   const mapa = {}; // sku → { fat030, qtd030, fat3060, qtd3060, fat6090, qtd6090 }
   if (!aba || aba.getLastRow() < 2) return mapa;
 
