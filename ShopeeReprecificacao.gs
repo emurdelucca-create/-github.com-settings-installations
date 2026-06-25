@@ -397,9 +397,15 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
 // Execute manualmente no editor Apps Script: _sr_diagnosticarSKU('20046-S')
 // ============================================================
 function _sr_diagnosticarSKU(skuParam) {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const sku = skuParam || 'preencha o SKU';
-  const ui  = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  let sku  = skuParam;
+  if (!sku) {
+    const resp = ui.prompt('Diagnóstico', 'Digite o SKU do componente a verificar:', ui.ButtonSet.OK_CANCEL);
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+    sku = resp.getResponseText().trim();
+  }
+  if (!sku) return;
 
   // Cache compostos
   const abaCmp = ss.getSheetByName('_sr_compostos_cache');
