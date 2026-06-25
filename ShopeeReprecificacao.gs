@@ -721,8 +721,24 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
     const margemR   = precoFinal - comissao - precoFinal * taxa - custo;
     const margemPct = precoFinal > 0 ? margemR / precoFinal : 0;
 
-    // Preço reverso: preço P tal que margem % = margemPct com novo custo
-    const novoCusto      = mapaNovoCusto[skuFinal] || 0;
+    // Novo custo: para simples usa mapaNovoCusto direto;
+    // para composto soma o novo custo de cada componente (fallback: custo base)
+    // só considera novo custo se ao menos um componente tiver novo custo definido
+    let novoCusto = 0;
+    if (mapaCompostos[skuFinal]) {
+      const comps = mapaCompostos[skuFinal];
+      const temNovo = comps.some(c => (mapaNovoCusto[c.codEst] || 0) > 0);
+      if (temNovo) {
+        novoCusto = comps.reduce((s, c) => {
+          const nc = (mapaNovoCusto[c.codEst] || 0) > 0
+            ? mapaNovoCusto[c.codEst]
+            : (mapaCustos[c.codEst] || 0);
+          return s + nc * c.qtde;
+        }, 0);
+      }
+    } else {
+      novoCusto = mapaNovoCusto[skuFinal] || 0;
+    }
     const precoReverso   = novoCusto > 0
       ? _sr_calcPrecoReverso(margemPct, novoCusto, taxa)
       : 0;
