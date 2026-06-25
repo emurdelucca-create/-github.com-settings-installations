@@ -313,9 +313,22 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
 
   // SKUs afetados: o próprio + todos os compostos que o usam como componente
   const skusAfetados = new Set([skuEditado]);
+  const paisAfetados = [];
   for (const pai in mapaCompostos) {
-    if (mapaCompostos[pai].some(c => c.codEst === skuEditado)) skusAfetados.add(pai);
+    if (mapaCompostos[pai].some(c => c.codEst === skuEditado)) {
+      skusAfetados.add(pai);
+      paisAfetados.push(pai);
+    }
   }
+
+  // Toast de diagnóstico
+  ss.toast(
+    'SKU: ' + skuEditado +
+    ' | Compostos encontrados no cache: ' + paisAfetados.length +
+    (paisAfetados.length ? ' (' + paisAfetados.join(', ') + ')' : '') +
+    ' | Cache linhas: ' + (abaCmp ? abaCmp.getLastRow() - 1 : 'AUSENTE'),
+    '🔍 onEdit diagnóstico', 8
+  );
 
   const PRIMA   = SRCFG.HEADER_ROWS + 1;
   const lastRow = abaRep.getLastRow();
@@ -371,6 +384,53 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
   writeCol(20, updT); // T
   writeCol(21, updU); // U
   SpreadsheetApp.flush();
+
+  ss.toast(
+    'Simples atualizados: ' + updW.filter(u => u.val !== '').length +
+    ' | Compostos no skusAfetados: ' + (skusAfetados.size - 1),
+    '✅ onEdit concluído', 5
+  );
+}
+
+// ============================================================
+// DIAGNÓSTICO — mostra o que está no cache para um SKU
+// Execute manualmente no editor Apps Script: _sr_diagnosticarSKU('20046-S')
+// ============================================================
+function _sr_diagnosticarSKU(skuParam) {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const sku = skuParam || 'preencha o SKU';
+  const ui  = SpreadsheetApp.getUi();
+
+  // Cache compostos
+  const abaCmp = ss.getSheetByName('_sr_compostos_cache');
+  let msgC = '❌ Cache _sr_compostos_cache NÃO existe. Rode Atualizar Reprecificação.';
+  const paisComSku = [];
+  if (abaCmp && abaCmp.getLastRow() > 1) {
+    const rows = abaCmp.getDataRange().getValues().slice(1);
+    msgC = 'Cache compostos: ' + rows.length + ' linhas.\n';
+    rows.forEach(r => {
+      if (String(r[1]).trim() === sku) paisComSku.push(String(r[0]).trim());
+    });
+    msgC += 'Compostos que usam "' + sku + '" como componente: ' +
+      (paisComSku.length ? paisComSku.join(', ') : 'NENHUM');
+  }
+
+  // Col F da Reprecificação — quais linhas têm skuFinal em paisComSku
+  const abaRep = ss.getSheetByName(SRCFG.ABA_SAIDA);
+  let msgR = '';
+  if (abaRep && paisComSku.length) {
+    const PRIMA   = SRCFG.HEADER_ROWS + 1;
+    const lastRow = abaRep.getLastRow();
+    const skuCol  = abaRep.getRange(PRIMA, 6, lastRow - PRIMA + 1, 1).getValues();
+    const encontrados = [];
+    skuCol.forEach((r, i) => {
+      if (paisComSku.includes(String(r[0]).trim())) encontrados.push(String(r[0]).trim());
+    });
+    msgR = '\n\nLinhas na Reprecificação (col F) com esses PAIs: ' +
+      (encontrados.length ? encontrados.join(', ') : 'NENHUMA — SKU do pai não bate com col F!');
+  }
+
+  ui.alert('🔍 Diagnóstico SKU: ' + sku + '\n\n' + msgC + msgR);
 }
 
 // ============================================================
