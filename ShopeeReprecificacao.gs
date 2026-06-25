@@ -628,7 +628,7 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
     const precoFinal = precoPromo > 0 ? precoPromo : p.precoNorm;
 
     // Tipo e estoque BL
-    // Custo: mapaNovoCusto é fonte primária; mapaCustos (Soma Composições) é fallback
+    // Col P (custo): sempre Soma Composições — Novo Custo só afeta S-AB
     let tipo, estoqueBL, custo;
     if (mapaCompostos[skuFinal]) {
       tipo = 'Composto';
@@ -638,14 +638,11 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
         return Math.min(min, disp);
       }, Infinity);
       if (!isFinite(estoqueBL)) estoqueBL = 0;
-      custo = comps.reduce((s, c) => {
-        const custoComp = mapaNovoCusto[c.codEst] || mapaCustos[c.codEst] || 0;
-        return s + custoComp * c.qtde;
-      }, 0);
+      custo = comps.reduce((s, c) => s + (mapaCustos[c.codEst] || 0) * c.qtde, 0);
     } else {
       tipo      = 'Simples';
       estoqueBL = estBL[skuFinal] || 0;
-      custo     = mapaNovoCusto[skuFinal] || mapaCustos[skuFinal] || 0;
+      custo     = mapaCustos[skuFinal] || 0;
     }
 
     // Comissão e margens com preço atual
