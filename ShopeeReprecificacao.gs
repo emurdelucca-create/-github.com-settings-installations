@@ -340,6 +340,7 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
 
   // Acumula mudanças para escrever em lote por coluna
   const updW = [], updS = [], updT = [], updU = [];
+  const logCompostos = [];
 
   dados.forEach((row, idx) => {
     const skuFinal = String(row[5]).trim(); // col F
@@ -357,6 +358,7 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
           : (mapaCustosBase[c.codEst] || 0);
         return s + custoComp * c.qtde;
       }, 0);
+      logCompostos.push(skuFinal + ' → novoCusto=' + novoCusto.toFixed(2) + ' margemPct=' + (margemPct*100).toFixed(1) + '%');
     } else {
       novoCusto = (mapaNovoCusto[skuFinal] !== undefined && mapaNovoCusto[skuFinal] > 0)
         ? mapaNovoCusto[skuFinal]
@@ -385,10 +387,12 @@ function _sr_atualizarNovoCusto(ss, skuEditado) {
   writeCol(21, updU); // U
   SpreadsheetApp.flush();
 
+  const qtdAtualizado = updW.filter(u => u.val !== '').length;
   ss.toast(
-    'Simples atualizados: ' + updW.filter(u => u.val !== '').length +
-    ' | Compostos no skusAfetados: ' + (skusAfetados.size - 1),
-    '✅ onEdit concluído', 5
+    'Linhas atualizadas: ' + qtdAtualizado +
+    ' | Compostos: ' + (skusAfetados.size - 1) +
+    (logCompostos.length ? '\n' + logCompostos.join('\n') : ''),
+    '✅ onEdit concluído', 12
   );
 }
 
