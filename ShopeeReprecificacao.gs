@@ -271,17 +271,30 @@ function gerarReprecificacao() {
     const mapaNovoCusto = _sr_carregarNovoCusto(ss);
     const mapaCustos    = _sr_carregarCustos();
     const { mapaCompostos, proporcoes, estBL } = _sr_carregarBL(mapaCustos);
-    // Tenta API primeiro; cai para aba local se token não configurado
-    let produtos, mapaPromo;
+    // Base: sempre "Produtos Shopee" (garante SKUs corretos e todos os produtos)
+    // API: enriquece com preço atual e promoções quando token disponível
+    log_('📋 Carregando produtos da aba "Produtos Shopee"...');
+    let produtos  = _sr_carregarProdutos(ss);
+    let mapaPromo = {};
+
     const temToken = !!PropertiesService.getScriptProperties().getProperty('SHOPEE_ACCESS_TOKEN');
     if (temToken) {
-      log_('🛍️ Buscando produtos via API Shopee...');
-      produtos  = _sr_buscarProdutosAPI();
+      log_('🛍️ Buscando preços atuais via API Shopee...');
+      const mapaPrecos = _sr_buscarPrecosAPI();
+      // Enriquece cada produto com preço e estoque da API
+      // Chave: idItem + '|' + skuVar (skuVar = Variante ID numérico na nossa aba)
+      produtos.forEach(p => {
+        const key = p.idItem + '|' + p.skuVar;
+        const ap  = mapaPrecos[key];
+        if (ap) {
+          p.precoNorm  = ap.precoNorm  || p.precoNorm;
+          p.estShopee  = ap.estShopee  != null ? ap.estShopee : p.estShopee;
+        }
+      });
       log_('🏷️ Buscando promoções via API Shopee...');
       mapaPromo = _sr_buscarPromocoesAPI();
     } else {
-      log_('📋 Token não configurado — usando abas locais.');
-      produtos  = _sr_carregarProdutos(ss);
+      log_('📋 Token não configurado — usando preços e promoções das abas locais.');
       mapaPromo = _sr_carregarPromocoes(ss);
     }
     const { mapaVendas, mapaVarId } = _sr_carregarVendas(ss);

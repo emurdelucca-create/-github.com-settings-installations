@@ -331,6 +331,64 @@ function _sr_buscarProdutosAPI() {
 }
 
 // ============================================================
+// BUSCAR APENAS PREÇOS E ESTOQUE VIA API
+// Retorna mapa: "idItem|modelId" → { precoNorm, estShopee }
+// Usado quando "Produtos Shopee" é a base e a API enriquece os preços.
+// Chave para variações: idItem + '|' + model_id (numérico)
+// Chave para sem variação: idItem + '|'
+// ============================================================
+function _sr_buscarPrecosAPI() {
+  const mapa   = {};
+  const allIds = [];
+  let offset   = 0;
+
+  while (true) {
+    const r = _shopeeGet('/api/v2/product/get_item_list', {
+      offset:      offset,
+      page_size:   100,
+      item_status: 'NORMAL',
+    });
+    (r.item || []).forEach(i => allIds.push(i.item_id));
+    if (!r.has_next_page) break;
+    offset += 100;
+    Utilities.sleep(300);
+  }
+
+  if (!allIds.length) return mapa;
+
+  for (let i = 0; i < allIds.length; i += 50) {
+    const batch = allIds.slice(i, i + 50);
+    const r = _shopeeGet('/api/v2/product/get_item_base_info', {
+      item_id_list:          batch.join(','),
+      need_tax_info:         false,
+      need_complaint_policy: false,
+    });
+
+    (r.item_list || []).forEach(item => {
+      const idItem = String(item.item_id || '');
+      if (item.has_model) {
+        (item.model_list || []).forEach(model => {
+          const key = idItem + '|' + String(model.model_id || '');
+          mapa[key] = {
+            precoNorm: _shopeePreco(model.price_info),
+            estShopee: _shopeeEstoque(model.stock_info_v2),
+          };
+        });
+      } else {
+        mapa[idItem + '|'] = {
+          precoNorm: _shopeePreco(item.price_info),
+          estShopee: _shopeeEstoque(item.stock_info_v2),
+        };
+      }
+    });
+
+    if (i + 50 < allIds.length) Utilities.sleep(300);
+  }
+
+  return mapa;
+}
+
+// ============================================================
 // BUSCAR PROMOÇÕES ATIVAS VIA API
 // Retorna mapa: sku → precoPromo
 // ============================================================
