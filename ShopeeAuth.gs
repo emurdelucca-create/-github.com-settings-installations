@@ -381,20 +381,21 @@ function _sr_buscarPrecosAPI() {
     (r.item_list || []).forEach(item => {
       const idItem = String(item.item_id || '');
       if (item.has_model) {
-        // Registra por model_id (numérico) E por model_sku (texto).
-        // get_item_base_info às vezes omite model_id; o SKU texto é garantido.
+        // Chave = idItem + '|' + modelId  (quando model_id disponível)
+        //       = idItem + '|' + modelSku (sempre — garante match mesmo sem model_id
+        //         e evita colisão de SKU duplicado em anúncios diferentes)
         (item.model_list || []).forEach(model => {
           const modelId  = model.model_id && model.model_id !== 0
                            ? String(model.model_id) : '';
           const modelSku = String(model.model_sku || '').trim();
-          if (modelId)  _registrar(modelId,  model.price_info, model.stock_info_v2);
-          if (modelSku) _registrar(modelSku, model.price_info, model.stock_info_v2);
+          if (modelId)  _registrar(idItem + '|' + modelId,  model.price_info, model.stock_info_v2);
+          if (modelSku) _registrar(idItem + '|' + modelSku, model.price_info, model.stock_info_v2);
         });
       } else {
-        // Produto sem variação: chave é o idItem
-        _registrar(idItem, item.price_info, item.stock_info_v2);
+        // Produto sem variação: chave = idItem + '|'  e  idItem + '|' + itemSku
+        _registrar(idItem + '|', item.price_info, item.stock_info_v2);
         const itemSku = String(item.item_sku || '').trim();
-        if (itemSku) _registrar(itemSku, item.price_info, item.stock_info_v2);
+        if (itemSku) _registrar(idItem + '|' + itemSku, item.price_info, item.stock_info_v2);
       }
     });
 
