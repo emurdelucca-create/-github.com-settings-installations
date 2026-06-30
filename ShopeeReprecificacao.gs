@@ -294,13 +294,31 @@ function gerarReprecificacao() {
         if (ap) {
           if (ap.precoNorm  > 0) p.precoNorm = ap.precoNorm;
           if (ap.estShopee >= 0) p.estShopee = ap.estShopee;
-          // precoPromo (current < original) vai para mapaPromo keyed por skuFinal
+          // precoPromo via current_price < original_price (funciona para produtos simples)
           if (ap.precoPromo > 0) {
             const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
             if (skuFinal) mapaPromo[skuFinal] = ap.precoPromo;
           }
         }
       });
+
+      // Campanhas de desconto (cobre variações — get_item_base_info não reflete
+      // o preço de campanha em current_price para produtos com variação)
+      try {
+        log_('🏷️ Buscando campanhas de desconto via API...');
+        const mapaDesconto = _sr_buscarPromocoesAPI();
+        // Popula mapaPromo por produto: tenta chave composta idItem|skuFinal
+        // primeiro (segura contra SKU duplicado), depois chave simples.
+        produtos.forEach(p => {
+          const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
+          if (!skuFinal) return;
+          const preco = mapaDesconto[p.idItem + '|' + skuFinal]
+                     || mapaDesconto[skuFinal]
+                     || 0;
+          if (preco > 0) mapaPromo[skuFinal] = preco;
+        });
+      } catch(e) { /* sem campanhas ativas ou sem permissão */ }
+
     } else {
       log_('📋 Token não configurado — usando preços e promoções das abas locais.');
       mapaPromo = _sr_carregarPromocoes(ss);

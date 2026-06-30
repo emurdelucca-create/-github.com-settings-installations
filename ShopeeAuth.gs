@@ -439,13 +439,19 @@ function _sr_buscarPromocoesAPI() {
             page_no:     pn,
           });
           (det.item_list || []).forEach(item => {
+            const itemId = String(item.item_id || '');
             (item.model_list && item.model_list.length
               ? item.model_list
               : [{ model_sku: item.item_sku, model_promotion_price: item.item_promotion_price }]
             ).forEach(model => {
               const sku   = String(model.model_sku || '').trim();
               const preco = model.model_promotion_price || 0;
-              if (sku && preco > 0) mapa[sku] = preco;
+              if (!sku || preco <= 0) return;
+              // Chave composta: evita colisão quando o mesmo SKU existe
+              // em dois anúncios diferentes.
+              if (itemId) mapa[itemId + '|' + sku] = preco;
+              // Chave simples como fallback (idItem ausente ou produto sem variação)
+              mapa[sku] = preco;
             });
           });
           if (!det.more) break;
