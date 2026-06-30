@@ -279,20 +279,27 @@ function gerarReprecificacao() {
 
     const temToken = !!PropertiesService.getScriptProperties().getProperty('SHOPEE_ACCESS_TOKEN');
     if (temToken) {
-      log_('🛍️ Buscando preços atuais via API Shopee...');
+      log_('🛍️ Buscando preços e promoções via API Shopee...');
       const mapaPrecos = _sr_buscarPrecosAPI();
-      // Enriquece cada produto com preço e estoque da API
-      // Chave: idItem + '|' + skuVar (skuVar = Variante ID numérico na nossa aba)
+      // Enriquece cada produto com preço real e promo direto da API.
+      // Tenta múltiplas chaves: idItem|skuVar (Variante ID numérico)
+      // e idItem|skuUsr (SKU texto), para cobrir ambos os formatos.
       produtos.forEach(p => {
-        const key = p.idItem + '|' + p.skuVar;
-        const ap  = mapaPrecos[key];
+        const ap = mapaPrecos[p.idItem + '|' + p.skuVar]
+                || mapaPrecos[p.idItem + '|' + p.skuUsr]
+                || mapaPrecos[p.idItem + '|' + p.skuRef]
+                || mapaPrecos[p.idItem + '|'];
         if (ap) {
-          p.precoNorm  = ap.precoNorm  || p.precoNorm;
-          p.estShopee  = ap.estShopee  != null ? ap.estShopee : p.estShopee;
+          if (ap.precoNorm  > 0) p.precoNorm  = ap.precoNorm;
+          if (ap.estShopee >= 0) p.estShopee  = ap.estShopee;
+          // precoPromo da API (current_price < original_price) vai para mapaPromo
+          // usando skuFinal como chave (mesmo critério de _sr_montarItens)
+          if (ap.precoPromo > 0) {
+            const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
+            if (skuFinal) mapaPromo[skuFinal] = ap.precoPromo;
+          }
         }
       });
-      log_('🏷️ Buscando promoções via API Shopee...');
-      mapaPromo = _sr_buscarPromocoesAPI();
     } else {
       log_('📋 Token não configurado — usando preços e promoções das abas locais.');
       mapaPromo = _sr_carregarPromocoes(ss);

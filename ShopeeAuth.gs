@@ -331,11 +331,13 @@ function _sr_buscarProdutosAPI() {
 }
 
 // ============================================================
-// BUSCAR APENAS PREÇOS E ESTOQUE VIA API
-// Retorna mapa: "idItem|modelId" → { precoNorm, estShopee }
-// Usado quando "Produtos Shopee" é a base e a API enriquece os preços.
-// Chave para variações: idItem + '|' + model_id (numérico)
-// Chave para sem variação: idItem + '|'
+// BUSCAR PREÇOS, PROMOÇÕES E ESTOQUE VIA API
+// Retorna mapa com entradas por múltiplas chaves para garantir matching:
+//   "idItem|modelId"  — variação com ID numérico (principal)
+//   "idItem|modelSku" — variação com SKU texto (fallback)
+//   "idItem|"         — produto sem variação
+// Cada entrada: { precoNorm (original_price), precoPromo (current_price
+// se diferente), estShopee }
 // ============================================================
 function _sr_buscarPrecosAPI() {
   const mapa   = {};
@@ -356,6 +358,18 @@ function _sr_buscarPrecosAPI() {
 
   if (!allIds.length) return mapa;
 
+  const _registrar = (key, priceInfo, stockInfo) => {
+    if (!key) return;
+    const pi = priceInfo && priceInfo[0];
+    const precoOrig  = pi ? (pi.original_price || 0) : 0;
+    const precoAtual = pi ? (pi.current_price  || 0) : 0;
+    mapa[key] = {
+      precoNorm:  precoOrig  || precoAtual,
+      precoPromo: (precoAtual > 0 && precoAtual < precoOrig) ? precoAtual : 0,
+      estShopee:  _shopeeEstoque(stockInfo),
+    };
+  };
+
   for (let i = 0; i < allIds.length; i += 50) {
     const batch = allIds.slice(i, i + 50);
     const r = _shopeeGet('/api/v2/product/get_item_base_info', {
@@ -368,17 +382,18 @@ function _sr_buscarPrecosAPI() {
       const idItem = String(item.item_id || '');
       if (item.has_model) {
         (item.model_list || []).forEach(model => {
-          const key = idItem + '|' + String(model.model_id || '');
-          mapa[key] = {
-            precoNorm: _shopeePreco(model.price_info),
-            estShopee: _shopeeEstoque(model.stock_info_v2),
-          };
+          const modelId  = String(model.model_id  || '');
+          const modelSku = String(model.model_sku || '').trim();
+          // Registra por ID numérico E por SKU texto para garantir matching
+          _registrar(idItem + '|' + modelId,  model.price_info, model.stock_info_v2);
+          if (modelSku && modelSku !== modelId) {
+            _registrar(idItem + '|' + modelSku, model.price_info, model.stock_info_v2);
+          }
         });
       } else {
-        mapa[idItem + '|'] = {
-          precoNorm: _shopeePreco(item.price_info),
-          estShopee: _shopeeEstoque(item.stock_info_v2),
-        };
+        _registrar(idItem + '|', item.price_info, item.stock_info_v2);
+        const itemSku = String(item.item_sku || '').trim();
+        if (itemSku) _registrar(idItem + '|' + itemSku, item.price_info, item.stock_info_v2);
       }
     });
 
