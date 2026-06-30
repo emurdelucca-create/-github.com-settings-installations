@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    body { padding: 20px; background: #f5f5f5; }
+    h3 { color: #ee4d2d; margin-bottom: 8px; }
+    p  { font-size: 13px; color: #555; margin-bottom: 16px; }
+    .drop-zone {
+      border: 2px dashed #ee4d2d; border-radius: 8px; padding: 30px;
+      text-align: center; cursor: pointer; background: #fff; transition: background 0.2s;
+    }
+    .drop-zone:hover { background: #fff3f1; }
+    .drop-zone input { display: none; }
+    .drop-zone label { cursor: pointer; font-size: 14px; color: #444; }
+    .drop-zone .icon { font-size: 32px; display: block; margin-bottom: 8px; }
+    #fileList { margin: 12px 0; font-size: 13px; color: #333; min-height: 20px; }
+    button {
+      background: #ee4d2d; color: #fff; border: none; border-radius: 4px;
+      padding: 10px 24px; font-size: 14px; cursor: pointer; width: 100%; margin-top: 8px;
+    }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    #status {
+      margin-top: 14px; padding: 10px; border-radius: 4px; font-size: 13px; display: none;
+    }
+    .ok   { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .err  { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+    .info { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+    .progress { width: 100%; background: #eee; border-radius: 4px; margin-top: 10px; display: none; }
+    .progress-bar { height: 8px; background: #ee4d2d; border-radius: 4px; width: 0%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <h3>📦 Importar Produtos — Editar em Massa</h3>
+  <p>Selecione o arquivo exportado pelo Shopee Seller Center:<br>
+     <b>Produto → Meus Produtos → Editar em Massa → Exportar</b><br>
+     Aceita <code>.xlsx</code>. Dados existentes serão <b>substituídos</b>.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <span class="icon">📁</span>
+    <label for="fileInput">Clique para selecionar o arquivo</label>
+    <input type="file" id="fileInput" accept=".xlsx,.xls">
+  </div>
+  <div id="fileList"></div>
+
+  <div class="progress" id="progressWrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <button id="btnImportar" onclick="processar()" disabled>Importar</button>
+  <div id="status"></div>
+
+  <script>
+    var selectedFile = null;
+
+    document.getElementById('fileInput').addEventListener('change', function() {
+      selectedFile = this.files[0] || null;
+      atualizarListagem();
+    });
+
+    var dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover',  function(e) { e.preventDefault(); dz.style.background='#fff3f1'; });
+    dz.addEventListener('dragleave', function()  { dz.style.background='#fff'; });
+    dz.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dz.style.background = '#fff';
+      var f = e.dataTransfer.files[0];
+      if (f && f.name.match(/\.(xlsx|xls)$/i)) { selectedFile = f; atualizarListagem(); }
+    });
+
+    function atualizarListagem() {
+      var list = document.getElementById('fileList');
+      if (!selectedFile) { list.innerHTML = ''; document.getElementById('btnImportar').disabled = true; return; }
+      list.innerHTML = '📄 ' + selectedFile.name;
+      document.getElementById('btnImportar').disabled = false;
+      setStatus('', '');
+    }
+
+    function norm(s) {
+      return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    }
+
+    function findCol(headers, aliases) {
+      for (var a = 0; a < aliases.length; a++) {
+        for (var h = 0; h < headers.length; h++) {
+          if (headers[h].indexOf(aliases[a]) >= 0) return h;
+        }
+      }
+      return -1;
+    }
+
+    function processar() {
+      if (!selectedFile) return;
+      document.getElementById('btnImportar').disabled = true;
+      setStatus('⏳ Lendo arquivo...', 'info');
+
+      var progressWrap = document.getElementById('progressWrap');
+      var progressBar  = document.getElementById('progressBar');
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '10%';
+
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          var data = new Uint8Array(e.target.result);
+          var wb   = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
+          var ws   = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+
+          progressBar.style.width = '40%';
+
+          // Encontra a linha de cabeçalho real (aquela que tem "ID do Produto" ou "id do produto")
+          var headerIdx = -1;
+          for (var i = 0; i < Math.min(rows.length, 10); i++) {
+            for (var j = 0; j < rows[i].length; j++) {
+              if (norm(rows[i][j]).indexOf('id do produto') >= 0) {
+                headerIdx = i;
+                break;
+              }
+            }
+            if (headerIdx >= 0) break;
+          }
+
+          if (headerIdx < 0) {
+            setStatus('❌ Cabeçalho "ID do Produto" não encontrado. Verifique se é o arquivo correto de "Editar em Massa".', 'err');
+            document.getElementById('btnImportar').disabled = false;
+            return;
+          }
+
+          var header = rows[headerIdx].map(norm);
+
+          // Detecta colunas — ordem importa para evitar conflito de substrings
+          var ci = {
+            idProd:   findCol(header, ['id do produto']),
+            nome:     findCol(header, ['nome do produto']),
+            varId:    findCol(header, ['variante identificador', 'identificador']),
+            varNome:  findCol(header, ['nome da variacao', 'nome']),
+            skuRef:   findCol(header, ['sku de referencia', 'sku referencia', 'sku ref']),
+            sku:      findCol(header, ['sku']),  // variação específica
+            preco:    findCol(header, ['preco']),
+            estoque:  findCol(header, ['estoque do vendedor', 'estoque']),
+          };
+
+          // Garante que 'sku' não apanhou a coluna de 'sku de referencia'
+          if (ci.sku >= 0 && ci.skuRef >= 0 && ci.sku === ci.skuRef) {
+            // Procura coluna de SKU que seja exatamente 'sku' (sem 'referencia')
+            ci.sku = -1;
+            for (var h = 0; h < header.length; h++) {
+              if (h !== ci.skuRef && header[h] === 'sku') { ci.sku = h; break; }
+            }
+          }
+
+          var seen    = {};
+          var allRows = [];
+
+          for (var i = headerIdx + 1; i < rows.length; i++) {
+            var r = rows[i];
+            var idProd = ci.idProd >= 0 ? String(r[ci.idProd] || '').trim() : '';
+            var varId  = ci.varId  >= 0 ? String(r[ci.varId]  || '').trim() : '';
+            if (!idProd || !varId) continue;
+
+            var key = idProd + '||' + varId;
+            if (seen[key]) continue;
+            seen[key] = true;
+
+            allRows.push([
+              idProd,
+              ci.nome    >= 0 ? String(r[ci.nome]    || '').trim() : '',
+              varId,
+              ci.varNome >= 0 ? String(r[ci.varNome] || '').trim() : '',
+              ci.skuRef  >= 0 ? String(r[ci.skuRef]  || '').trim() : '',
+              ci.sku     >= 0 ? String(r[ci.sku]     || '').trim() : '',
+              ci.preco   >= 0 ? String(r[ci.preco]   || '').trim() : '',
+              ci.estoque >= 0 ? String(r[ci.estoque] || '').trim() : '',
+            ]);
+          }
+
+          progressBar.style.width = '70%';
+
+          if (!allRows.length) {
+            setStatus('⚠️ Nenhuma linha válida encontrada (verifique se há dados após o cabeçalho).', 'err');
+            document.getElementById('btnImportar').disabled = false;
+            return;
+          }
+
+          setStatus('⏳ Enviando ' + allRows.length + ' variações para a planilha...', 'info');
+
+          google.script.run
+            .withSuccessHandler(function(msg) {
+              progressBar.style.width = '100%';
+              setStatus(msg, msg.indexOf('✅') >= 0 ? 'ok' : 'info');
+              document.getElementById('btnImportar').disabled = false;
+            })
+            .withFailureHandler(function(err) {
+              setStatus('❌ Erro ao salvar: ' + err.message, 'err');
+              document.getElementById('btnImportar').disabled = false;
+            })
+            ._sr_salvarProdutos(allRows);
+
+        } catch(err) {
+          setStatus('❌ Erro ao ler arquivo: ' + err.message, 'err');
+          document.getElementById('btnImportar').disabled = false;
+        }
+      };
+      reader.readAsArrayBuffer(selectedFile);
+    }
+
+    function setStatus(msg, tipo) {
+      var el = document.getElementById('status');
+      if (!msg) { el.style.display = 'none'; return; }
+      el.className = tipo || 'info';
+      el.style.display = 'block';
+      el.style.whiteSpace = 'pre-wrap';
+      el.textContent = msg;
+    }
+  </script>
+</body>
+</html>

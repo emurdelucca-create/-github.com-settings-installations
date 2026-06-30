@@ -57,6 +57,7 @@ function onOpen() {
     .createMenu('🛍️ Shopee Reprecificação')
     .addItem('🔄 Atualizar Reprecificação', 'gerarReprecificacao')
     .addItem('📤 Importar Pedidos',          'importarPedidosShopee')
+    .addItem('📦 Importar Produtos',         'importarProdutosShopee')
     .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('🔑 Autorizar Shopee Humble')
       .addItem('1️⃣  Gerar link de autorização', 'gerarLinkAutorizacaoShopee')
@@ -124,6 +125,67 @@ function criarAbas() {
     'Para pedidos use 📤 Importar Pedidos no menu.\n' +
     'Depois clique em 🔄 Atualizar Reprecificação.'
   );
+}
+
+// ============================================================
+// IMPORTAR PRODUTOS — dialog de upload com SheetJS
+// ============================================================
+function importarProdutosShopee() {
+  const html = HtmlService.createHtmlOutputFromFile('ShopeeProdutosUpload')
+    .setWidth(520)
+    .setHeight(440)
+    .setTitle('Importar Produtos Shopee');
+  SpreadsheetApp.getUi().showModalDialog(html, '📦 Importar Produtos — Editar em Massa');
+}
+
+/**
+ * Recebe linhas do dialog: [[idProd, nome, varId, varNome, skuRef, sku, preco, estoque], ...]
+ * Substitui completamente a aba "Produtos Shopee" (snapshot atual).
+ * Dedup dentro do batch por idProd+varId.
+ */
+function _sr_salvarProdutos(novasLinhas) {
+  if (!novasLinhas || !novasLinhas.length) return '⚠️ Nenhuma linha recebida.';
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let aba  = ss.getSheetByName(SRCFG.ABA_PRODUTOS);
+  const HEADER = [
+    'ID do Produto', 'Nome do Produto', 'Variante ID', 'Nome Variação',
+    'SKU Referência', 'SKU Variação', 'Preço', 'Estoque',
+  ];
+
+  if (!aba) {
+    aba = ss.insertSheet(SRCFG.ABA_PRODUTOS);
+  } else {
+    // Limpa dados (mantém cabeçalho)
+    const lastRow = aba.getLastRow();
+    if (lastRow > 1) aba.getRange(2, 1, lastRow - 1, HEADER.length).clearContent();
+  }
+
+  // Escreve / atualiza cabeçalho
+  aba.getRange(1, 1, 1, HEADER.length)
+     .setValues([HEADER])
+     .setFontWeight('bold')
+     .setBackground('#263238')
+     .setFontColor('#ffffff');
+
+  // Dedup dentro do batch
+  const seen = new Set();
+  const toAdd = [];
+  novasLinhas.forEach(r => {
+    const key = String(r[0] || '').trim() + '||' + String(r[2] || '').trim();
+    if (!r[0] || !r[2] || seen.has(key)) return;
+    seen.add(key);
+    const row = r.slice(0, HEADER.length);
+    while (row.length < HEADER.length) row.push('');
+    toAdd.push(row);
+  });
+
+  if (toAdd.length) {
+    aba.getRange(2, 1, toAdd.length, HEADER.length).setValues(toAdd);
+  }
+
+  return '✅ ' + toAdd.length + ' variações importadas em "' + SRCFG.ABA_PRODUTOS + '".' +
+    '\nClique em 🔄 Atualizar Reprecificação para recalcular.';
 }
 
 // ============================================================
@@ -688,14 +750,21 @@ function _sr_carregarProdutos(ss) {
 
   const dados = aba.getDataRange().getValues();
   const cols  = _sr_detectarColunas(dados[0], {
-    nome:       ['nome do produto', 'nome do item', 'nome'],
-    idItem:     ['id do item', 'item id', 'id'],
-    variacao:   ['variacao', 'modelo', 'variation', 'nome do modelo'],
-    skuVar:     ['sku da variacao', 'sku variacao', 'codigo da variacao', 'sku de variacao'],
-    skuUsr:     ['sku do usuario', 'sku usuario', 'sku'],
-    preco:      ['preco normal', 'preco original', 'preco', 'price'],
-    estoque:    ['estoque', 'quantidade em estoque', 'quantidade', 'qty', 'stock'],
+    nome:     ['nome do produto', 'nome do item'],
+    idItem:   ['id do produto', 'id do item', 'item id'],
+    variacao: ['nome variacao', 'variacao', 'modelo', 'variation', 'nome do modelo'],
+    // skuVar = Variante Identificador (ID numérico interno da variação)
+    skuVar:   ['variante id', 'variante identificador', 'sku da variacao', 'sku variacao', 'codigo da variacao'],
+    // skuRef = SKU de referência definido no nível do produto pai
+    skuRef:   ['sku referencia', 'sku de referencia', 'sku ref'],
+    // skuUsr = SKU específico da variação (mais específico que skuRef)
+    skuUsr:   ['sku variacao', 'sku do usuario', 'sku usuario'],
+    preco:    ['preco normal', 'preco original', 'preco', 'price'],
+    estoque:  ['estoque do vendedor', 'estoque', 'quantidade em estoque', 'quantidade', 'qty', 'stock'],
   });
+
+  // Garante que skuUsr e skuRef não apontem para a mesma coluna
+  if (cols.skuUsr >= 0 && cols.skuUsr === cols.skuRef) cols.skuUsr = -1;
 
   const produtos = [];
   for (let i = 1; i < dados.length; i++) {
@@ -709,15 +778,17 @@ function _sr_carregarProdutos(ss) {
 
     const nome   = get('nome');
     const skuVar = get('skuVar');
+    const skuRef = get('skuRef');
     const skuUsr = get('skuUsr');
-    if (!nome && !skuVar && !skuUsr) continue; // linha vazia
+    if (!nome && !skuVar && !skuRef && !skuUsr) continue; // linha vazia
 
     produtos.push({
       nome:      nome,
       idItem:    get('idItem'),
       variacao:  get('variacao'),
-      skuVar:    skuVar,
-      skuUsr:    skuUsr,
+      skuVar:    skuVar,   // ID numérico interno (Variante Identificador)
+      skuRef:    skuRef,   // SKU do produto pai
+      skuUsr:    skuUsr,   // SKU específico da variação
       precoNorm: getN('preco'),
       estShopee: getN('estoque'),
     });
@@ -844,7 +915,8 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
                           mapaPromo, mapaVendas, mapaNovoCusto, taxa, mapaVarId) {
   mapaVarId = mapaVarId || {};
   return produtos.map(p => {
-    const skuFinal   = p.skuUsr || p.skuVar;
+    // Prioridade: SKU variação → SKU referência pai → Variante Identificador numérico
+    const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
     const precoPromo = mapaPromo[skuFinal] || mapaPromo[p.skuVar] || 0;
     const precoFinal = precoPromo > 0 ? precoPromo : p.precoNorm;
 
@@ -915,7 +987,7 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
 
     return {
       nome: p.nome, idItem: p.idItem, variacao: p.variacao,
-      skuVar: p.skuVar, skuUsr: p.skuUsr, skuFinal,
+      skuVar: p.skuVar, skuRef: p.skuRef, skuUsr: p.skuUsr, skuFinal,
       precoNorm: p.precoNorm, precoPromo, precoFinal,
       estShopee: p.estShopee, estoqueBL, tipo,
       comissao, repasse, taxa, custo, margemR, margemPct,
@@ -1035,9 +1107,9 @@ function _sr_escreverAba(ss, itens, taxa) {
     it.nome,                                    // A 1
     it.idItem,                                  // B 2
     it.variacao,                                // C 3
-    String(it.skuVar),                          // D 4
-    String(it.skuUsr),                          // E 5
-    String(it.skuFinal),                        // F 6
+    String(it.skuVar),                          // D 4  Variante ID (numérico interno)
+    String(it.skuUsr || it.skuRef || ''),       // E 5  Melhor SKU de texto (variação ou ref. pai)
+    String(it.skuFinal),                        // F 6  SKU Final (usado para matching)
     it.precoNorm,                               // G 7
     it.precoPromo > 0 ? it.precoPromo : '',     // H 8
     it.precoFinal,                              // I 9
@@ -1150,8 +1222,8 @@ function _sr_escreverCabecalho(aba) {
     'Nome do Produto',    // A 0
     'ID Shopee',          // B 1
     'Variação',           // C 2
-    'SKU Variação',       // D 3
-    'SKU Usuário',        // E 4
+    'Variante ID',        // D 3
+    'SKU Usuário/Ref',    // E 4
     'SKU Final',          // F 5
     'Preço Cheio',        // G 6
     'Preço Promo',        // H 7
