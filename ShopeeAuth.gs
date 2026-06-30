@@ -338,6 +338,10 @@ function _sr_buscarProdutosAPI() {
 //   "idItem|"         — produto sem variação
 // Cada entrada: { precoNorm (original_price), precoPromo (current_price
 // se diferente), estShopee }
+//
+// NOTA: get_item_base_info retorna model_list VAZIO para has_model=true.
+// Para variações usamos get_model_list (um por produto), que reflete
+// current_price de campanhas ativas (inclusive "nominated discount").
 // ============================================================
 function _sr_buscarPrecosAPI() {
   const mapa   = {};
@@ -370,6 +374,8 @@ function _sr_buscarPrecosAPI() {
     };
   };
 
+  const hasModelIds = []; // produtos com variação — get_item_base_info não traz model_list
+
   for (let i = 0; i < allIds.length; i += 50) {
     const batch = allIds.slice(i, i + 50);
     const r = _shopeeGet('/api/v2/product/get_item_base_info', {
@@ -381,16 +387,7 @@ function _sr_buscarPrecosAPI() {
     (r.item_list || []).forEach(item => {
       const idItem = String(item.item_id || '');
       if (item.has_model) {
-        // Chave = idItem + '|' + modelId  (quando model_id disponível)
-        //       = idItem + '|' + modelSku (sempre — garante match mesmo sem model_id
-        //         e evita colisão de SKU duplicado em anúncios diferentes)
-        (item.model_list || []).forEach(model => {
-          const modelId  = model.model_id && model.model_id !== 0
-                           ? String(model.model_id) : '';
-          const modelSku = String(model.model_sku || '').trim();
-          if (modelId)  _registrar(idItem + '|' + modelId,  model.price_info, model.stock_info_v2);
-          if (modelSku) _registrar(idItem + '|' + modelSku, model.price_info, model.stock_info_v2);
-        });
+        hasModelIds.push(idItem);
       } else {
         // Produto sem variação: chave = idItem + '|'  e  idItem + '|' + itemSku
         _registrar(idItem + '|', item.price_info, item.stock_info_v2);
@@ -400,6 +397,24 @@ function _sr_buscarPrecosAPI() {
     });
 
     if (i + 50 < allIds.length) Utilities.sleep(300);
+  }
+
+  // get_model_list para produtos com variação — traz current_price real,
+  // incluindo preços de campanhas "nominated discount" da Shopee que
+  // não aparecem no endpoint /discount/get_discount_list do seller.
+  for (let i = 0; i < hasModelIds.length; i++) {
+    const idItem = hasModelIds[i];
+    try {
+      const r = _shopeeGet('/api/v2/product/get_model_list', { item_id: idItem });
+      (r.model || []).forEach(model => {
+        const modelId  = model.model_id && model.model_id !== 0
+                         ? String(model.model_id) : '';
+        const modelSku = String(model.model_sku || '').trim();
+        if (modelId)  _registrar(idItem + '|' + modelId,  model.price_info, model.stock_info_v2);
+        if (modelSku) _registrar(idItem + '|' + modelSku, model.price_info, model.stock_info_v2);
+      });
+    } catch (e) { /* produto indisponível, ignorar */ }
+    if (i + 1 < hasModelIds.length) Utilities.sleep(200);
   }
 
   return mapa;
