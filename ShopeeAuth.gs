@@ -381,19 +381,15 @@ function _sr_buscarPrecosAPI() {
     (r.item_list || []).forEach(item => {
       const idItem = String(item.item_id || '');
       if (item.has_model) {
+        // Chave principal: Variante ID (model_id) — único globalmente na Shopee.
+        // Chave secundária: idItem sozinho (fallback se skuVar estiver vazio).
         (item.model_list || []).forEach(model => {
-          const modelId  = String(model.model_id  || '');
-          const modelSku = String(model.model_sku || '').trim();
-          // Registra por ID numérico E por SKU texto para garantir matching
-          _registrar(idItem + '|' + modelId,  model.price_info, model.stock_info_v2);
-          if (modelSku && modelSku !== modelId) {
-            _registrar(idItem + '|' + modelSku, model.price_info, model.stock_info_v2);
-          }
+          const modelId = String(model.model_id || '');
+          if (modelId) _registrar(modelId, model.price_info, model.stock_info_v2);
         });
       } else {
-        _registrar(idItem + '|', item.price_info, item.stock_info_v2);
-        const itemSku = String(item.item_sku || '').trim();
-        if (itemSku) _registrar(idItem + '|' + itemSku, item.price_info, item.stock_info_v2);
+        // Produto sem variação: chave é o idItem
+        _registrar(idItem, item.price_info, item.stock_info_v2);
       }
     });
 

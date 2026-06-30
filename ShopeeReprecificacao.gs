@@ -282,18 +282,15 @@ function gerarReprecificacao() {
       log_('🛍️ Buscando preços e promoções via API Shopee...');
       const mapaPrecos = _sr_buscarPrecosAPI();
       // Enriquece cada produto com preço real e promo direto da API.
-      // Tenta múltiplas chaves: idItem|skuVar (Variante ID numérico)
-      // e idItem|skuUsr (SKU texto), para cobrir ambos os formatos.
+      // Para variações: chave = Variante ID (skuVar, model_id numérico) — único na Shopee.
+      // Para sem variação: chave = idItem sozinho.
       produtos.forEach(p => {
-        const ap = mapaPrecos[p.idItem + '|' + p.skuVar]
-                || mapaPrecos[p.idItem + '|' + p.skuUsr]
-                || mapaPrecos[p.idItem + '|' + p.skuRef]
-                || mapaPrecos[p.idItem + '|'];
+        const ap = (p.skuVar ? mapaPrecos[p.skuVar] : null)
+                || mapaPrecos[p.idItem];
         if (ap) {
-          if (ap.precoNorm  > 0) p.precoNorm  = ap.precoNorm;
-          if (ap.estShopee >= 0) p.estShopee  = ap.estShopee;
-          // precoPromo da API (current_price < original_price) vai para mapaPromo
-          // usando skuFinal como chave (mesmo critério de _sr_montarItens)
+          if (ap.precoNorm  > 0) p.precoNorm = ap.precoNorm;
+          if (ap.estShopee >= 0) p.estShopee = ap.estShopee;
+          // precoPromo (current < original) vai para mapaPromo keyed por skuFinal
           if (ap.precoPromo > 0) {
             const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
             if (skuFinal) mapaPromo[skuFinal] = ap.precoPromo;
