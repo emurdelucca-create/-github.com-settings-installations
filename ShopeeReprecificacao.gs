@@ -282,10 +282,12 @@ function gerarReprecificacao() {
       log_('🛍️ Buscando preços e promoções via API Shopee...');
       const mapaPrecos = _sr_buscarPrecosAPI();
       // Enriquece cada produto com preço real e promo direto da API.
-      // Para variações: chave = Variante ID (skuVar, model_id numérico) — único na Shopee.
-      // Para sem variação: chave = idItem sozinho.
+      // Tenta em cascata: skuVar (Variante ID numérico) → skuUsr (SKU texto variação)
+      // → skuRef (SKU referência pai) → idItem (produto sem variação).
       produtos.forEach(p => {
         const ap = (p.skuVar ? mapaPrecos[p.skuVar] : null)
+                || (p.skuUsr ? mapaPrecos[p.skuUsr] : null)
+                || (p.skuRef ? mapaPrecos[p.skuRef] : null)
                 || mapaPrecos[p.idItem];
         if (ap) {
           if (ap.precoNorm  > 0) p.precoNorm = ap.precoNorm;
