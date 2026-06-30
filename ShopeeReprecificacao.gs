@@ -178,7 +178,10 @@ function _sr_salvarPedidos(novasLinhas) {
     const key = orderId + '||' + sku;
     if (seen.has(key)) return;
     seen.add(key);
-    toAdd.push(r);
+    // Completa colunas faltantes (compatibilidade com uploads antigos)
+    const row = r.slice();
+    while (row.length < HEADER.length) row.push('');
+    toAdd.push(row);
   });
 
   if (toAdd.length) {
