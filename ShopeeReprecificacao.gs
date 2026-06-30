@@ -63,7 +63,8 @@ function onOpen() {
       .addItem('2️⃣  Salvar token (colar URL)',   'mostrarDialogSalvarToken')
       .addItem('🔍 Verificar status do token',   'verificarStatusToken'))
     .addSeparator()
-    .addItem('⚙️ Criar abas de entrada', 'criarAbas')
+    .addItem('⚙️ Criar abas de entrada',       'criarAbas')
+    .addItem('🔍 Diagnóstico de vendas',        '_sr_diagnosticarVendas')
     .addToUi();
 }
 
@@ -522,6 +523,63 @@ function _sr_diagnosticarProduto() {
 }
 
 // ============================================================
+// DIAGNÓSTICO DE COBERTURA DE VENDAS
+// Mostra quais SKUs de produtos NÃO têm vendas encontradas nos pedidos
+// ============================================================
+function _sr_diagnosticarVendas() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+
+  ui.alert('⏳ Analisando... pode levar alguns segundos.');
+
+  const { mapaVendas, mapaVarId } = _sr_carregarVendas(ss);
+  const produtos = _sr_carregarProdutos(ss);
+
+  const totalVendasSkus   = Object.keys(mapaVendas).length;
+  const totalVarIdSkus    = Object.keys(mapaVarId).length;
+  const semVendas         = [];
+  const comVendas         = [];
+
+  produtos.forEach(p => {
+    const skuFinal = (p.skuUsr || p.skuVar || '').trim();
+    const sk1 = skuFinal.toUpperCase();
+    const sk2 = (p.skuVar || '').toUpperCase();
+    const v = mapaVendas[sk1] || mapaVendas[sk2]
+           || mapaVarId[sk1]  || mapaVarId[sk2];
+    const fat90 = v ? (v.fat030 + v.fat3060 + v.fat6090) : 0;
+    const info  = `${skuFinal} (${p.idItem})${!p.skuUsr ? ' ⚠️sem skuUsr' : ''}`;
+    if (fat90 > 0) {
+      comVendas.push({ info, fat90 });
+    } else {
+      semVendas.push(info);
+    }
+  });
+
+  comVendas.sort((a, b) => b.fat90 - a.fat90);
+
+  const msg = [
+    `📊 Diagnóstico de Cobertura de Vendas`,
+    ``,
+    `Produtos na planilha: ${produtos.length}`,
+    `SKUs únicos nos pedidos: ${totalVendasSkus}  |  por ID variação: ${totalVarIdSkus}`,
+    `✅ Com vendas nos 90d: ${comVendas.length}`,
+    `❌ Sem vendas (pode ser normal para itens novos): ${semVendas.length}`,
+    ``,
+    `── Top 5 COM vendas ──`,
+    ...comVendas.slice(0, 5).map(x => `R$${x.fat90.toFixed(0)}  ${x.info}`),
+    ``,
+    `── Primeiros 10 SEM vendas ──`,
+    ...semVendas.slice(0, 10),
+    ``,
+    `⚠️ = variação sem "SKU do Usuário" no export "Editar em Massa"`,
+    `    → Esses SKUs precisam da coluna "Ref. SKU Variação" nos pedidos`,
+    `    → Ou defina o SKU do Usuário no Shopee e re-exporte "Editar em Massa"`,
+  ].join('\n');
+
+  ui.alert(msg);
+}
+
+// ============================================================
 // CARREGAR TAXA (Configurações!B2 que contenha "taxa")
 // ============================================================
 function _sr_carregarTaxa(ss) {
@@ -704,7 +762,11 @@ function _sr_carregarPromocoes(ss) {
 // Referência: dataMax = data mais recente nos dados (não "hoje")
 // Status aceitos: Concluído, Entregue, Enviado, Order Received, A Enviar
 // ============================================================
-const SR_STATUS_OK = ['concluido', 'entregue', 'enviado', 'order received', 'a enviar'];
+const SR_STATUS_OK = [
+  'concluido', 'entregue', 'enviado', 'order received', 'a enviar',
+  'finalizado', 'recebido', 'delivered', 'shipped', 'completed',
+  'to receive', 'pagamento confirmado', 'confirmed',
+];
 
 function _sr_carregarVendas(ss) {
   const aba       = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
@@ -747,8 +809,9 @@ function _sr_carregarVendas(ss) {
     const dias  = Math.floor((dataMax - dNorm) / 86400000);
     if (dias < 0 || dias >= 90) continue;
 
-    const sku   = cols.sku   >= 0 ? String(row[cols.sku]   || '').trim() : '';
-    const varId = cols.varId >= 0 ? String(row[cols.varId] || '').trim() : '';
+    // Normaliza para uppercase para matching case-insensitive
+    const sku   = cols.sku   >= 0 ? String(row[cols.sku]   || '').trim().toUpperCase() : '';
+    const varId = cols.varId >= 0 ? String(row[cols.varId] || '').trim().toUpperCase() : '';
     if (!sku && !varId) continue;
 
     const getN = (k) => {
@@ -838,11 +901,13 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
       ? margemRReverso / precoReverso
       : 0;
 
-    // Vendas: tenta por skuFinal, depois por skuVar como texto,
-    // depois pelo ID da variação Shopee (coluna "Ref. SKU Variação" nos pedidos)
-    // — resolve variações com SKU do Usuário em branco no export "Editar em Massa"
-    const v = mapaVendas[skuFinal] || mapaVendas[p.skuVar]
-           || mapaVarId[p.skuVar]
+    // Vendas: matching case-insensitive via uppercase.
+    // Fallback final: ID da variação Shopee (capturado pelo novo upload HTML)
+    // — resolve variações com SKU do Usuário em branco no "Editar em Massa"
+    const sk1 = skuFinal.toUpperCase();
+    const sk2 = (p.skuVar || '').toUpperCase();
+    const v = mapaVendas[sk1] || mapaVendas[sk2]
+           || mapaVarId[sk1]  || mapaVarId[sk2]
            || {};
     const fat030  = v.fat030  || 0;  const qtd030  = v.qtd030  || 0;
     const fat3060 = v.fat3060 || 0;  const qtd3060 = v.qtd3060 || 0;
