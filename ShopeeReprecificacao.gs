@@ -68,6 +68,7 @@ function onOpen() {
     .addItem('🔍 Diagnóstico de vendas',        '_sr_diagnosticarVendas')
     .addItem('🔎 Diagnóstico por SKU/ID',       '_sr_diagnosticarProduto')
     .addItem('🏷️ Diagnóstico de promoções',     '_sr_diagnosticarPromos')
+    .addItem('📋 Inspecionar pedido por ID',    '_sr_inspecionarPedidoPorId')
     .addToUi();
 }
 

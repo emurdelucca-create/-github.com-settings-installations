@@ -133,6 +133,52 @@ function _sr_gravarInspecao(texto) {
   aba.getRange(1, 1, chunks.length, 1).setValues(chunks);
 }
 
+// ============================================================
+// INSPECIONAR PEDIDO POR ORDER_SN
+// Execute pelo menu ou direto no editor com o ID do pedido.
+// ============================================================
+function _sr_inspecionarPedidoPorId() {
+  const ui   = SpreadsheetApp.getUi();
+  const resp = ui.prompt('Inspecionar Pedido', 'Digite o Order SN (ex: 250601XXXXXXXXX):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const sn = resp.getResponseText().trim();
+  if (!sn) return;
+
+  const temToken = !!PropertiesService.getScriptProperties().getProperty('SHOPEE_ACCESS_TOKEN');
+  if (!temToken) { ui.alert('❌ Token Shopee não configurado.'); return; }
+
+  let detResp;
+  try {
+    detResp = _shopeeGet('/api/v2/order/get_order_detail', {
+      order_sn_list: sn,
+      response_optional_fields: [
+        'buyer_user_id',
+        'buyer_username',
+        'pay_time',
+        'total_amount',
+        'actual_shipping_fee',
+        'payment_method',
+        'shipping_carrier',
+        'note',
+        'package_list',
+        'item_list',
+      ].join(','),
+    });
+  } catch (e) {
+    ui.alert('❌ Erro: ' + e.message);
+    return;
+  }
+
+  const json = JSON.stringify(detResp, null, 2);
+  _sr_gravarInspecao('══ get_order_detail: ' + sn + ' ══\n' + json);
+
+  const orders = detResp.order_list || [];
+  if (!orders.length) { ui.alert('⚠️ Pedido "' + sn + '" não encontrado.'); return; }
+
+  const resumo = _sr_resumirPedidos(orders);
+  ui.alert('✅ JSON completo gravado na aba "_sr_inspecao_pedidos"\n\n' + resumo);
+}
+
 // ── Resumo dos campos/valores de cada pedido para o alert ──
 function _sr_resumirPedidos(orders) {
   if (!orders.length) return '(nenhum pedido)';
