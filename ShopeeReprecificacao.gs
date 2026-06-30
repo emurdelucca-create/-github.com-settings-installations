@@ -529,7 +529,21 @@ function _sr_diagnosticarProduto() {
   if (!busca) return;
 
   const norm = s => String(s || '').trim().toLowerCase();
-  const buscaN = norm(busca);
+  // Remove separadores de milhar (".", ",") quando o valor é puramente
+  // numérico, para casar IDs mesmo que tenham sido importados/exibidos
+  // com formatação tipo "18.999.208.348".
+  const soDigitos = s => String(s || '').replace(/[.,\s]/g, '');
+  const buscaN  = norm(busca);
+  const buscaD  = soDigitos(busca);
+  const bate    = c => {
+    const cN = norm(c);
+    if (cN === buscaN || cN.includes(buscaN)) return true;
+    if (buscaD && /^\d+$/.test(buscaD)) {
+      const cD = soDigitos(c);
+      if (cD && (cD === buscaD || cD.includes(buscaD))) return true;
+    }
+    return false;
+  };
 
   // ── 1. Busca na aba Reprecificação ──
   const abaRep = ss.getSheetByName(SRCFG.ABA_SAIDA);
@@ -543,7 +557,7 @@ function _sr_diagnosticarProduto() {
     const linhas = [];
     dados.forEach((row, idx) => {
       const cols = [row[0],row[1],row[2],row[3],row[4],row[5]];
-      if (cols.some(c => norm(c) === buscaN || norm(c).includes(buscaN))) {
+      if (cols.some(bate)) {
         const skuF  = String(row[5]).trim();
         const fat90 = (Number(row[28])||0) + (Number(row[30])||0) + (Number(row[32])||0);
         linhas.push('Linha ' + (PRIMA+idx) + ': skuFinal="' + skuF +
@@ -563,9 +577,7 @@ function _sr_diagnosticarProduto() {
   if (abaPed && abaPed.getLastRow() > 1) {
     const pedidos = abaPed.getDataRange().getValues().slice(1);
     const matches = pedidos.filter(r => {
-      const skuPed = norm(r[3]);
-      return skuPed === buscaN || skuPed.includes(buscaN) ||
-             skusEncontrados.some(s => norm(s) === skuPed);
+      return bate(r[3]) || skusEncontrados.some(s => norm(s) === norm(r[3]));
     });
     if (matches.length) {
       const totalQtd = matches.reduce((s,r) => s + (Number(r[4])||0), 0);
@@ -779,6 +791,14 @@ function _sr_carregarProdutos(ss) {
     estoque:  ['estoque', 'quantidade em estoque', 'quantidade', 'qty', 'stock'],
   });
 
+  // IDs Shopee (ID do Produto, Variante ID) às vezes chegam formatados com
+  // separador de milhar (ex: "18.999.208.348"). Remove quando o valor é
+  // puramente numérico com separadores, preservando SKUs alfanuméricos.
+  const limparIdNumerico = (s) => {
+    const v = String(s || '').trim();
+    return /^\d{1,3}([.,]\d{3})+$/.test(v) ? v.replace(/[.,]/g, '') : v;
+  };
+
   const produtos = [];
   for (let i = 1; i < dados.length; i++) {
     const row = dados[i];
@@ -789,8 +809,8 @@ function _sr_carregarProdutos(ss) {
       return typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.')) || 0;
     };
 
-    const idItem  = get('idItem');
-    const skuVar  = get('skuVar');  // col C — Variante ID (numérico interno Shopee)
+    const idItem  = limparIdNumerico(get('idItem'));
+    const skuVar  = limparIdNumerico(get('skuVar'));  // col C — Variante ID (numérico interno Shopee)
     const skuRef  = get('skuRef');  // col E — SKU Referência (nível do produto pai)
     const skuUsr  = get('skuUsr');  // col F — SKU Variação (específico da variação)
     if (!idItem && !skuVar && !skuRef && !skuUsr) continue; // linha vazia
