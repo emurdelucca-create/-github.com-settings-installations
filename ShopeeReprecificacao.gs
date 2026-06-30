@@ -744,51 +744,63 @@ function _sr_carregarBL(mapaCustos) {
 // ============================================================
 // CARREGAR PRODUTOS SHOPEE (detecção de colunas por cabeçalho)
 // ============================================================
+// Posições fixas do header gerado por _sr_salvarProdutos (nosso formato padrão):
+// 0=ID do Produto | 1=Nome do Produto | 2=Variante ID | 3=Nome Variação
+// 4=SKU Referência | 5=SKU Variação | 6=Preço | 7=Estoque
+const _SR_PROD_COLS = {
+  idItem: 0, nome: 1, skuVar: 2, variacao: 3,
+  skuRef: 4, skuUsr: 5, preco: 6, estoque: 7,
+};
+
 function _sr_carregarProdutos(ss) {
   const aba = ss.getSheetByName(SRCFG.ABA_PRODUTOS);
   if (!aba || aba.getLastRow() < 2) return [];
 
   const dados = aba.getDataRange().getValues();
-  const cols  = _sr_detectarColunas(dados[0], {
+  const header = dados[0];
+
+  // Detecta se a aba está no formato novo (gerado por _sr_salvarProdutos)
+  // verificando se a coluna E (4) tem "referencia" e a F (5) tem "variacao"
+  const norm = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+  const h4 = norm(header[4] || '');
+  const h5 = norm(header[5] || '');
+  const formatoNovo = h4.includes('referencia') && h5.includes('variacao');
+
+  // Para o formato antigo usa detecção fuzzy como fallback
+  const cols = formatoNovo ? _SR_PROD_COLS : _sr_detectarColunas(header, {
     nome:     ['nome do produto', 'nome do item'],
     idItem:   ['id do produto', 'id do item', 'item id'],
-    variacao: ['nome variacao', 'variacao', 'modelo', 'variation', 'nome do modelo'],
-    // skuVar = Variante Identificador (ID numérico interno da variação)
-    skuVar:   ['variante id', 'variante identificador', 'sku da variacao', 'sku variacao', 'codigo da variacao'],
-    // skuRef = SKU de referência definido no nível do produto pai
-    skuRef:   ['sku referencia', 'sku de referencia', 'sku ref'],
-    // skuUsr = SKU específico da variação (mais específico que skuRef)
-    skuUsr:   ['sku variacao', 'sku do usuario', 'sku usuario'],
+    variacao: ['variacao', 'modelo', 'variation', 'nome do modelo'],
+    skuVar:   ['sku da variacao', 'sku variacao', 'codigo da variacao'],
+    skuRef:   ['sku de referencia', 'sku ref'],
+    skuUsr:   ['sku do usuario', 'sku usuario'],
     preco:    ['preco normal', 'preco original', 'preco', 'price'],
-    estoque:  ['estoque do vendedor', 'estoque', 'quantidade em estoque', 'quantidade', 'qty', 'stock'],
+    estoque:  ['estoque', 'quantidade em estoque', 'quantidade', 'qty', 'stock'],
   });
-
-  // Garante que skuUsr e skuRef não apontem para a mesma coluna
-  if (cols.skuUsr >= 0 && cols.skuUsr === cols.skuRef) cols.skuUsr = -1;
 
   const produtos = [];
   for (let i = 1; i < dados.length; i++) {
     const row = dados[i];
-    const get = (k) => cols[k] >= 0 ? String(row[cols[k]] || '').trim() : '';
+    const get  = (k) => cols[k] >= 0 ? String(row[cols[k]] || '').trim() : '';
     const getN = (k) => {
       if (cols[k] < 0) return 0;
       const v = row[cols[k]];
       return typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.')) || 0;
     };
 
-    const nome   = get('nome');
-    const skuVar = get('skuVar');
-    const skuRef = get('skuRef');
-    const skuUsr = get('skuUsr');
-    if (!nome && !skuVar && !skuRef && !skuUsr) continue; // linha vazia
+    const idItem  = get('idItem');
+    const skuVar  = get('skuVar');  // col C — Variante ID (numérico interno Shopee)
+    const skuRef  = get('skuRef');  // col E — SKU Referência (nível do produto pai)
+    const skuUsr  = get('skuUsr');  // col F — SKU Variação (específico da variação)
+    if (!idItem && !skuVar && !skuRef && !skuUsr) continue; // linha vazia
 
     produtos.push({
-      nome:      nome,
-      idItem:    get('idItem'),
+      nome:      get('nome'),
+      idItem,
       variacao:  get('variacao'),
-      skuVar:    skuVar,   // ID numérico interno (Variante Identificador)
-      skuRef:    skuRef,   // SKU do produto pai
-      skuUsr:    skuUsr,   // SKU específico da variação
+      skuVar,
+      skuRef,
+      skuUsr,
       precoNorm: getN('preco'),
       estShopee: getN('estoque'),
     });
