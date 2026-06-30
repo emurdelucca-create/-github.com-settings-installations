@@ -313,8 +313,12 @@ function gerarReprecificacao() {
         produtos.forEach(p => {
           const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
           if (!skuFinal) return;
+          // Tenta SKU texto (idItem|sku, sku) e model_id numérico (idItem|modelId, modelId)
+          // pois a campanha frequentemente tem model_sku em branco e apenas model_id
           const preco = mapaDesconto[p.idItem + '|' + skuFinal]
                      || mapaDesconto[skuFinal]
+                     || (p.skuVar ? mapaDesconto[p.idItem + '|' + p.skuVar] : 0)
+                     || (p.skuVar ? mapaDesconto[p.skuVar] : 0)
                      || 0;
           if (preco > 0) mapaPromo[skuFinal] = preco;
         });

@@ -444,14 +444,20 @@ function _sr_buscarPromocoesAPI() {
               ? item.model_list
               : [{ model_sku: item.item_sku, model_promotion_price: item.item_promotion_price }]
             ).forEach(model => {
-              const sku   = String(model.model_sku || '').trim();
-              const preco = model.model_promotion_price || 0;
-              if (!sku || preco <= 0) return;
-              // Chave composta: evita colisão quando o mesmo SKU existe
-              // em dois anúncios diferentes.
-              if (itemId) mapa[itemId + '|' + sku] = preco;
-              // Chave simples como fallback (idItem ausente ou produto sem variação)
-              mapa[sku] = preco;
+              const preco   = model.model_promotion_price || 0;
+              if (preco <= 0) return;
+              const sku     = String(model.model_sku   || '').trim();
+              const modelId = String(model.model_id    || '').trim();
+              // A campanha de desconto frequentemente tem model_sku em branco —
+              // nesse caso indexar pelo model_id (ID de variação) é a única opção.
+              if (sku) {
+                if (itemId) mapa[itemId + '|' + sku] = preco;
+                mapa[sku] = preco;
+              }
+              if (modelId && modelId !== '0') {
+                if (itemId) mapa[itemId + '|' + modelId] = preco;
+                mapa[modelId] = preco;
+              }
             });
           });
           if (!det.more) break;
