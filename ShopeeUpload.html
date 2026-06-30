@@ -89,6 +89,18 @@
       setStatus('', '');
     }
 
+    // Como indexOf faz substring match, detectamos varId ANTES de sku
+    // para evitar que 'referencia sku' bata em 'referencia sku da variacao'
+    function findColExcluindo(headers, aliases, excluir) {
+      for (var a = 0; a < aliases.length; a++) {
+        for (var h = 0; h < headers.length; h++) {
+          if (h === excluir) continue;
+          if (headers[h].indexOf(aliases[a]) >= 0) return h;
+        }
+      }
+      return -1;
+    }
+
     function processar() {
       if (!selectedFiles.length) return;
       document.getElementById('btnImportar').disabled = true;
@@ -119,13 +131,16 @@
                 return String(h || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
               });
 
+              // Detectar varId ANTES de sku (aliases de sku são substrings de aliases de varId)
+              var varIdCol = findCol(header, ['numero de referencia sku da variacao', 'referencia sku da variacao', 'sku da variacao']);
               var ci = {
                 orderId: findCol(header, ['numero do pedido', 'order id', 'pedido']),
                 status:  findCol(header, ['status do pedido', 'status']),
                 data:    findColOuFixo(header, ['data de criacao do pedido', 'data de criacao', 'data do pedido'], 9),
-                sku:     findCol(header, ['numero de referencia sku', 'referencia sku', 'sku']),
+                sku:     findColExcluindo(header, ['numero de referencia sku', 'referencia sku', 'sku'], varIdCol),
                 qtd:     findCol(header, ['quantidade', 'qtd', 'qty']),
                 receita: findCol(header, ['subtotal do produto', 'subtotal', 'receita', 'valor']),
+                varId:   varIdCol,
               };
 
               for (var i = 1; i < rows.length; i++) {
@@ -143,6 +158,7 @@
                   sku,
                   ci.qtd     >= 0 ? String(r[ci.qtd]     || '0').trim() : '0',
                   ci.receita >= 0 ? String(r[ci.receita] || '0').trim() : '0',
+                  ci.varId   >= 0 ? String(r[ci.varId]   || '').trim() : '',
                 ]);
               }
             }

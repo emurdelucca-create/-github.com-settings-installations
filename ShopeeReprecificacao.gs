@@ -146,13 +146,17 @@ function _sr_salvarPedidos(novasLinhas) {
   const ss   = SpreadsheetApp.getActiveSpreadsheet();
   let   aba  = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
   const HEADER = ['Número do Pedido','Status do pedido','Data de criação do pedido',
-                  'Número de referência SKU','Quantidade','Subtotal do produto'];
+                  'Número de referência SKU','Quantidade','Subtotal do produto',
+                  'Ref. SKU Variação'];
 
   if (!aba) {
     aba = ss.insertSheet(SRCFG.ABA_PEDIDOS);
     aba.getRange(1, 1, 1, HEADER.length).setValues([HEADER]).setFontWeight('bold');
     ss.setActiveSheet(ss.getSheets()[0]); // volta para a primeira aba
     aba.hideSheet();
+  } else if (aba.getLastColumn() < HEADER.length) {
+    // Migração: adiciona novas colunas ao cabeçalho existente
+    aba.getRange(1, 1, 1, HEADER.length).setValues([HEADER]).setFontWeight('bold');
   }
 
   // Carrega dedup keys já existentes
@@ -213,7 +217,7 @@ function gerarReprecificacao() {
       produtos  = _sr_carregarProdutos(ss);
       mapaPromo = _sr_carregarPromocoes(ss);
     }
-    const mapaVendas = _sr_carregarVendas(ss);
+    const { mapaVendas, mapaVarId } = _sr_carregarVendas(ss);
 
     if (!produtos.length) {
       ui.alert('❌ Nenhum produto encontrado em "' + SRCFG.ABA_PRODUTOS + '".\nCole a exportação e tente novamente.');
@@ -222,7 +226,7 @@ function gerarReprecificacao() {
 
     const itens = _sr_montarItens(
       produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
-      mapaPromo, mapaVendas, mapaNovoCusto, taxa
+      mapaPromo, mapaVendas, mapaNovoCusto, taxa, mapaVarId
     );
 
     _sr_calcularCurvas(itens);
@@ -700,17 +704,19 @@ function _sr_carregarPromocoes(ss) {
 const SR_STATUS_OK = ['concluido', 'entregue', 'enviado', 'order received', 'a enviar'];
 
 function _sr_carregarVendas(ss) {
-  const aba  = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
-  const mapa = {}; // sku → { fat030, qtd030, fat3060, qtd3060, fat6090, qtd6090 }
-  if (!aba || aba.getLastRow() < 2) return mapa;
+  const aba       = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
+  const mapaVendas = {}; // sku usuário → { fat030, qtd030, fat3060, qtd3060, fat6090, qtd6090 }
+  const mapaVarId  = {}; // ID da variação Shopee → mesma estrutura
+  if (!aba || aba.getLastRow() < 2) return { mapaVendas, mapaVarId };
 
   const dados = aba.getDataRange().getValues();
   const cols  = _sr_detectarColunas(dados[0], {
     status:  ['status do pedido', 'status'],
     data:    ['data de criacao do pedido', 'data de criacao', 'data do pedido', 'data criacao', 'data'],
-    sku:     ['numero de referencia sku', 'referencia sku', 'sku'],
+    sku:     ['numero de referencia sku', 'referencia sku'],
     qtd:     ['quantidade', 'qtd', 'qty'],
     receita: ['subtotal do produto', 'subtotal', 'receita', 'valor'],
+    varId:   ['ref. sku variacao', 'referencia sku variacao', 'sku da variacao'],
   });
 
   // Primeiro passo: encontrar dataMax em todos os dados válidos
@@ -738,8 +744,9 @@ function _sr_carregarVendas(ss) {
     const dias  = Math.floor((dataMax - dNorm) / 86400000);
     if (dias < 0 || dias >= 90) continue;
 
-    const sku = cols.sku >= 0 ? String(row[cols.sku] || '').trim() : '';
-    if (!sku) continue;
+    const sku   = cols.sku   >= 0 ? String(row[cols.sku]   || '').trim() : '';
+    const varId = cols.varId >= 0 ? String(row[cols.varId] || '').trim() : '';
+    if (!sku && !varId) continue;
 
     const getN = (k) => {
       if (cols[k] < 0) return 0;
@@ -749,20 +756,27 @@ function _sr_carregarVendas(ss) {
     const qtd = getN('qtd');
     const rec = getN('receita');
 
-    if (!mapa[sku]) mapa[sku] = { fat030: 0, qtd030: 0, fat3060: 0, qtd3060: 0, fat6090: 0, qtd6090: 0 };
-    const v = mapa[sku];
-    if      (dias < 30) { v.fat030  += rec; v.qtd030  += qtd; }
-    else if (dias < 60) { v.fat3060 += rec; v.qtd3060 += qtd; }
-    else                { v.fat6090 += rec; v.qtd6090 += qtd; }
+    const acumular = (mapa, key) => {
+      if (!key) return;
+      if (!mapa[key]) mapa[key] = { fat030: 0, qtd030: 0, fat3060: 0, qtd3060: 0, fat6090: 0, qtd6090: 0 };
+      const v = mapa[key];
+      if      (dias < 30) { v.fat030  += rec; v.qtd030  += qtd; }
+      else if (dias < 60) { v.fat3060 += rec; v.qtd3060 += qtd; }
+      else                { v.fat6090 += rec; v.qtd6090 += qtd; }
+    };
+
+    acumular(mapaVendas, sku);
+    acumular(mapaVarId,  varId);
   }
-  return mapa;
+  return { mapaVendas, mapaVarId };
 }
 
 // ============================================================
 // MONTAR ITENS — enriquecer produtos com todas as métricas
 // ============================================================
 function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
-                          mapaPromo, mapaVendas, mapaNovoCusto, taxa) {
+                          mapaPromo, mapaVendas, mapaNovoCusto, taxa, mapaVarId) {
+  mapaVarId = mapaVarId || {};
   return produtos.map(p => {
     const skuFinal   = p.skuUsr || p.skuVar;
     const precoPromo = mapaPromo[skuFinal] || mapaPromo[p.skuVar] || 0;
@@ -821,8 +835,12 @@ function _sr_montarItens(produtos, estBL, mapaCustos, mapaCompostos, proporcoes,
       ? margemRReverso / precoReverso
       : 0;
 
-    // Vendas
-    const v = mapaVendas[skuFinal] || mapaVendas[p.skuVar] || {};
+    // Vendas: tenta por skuFinal, depois por skuVar como texto,
+    // depois pelo ID da variação Shopee (coluna "Ref. SKU Variação" nos pedidos)
+    // — resolve variações com SKU do Usuário em branco no export "Editar em Massa"
+    const v = mapaVendas[skuFinal] || mapaVendas[p.skuVar]
+           || mapaVarId[p.skuVar]
+           || {};
     const fat030  = v.fat030  || 0;  const qtd030  = v.qtd030  || 0;
     const fat3060 = v.fat3060 || 0;  const qtd3060 = v.qtd3060 || 0;
     const fat6090 = v.fat6090 || 0;  const qtd6090 = v.qtd6090 || 0;
