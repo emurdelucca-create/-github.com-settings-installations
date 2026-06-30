@@ -67,6 +67,7 @@ function onOpen() {
     .addItem('⚙️ Criar abas de entrada',       'criarAbas')
     .addItem('🔍 Diagnóstico de vendas',        '_sr_diagnosticarVendas')
     .addItem('🔎 Diagnóstico por SKU/ID',       '_sr_diagnosticarProduto')
+    .addItem('🏷️ Diagnóstico de promoções',     '_sr_diagnosticarPromos')
     .addToUi();
 }
 
@@ -634,6 +635,110 @@ function _sr_diagnosticarProduto() {
   ui.alert('🔍 Diagnóstico: "' + busca + '"\n\n' +
     '── Reprecificação ──\n' + msgRep +
     '\n\n── Pedidos (_sr_pedidos) ──\n' + msgPed);
+}
+
+// ============================================================
+// DIAGNÓSTICO DE PROMOÇÕES
+// Mostra o que a API retorna para um produto específico:
+// preços do get_item_base_info e campanhas do discount API
+// ============================================================
+function _sr_diagnosticarPromos() {
+  const ui   = SpreadsheetApp.getUi();
+  const resp = ui.prompt('Diagnóstico de Promoções',
+    'Digite o ID do produto (ex: 18999208348):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const idBusca = resp.getResponseText().trim();
+  if (!idBusca) return;
+
+  const temToken = !!PropertiesService.getScriptProperties().getProperty('SHOPEE_ACCESS_TOKEN');
+  if (!temToken) { ui.alert('❌ Token Shopee não configurado.'); return; }
+
+  let msg = '🔍 Diagnóstico: ID ' + idBusca + '\n\n';
+
+  // 1. get_item_base_info — preços das variações
+  try {
+    const r = _shopeeGet('/api/v2/product/get_item_base_info', {
+      item_id_list: idBusca, need_tax_info: false, need_complaint_policy: false,
+    });
+    const item = (r.item_list || [])[0];
+    if (!item) {
+      msg += '❌ Produto não encontrado na API.\n';
+    } else {
+      msg += '── get_item_base_info ──\n';
+      msg += 'has_model: ' + item.has_model + '\n';
+      if (item.has_model) {
+        (item.model_list || []).slice(0, 10).forEach(m => {
+          const pi   = m.price_info && m.price_info[0];
+          const orig = pi ? pi.original_price : '?';
+          const curr = pi ? pi.current_price  : '?';
+          msg += '  model_id=' + m.model_id + ' sku="' + m.model_sku +
+                 '" orig=' + orig + ' curr=' + curr + '\n';
+        });
+      } else {
+        const pi   = item.price_info && item.price_info[0];
+        msg += '  item_sku="' + item.item_sku + '" orig=' +
+               (pi ? pi.original_price : '?') + ' curr=' + (pi ? pi.current_price : '?') + '\n';
+      }
+    }
+  } catch(e) { msg += '❌ Erro get_item_base_info: ' + e.message + '\n'; }
+
+  // 2. Campanhas de desconto ativas para esse produto
+  try {
+    msg += '\n── Campanhas de desconto (discount API) ──\n';
+    const rd = _shopeeGet('/api/v2/discount/get_discount_list', {
+      discount_status: 'ongoing', page_size: 50, page_no: 1,
+    });
+    const lista = rd.discount_list || [];
+    if (!lista.length) { msg += '  Nenhuma campanha ativa.\n'; }
+    let achou = false;
+    lista.forEach(d => {
+      try {
+        const det = _shopeeGet('/api/v2/discount/get_discount_detail', {
+          discount_id: d.discount_id, page_size: 100, page_no: 1,
+        });
+        (det.item_list || []).forEach(item => {
+          if (String(item.item_id) !== idBusca) return;
+          achou = true;
+          msg += '  discount_id=' + d.discount_id + '\n';
+          (item.model_list && item.model_list.length
+            ? item.model_list
+            : [{ model_sku: item.item_sku, model_promotion_price: item.item_promotion_price }]
+          ).forEach(m => {
+            msg += '    sku="' + m.model_sku + '" promo_price=' + m.model_promotion_price + '\n';
+          });
+        });
+      } catch(e) {}
+    });
+    if (!achou && lista.length) msg += '  Produto não encontrado em nenhuma campanha ativa.\n';
+  } catch(e) { msg += '❌ Erro discount API: ' + e.message + '\n'; }
+
+  // 3. O que está no mapaPromo após o enriquecimento
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const produtos = _sr_carregarProdutos(ss);
+    const mapaDesconto = _sr_buscarPromocoesAPI();
+    msg += '\n── Chaves geradas pelo mapaDesconto para esse produto ──\n';
+    const pFiltro = produtos.filter(p => p.idItem === idBusca);
+    if (!pFiltro.length) {
+      msg += '  Produto NÃO encontrado em "Produtos Shopee".\n';
+    } else {
+      pFiltro.forEach(p => {
+        const skuFinal = p.skuUsr || p.skuRef || p.skuVar;
+        const k1 = p.idItem + '|' + skuFinal;
+        const k2 = skuFinal;
+        msg += '  skuFinal="' + skuFinal + '"\n';
+        msg += '    chave "' + k1 + '" → ' + (mapaDesconto[k1] || 'NÃO encontrado') + '\n';
+        msg += '    chave "' + k2 + '" → ' + (mapaDesconto[k2] || 'NÃO encontrado') + '\n';
+      });
+    }
+  } catch(e) { msg += '❌ Erro ao verificar mapaDesconto: ' + e.message + '\n'; }
+
+  // Alerta em partes se muito longo
+  if (msg.length > 1500) {
+    ui.alert(msg.substring(0, 1500) + '\n...(truncado)');
+  } else {
+    ui.alert(msg);
+  }
 }
 
 // ============================================================
