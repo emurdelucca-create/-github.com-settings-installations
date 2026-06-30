@@ -444,6 +444,77 @@ function _sr_diagnosticarSKU(skuParam) {
 }
 
 // ============================================================
+// DIAGNÓSTICO DE PRODUTO — busca por SKU ou ID na Reprecificação
+// e cruza com _sr_pedidos para ver se as vendas estão sendo encontradas
+// Execute: _sr_diagnosticarProduto()
+// ============================================================
+function _sr_diagnosticarProduto() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+  const resp = ui.prompt('Diagnóstico de Produto',
+    'Digite o SKU, ID do produto pai ou ID da variação:', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const busca = resp.getResponseText().trim();
+  if (!busca) return;
+
+  const norm = s => String(s || '').trim().toLowerCase();
+  const buscaN = norm(busca);
+
+  // ── 1. Busca na aba Reprecificação ──
+  const abaRep = ss.getSheetByName(SRCFG.ABA_SAIDA);
+  let msgRep = '❌ Aba Reprecificação não encontrada.';
+  const skusEncontrados = [];
+  if (abaRep && abaRep.getLastRow() > SRCFG.HEADER_ROWS) {
+    const PRIMA   = SRCFG.HEADER_ROWS + 1;
+    const lastRow = abaRep.getLastRow();
+    // Lê A(nome) B(idItem) C(variação) D(skuVar) E(skuUsr) F(skuFinal) AC(fat030) AE(fat3060) AG(fat6090)
+    const dados = abaRep.getRange(PRIMA, 1, lastRow - PRIMA + 1, 40).getValues();
+    const linhas = [];
+    dados.forEach((row, idx) => {
+      const cols = [row[0],row[1],row[2],row[3],row[4],row[5]];
+      if (cols.some(c => norm(c) === buscaN || norm(c).includes(buscaN))) {
+        const skuF  = String(row[5]).trim();
+        const fat90 = (Number(row[28])||0) + (Number(row[30])||0) + (Number(row[32])||0);
+        linhas.push('Linha ' + (PRIMA+idx) + ': skuFinal="' + skuF +
+          '" | fat90d=R$' + fat90.toFixed(2) +
+          ' | fat0-30=R$' + (Number(row[28])||0).toFixed(2));
+        skusEncontrados.push(skuF);
+      }
+    });
+    msgRep = linhas.length
+      ? 'Encontrado na Reprecificação (' + linhas.length + ' linha(s)):\n' + linhas.join('\n')
+      : '⚠️ NÃO encontrado na aba Reprecificação (col A-F). Verifique se está em "Produtos Shopee".';
+  }
+
+  // ── 2. Busca nos pedidos (_sr_pedidos) ──
+  const abaPed = ss.getSheetByName(SRCFG.ABA_PEDIDOS);
+  let msgPed = '❌ Aba _sr_pedidos não encontrada. Use 📤 Importar Pedidos.';
+  if (abaPed && abaPed.getLastRow() > 1) {
+    const pedidos = abaPed.getDataRange().getValues().slice(1);
+    const matches = pedidos.filter(r => {
+      const skuPed = norm(r[3]);
+      return skuPed === buscaN || skuPed.includes(buscaN) ||
+             skusEncontrados.some(s => norm(s) === skuPed);
+    });
+    if (matches.length) {
+      const totalQtd = matches.reduce((s,r) => s + (Number(r[4])||0), 0);
+      const totalRec = matches.reduce((s,r) => s + (parseFloat(String(r[5]).replace(',','.'))||0), 0);
+      const skusPed  = [...new Set(matches.map(r => String(r[3]).trim()))];
+      msgPed = 'Pedidos encontrados: ' + matches.length + ' linhas\n' +
+        'SKUs nos pedidos: ' + skusPed.join(', ') + '\n' +
+        'Total Qtd: ' + totalQtd + ' | Total Receita: R$' + totalRec.toFixed(2);
+    } else {
+      msgPed = '⚠️ Nenhum pedido encontrado com "' + busca + '" na coluna SKU.\n' +
+        'SKU nos pedidos pode ser diferente do SKU nos Produtos.';
+    }
+  }
+
+  ui.alert('🔍 Diagnóstico: "' + busca + '"\n\n' +
+    '── Reprecificação ──\n' + msgRep +
+    '\n\n── Pedidos (_sr_pedidos) ──\n' + msgPed);
+}
+
+// ============================================================
 // CARREGAR TAXA (Configurações!B2 que contenha "taxa")
 // ============================================================
 function _sr_carregarTaxa(ss) {
