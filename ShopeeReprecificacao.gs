@@ -66,6 +66,7 @@ function onOpen() {
     .addSeparator()
     .addItem('⚙️ Criar abas de entrada',       'criarAbas')
     .addItem('🔍 Diagnóstico de vendas',        '_sr_diagnosticarVendas')
+    .addItem('🔎 Diagnóstico por SKU/ID',       '_sr_diagnosticarProduto')
     .addToUi();
 }
 
