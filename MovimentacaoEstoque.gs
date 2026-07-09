@@ -220,20 +220,34 @@ function _me_carregarDadosAPI() {
     if (i + LOTE < allPids.length) Utilities.sleep(300);
   }
 
-  // Passo 3: mapa de zonas a partir de warehouses secundários
-  // (varre TODOS os produtos para descobrir qual bl_XXXXX é A8 ou A9)
-  const zoneA8 = new Set(); // warehouse IDs mapeados para zona A8
-  const zoneA9 = new Set(); // warehouse IDs mapeados para zona A9
+  // Passo 3a: detectar zona de sub-warehouses a partir de suas próprias location strings
+  const subWhZone = {}; // wid → 'A8' | 'A9'
   Object.values(rawData).forEach(p => {
     Object.entries(p.locations || {}).forEach(([wid, locStr]) => {
-      if (KNOWN.has(wid) || !locStr || zoneA8.has(wid) || zoneA9.has(wid)) return;
-      _me_parseLocs(locStr).forEach(loc => {
-        const pfx = loc.substring(0, 2).toUpperCase();
-        if (pfx === 'A8') zoneA8.add(wid);
-        else if (pfx === 'A9') zoneA9.add(wid);
-      });
+      if (KNOWN.has(wid) || subWhZone[wid] || !locStr) return;
+      const locs = _me_parseLocs(locStr);
+      const lA8  = locs.some(x => x.toUpperCase().startsWith('A8'));
+      const lA9  = locs.some(x => x.toUpperCase().startsWith('A9'));
+      if (lA8 && !lA9)       subWhZone[wid] = 'A8';
+      else if (lA9 && !lA8)  subWhZone[wid] = 'A9';
     });
   });
+
+  // Passo 3b: inferir zona de sub-warehouses com location string vazia
+  // a partir de produtos onde o armazém Padrão tem SOMENTE A8 ou SOMENTE A9
+  Object.values(rawData).forEach(p => {
+    const padLocs = _me_parseLocs((p.locations || {})[ME.WH_PADRAO] || '');
+    const hasA8   = padLocs.some(x => x.toUpperCase().startsWith('A8'));
+    const hasA9   = padLocs.some(x => x.toUpperCase().startsWith('A9'));
+    if (hasA8 === hasA9) return; // misto ou sem localização → não serve para inferência
+    const zone = hasA8 ? 'A8' : 'A9';
+    Object.keys(p.stock || {}).forEach(wid => {
+      if (!KNOWN.has(wid) && !subWhZone[wid]) subWhZone[wid] = zone;
+    });
+  });
+
+  const zoneA8 = new Set(Object.keys(subWhZone).filter(w => subWhZone[w] === 'A8'));
+  const zoneA9 = new Set(Object.keys(subWhZone).filter(w => subWhZone[w] === 'A9'));
 
   // Passo 4: consolida por SKU
   const stockLocDim = {};
@@ -245,55 +259,50 @@ function _me_carregarDadosAPI() {
     const s = p.stock     || {};
     const l = p.locations || {};
 
-    // Stock e localizações dos warehouses secundários mapeados
+    // Soma stock dos sub-warehouses de cada zona (apenas os desta produto)
     let subA8 = 0, subA9 = 0;
     const a8Locs = [], a9Locs = [];
 
-    zoneA8.forEach(wid => {
-      subA8 += Number(s[wid] || 0);
-      _me_parseLocs(l[wid] || '')
-        .filter(x => x.toUpperCase().startsWith('A8'))
-        .forEach(x => a8Locs.push(x));
-    });
-    zoneA9.forEach(wid => {
-      subA9 += Number(s[wid] || 0);
-      _me_parseLocs(l[wid] || '')
-        .filter(x => x.toUpperCase().startsWith('A9'))
-        .forEach(x => a9Locs.push(x));
+    Object.keys(s).forEach(wid => {
+      if (KNOWN.has(wid)) return;
+      const qty = Number(s[wid] || 0);
+      if (zoneA8.has(wid)) {
+        subA8 += qty;
+        _me_parseLocs(l[wid] || '').filter(x => x.toUpperCase().startsWith('A8')).forEach(x => a8Locs.push(x));
+      } else if (zoneA9.has(wid)) {
+        subA9 += qty;
+        _me_parseLocs(l[wid] || '').filter(x => x.toUpperCase().startsWith('A9')).forEach(x => a9Locs.push(x));
+      }
     });
 
-    // bl_44285 (Padrão master) — usa prefixo da localização
-    const padraoStock = Number(s[ME.WH_PADRAO] || 0);
-    const padraoLocs  = _me_parseLocs(l[ME.WH_PADRAO] || '');
-    const padA8 = padraoLocs.filter(x => x.toUpperCase().startsWith('A8'));
-    const padA9 = padraoLocs.filter(x => x.toUpperCase().startsWith('A9'));
-    padA8.forEach(x => a8Locs.push(x));
-    padA9.forEach(x => a9Locs.push(x));
+    // Locações da string do armazém Padrão (bl_44285) — usadas para colunas F/G
+    const padraoLocs = _me_parseLocs(l[ME.WH_PADRAO] || '');
+    padraoLocs.filter(x => x.toUpperCase().startsWith('A8')).forEach(x => a8Locs.push(x));
+    padraoLocs.filter(x => x.toUpperCase().startsWith('A9')).forEach(x => a9Locs.push(x));
 
     let picking, armPad;
     if (subA8 + subA9 > 0) {
-      // Warehouses secundários têm dados — usa diretamente
+      // Sub-warehouses identificados — usa stock deles diretamente
       picking = subA8;
       armPad  = subA9;
-    } else if (padA8.length > 0 && padA9.length === 0) {
-      picking = padraoStock; armPad = 0;
-    } else if (padA9.length > 0 && padA8.length === 0) {
-      picking = 0; armPad = padraoStock;
     } else {
-      // misto ou sem localização → todo stock vai para picking
-      picking = padraoStock; armPad = 0;
+      // Sem sub-warehouses: usa stock total do bl_44285 com prefixo da localização
+      const padraoStock = Number(s[ME.WH_PADRAO] || 0);
+      const pA8 = a8Locs.length > 0;
+      const pA9 = a9Locs.length > 0;
+      if (pA8 && !pA9)       { picking = padraoStock; armPad = 0; }
+      else if (pA9 && !pA8)  { picking = 0; armPad = padraoStock; }
+      else                   { picking = padraoStock; armPad = 0; } // fallback
     }
 
     const arm = Number(s[ME.WH_ARMAZENAMENTO] || 0);
     const chg = Number(s[ME.WH_CHEGOU]        || 0);
 
-    // Localização F (A8) e G (A9 ou fallback Armazenamento)
-    const locF  = [...new Set(a8Locs)].join(' / ');
-    const locA9 = [...new Set(a9Locs)].join(' / ');
+    const locF   = [...new Set(a8Locs)].join(' / ');
+    const locA9s = [...new Set(a9Locs)].join(' / ');
     const locArm = _me_parseLocs(l[ME.WH_ARMAZENAMENTO] || '').join(' / ');
-    const locG  = locA9 || locArm;
+    const locG   = locA9s || locArm;
 
-    // Dimensões
     const h    = Number(p.height || 0);
     const w    = Number(p.width  || 0);
     const c    = Number(p.length || 0);
@@ -301,16 +310,15 @@ function _me_carregarDadosAPI() {
     const vol  = h && w && c ? h * w * c : 0;
 
     if (!stockLocDim[sku]) {
-      stockLocDim[sku] = { picking:0, armPad:0, arm:0, chg:0,
-                           locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+      stockLocDim[sku] = { picking:0, armPad:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
     }
     const d = stockLocDim[sku];
     d.picking += picking;
     d.armPad  += armPad;
     d.arm     += arm;
     d.chg     += chg;
-    if (locF && !d.locF)  d.locF = locF;
-    if (locG && !d.locG)  d.locG = locG;
+    if (locF && !d.locF) d.locF = locF;
+    if (locG && !d.locG) d.locG = locG;
     if (peso > 0 && !d.peso) { d.h = h; d.w = w; d.c = c; d.peso = peso; d.vol = vol; }
   });
 
@@ -375,7 +383,9 @@ function _me_montarItens(vendas, stockLocDim, pedMap, mapaCompostos) {
     function dif(vd) { return s.picking - vd; }
     function mov(vd) {
       const raw = vd - s.picking;
-      return raw > 0 ? Math.min(raw, totalStock) : raw;
+      // raw > 0: déficit (precisa mover pra picking) — capado pelo totalStock, mínimo 0
+      // raw ≤ 0: excesso em picking — retorna negativo (usado pelo filtro da aba Excesso)
+      return raw > 0 ? Math.max(0, Math.min(raw, totalStock)) : raw;
     }
 
     return {
@@ -439,9 +449,12 @@ function _me_escreverAba(tipoAba, todosItens) {
   const PRIMA = ME.HEADER_ROWS + 1; // linha 6
 
   // ── Filtro e ordenação ──
+  // Apenas produtos com vendas nos últimos 15 dias em todas as abas
+  const comVendas = todosItens.filter(x => x.v15 > 0);
+
   let itens;
   if (tipoAba === 'Corretiva') {
-    itens = [...todosItens].sort((a, b) => {
+    itens = [...comVendas].sort((a, b) => {
       const wa = ME_AABBCC_W[a.aabbcc] || 1.0;
       const wb = ME_AABBCC_W[b.aabbcc] || 1.0;
       const sa = a.picking * wa;
@@ -450,10 +463,11 @@ function _me_escreverAba(tipoAba, todosItens) {
       return wa - wb;
     });
   } else if (tipoAba === 'Planejada') {
-    itens = [...todosItens].sort((a, b) => b.dif7 - a.dif7);
+    // Coluna Q = Movimentar 0-7, do maior para o menor
+    itens = [...comVendas].sort((a, b) => b.mov7 - a.mov7);
   } else {
-    // Excesso: somente mov10 < 0, do menor para o maior
-    itens = todosItens.filter(x => x.mov10 < 0).sort((a, b) => a.mov10 - b.mov10);
+    // Excesso: somente mov10 < 0, do menor (mais excesso) para o maior
+    itens = comVendas.filter(x => x.mov10 < 0).sort((a, b) => a.mov10 - b.mov10);
   }
 
   // ── Cabeçalho ──
@@ -463,13 +477,17 @@ function _me_escreverAba(tipoAba, todosItens) {
   // Formata SKU como texto ANTES de escrever
   aba.getRange(PRIMA, 1, itens.length, 1).setNumberFormat('@');
 
+  // Excesso exibe valores negativos reais; Corretiva/Planejada exibe 0 para negativos
+  const floorMov = tipoAba !== 'Excesso';
+  const m = (v) => floorMov ? Math.max(0, v) : v;
+
   const linhas = itens.map(x => [
     String(x.sku),                                                   // A
     x.picking, x.armPad, x.arm, x.chg,                              // B-E
     x.locF, x.locG,                                                  // F-G
     x.v5, x.v7, x.v10, x.v15,                                       // H-K
     x.dif5, x.dif7, x.dif10, x.dif15,                               // L-O
-    x.mov5, x.mov7, x.mov10, x.mov15,                               // P-S
+    m(x.mov5), m(x.mov7), m(x.mov10), m(x.mov15),                  // P-S
     x.abc,    x.pctAbc,                                              // T-U
     x.aabbcc, x.pctAabbcc,                                           // V-W
     x.h, x.w, x.c, x.peso, x.vol,                                   // X-AB
