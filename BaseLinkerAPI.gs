@@ -96,86 +96,63 @@ function _bl_diagnosticarAPI() {
     }
   }
 
-  // 5. Amostra de 1 pedido para ver estrutura de campos
-  try {
-    const r = _bl_call('getOrders', {
-      status_id:       0,  // 0 = todos os status
-      date_from:       Math.floor(Date.now()/1000) - 30*86400, // últimos 30 dias
-      get_unconfirmed: false,
-      page:            1,
-    });
-    const orders = r.orders || [];
-    out += '\n══ PEDIDO — amostra (1 de ' + orders.length + ' nas últimas 48h) ══\n';
-    if (orders.length > 0) {
-      const o = orders[0];
-      out += '  order_id=' + o.order_id + '\n';
-      out += '  status_id=' + o.order_status_id + '\n';
-      out += '  payment_done=' + o.payment_done + '\n';
-      out += '  delivery_method="' + o.delivery_method + '"\n';
-      out += '  Todos os campos: ' + Object.keys(o).join(', ') + '\n';
-      // Produtos do pedido
-      const prods = o.products || [];
-      out += '  Produtos (' + prods.length + '):\n';
-      prods.slice(0, 3).forEach(p => {
-        out += '    sku="' + p.sku + '" qty=' + p.quantity +
-               ' storage="' + (p.storage || '-') + '"\n';
-      });
-      if (prods.length > 0) {
-        out += '  Campos do produto: ' + Object.keys(prods[0]).join(', ') + '\n';
+  // 5. Pedidos — testa sem data, depois com status específico
+  const orderTries = [
+    { status_id: 268797, get_unconfirmed: false },         // NF Emitida
+    { status_id: 268806, get_unconfirmed: false },         // [SEP] Shopee Direta
+    { status_id: 0,      get_unconfirmed: false, page: 1 },// todos confirmados
+    { status_id: 0,      get_unconfirmed: true,  page: 1 },// todos incluindo não confirmados
+  ];
+  for (const params of orderTries) {
+    try {
+      const r = _bl_call('getOrders', params);
+      const orders = r.orders || [];
+      out += '\n══ PEDIDO params=' + JSON.stringify(params) + ' → ' + orders.length + ' ══\n';
+      if (orders.length > 0) {
+        const o = orders[0];
+        out += '  order_id='       + o.order_id          + '\n';
+        out += '  status_id='      + o.order_status_id   + '\n';
+        out += '  payment_done='   + o.payment_done      + '\n';
+        out += '  delivery_method="' + o.delivery_method + '"\n';
+        out += '  date_add='       + o.date_add          + '\n';
+        out += '  date_confirmed=' + (o.date_confirmed || '-') + '\n';
+        out += '  Campos pedido: ' + Object.keys(o).join(', ') + '\n';
+        const prods = o.products || [];
+        if (prods.length > 0) {
+          out += '  Produto[0]: sku="' + prods[0].sku + '" qty=' + prods[0].quantity + '\n';
+          out += '  Campos produto: ' + Object.keys(prods[0]).join(', ') + '\n';
+        }
+        break;
       }
-    }
-  } catch(e) { out += '❌ getOrders: ' + e.message + '\n'; }
+    } catch(e) { out += '❌ getOrders ' + JSON.stringify(params) + ': ' + e.message + '\n'; }
+  }
 
-  // 6. Amostra de produto para ver dimensões
+  // 6. Produto — dimensões + STOCK + LOCATIONS (tudo dentro de getInventoryProductsData)
   try {
-    // Busca 1 produto para ver campos de dimensão
-    const rList = _bl_call('getInventoryProductsList', {
+    const rList = _bl_call('getInventoryProductsList', { inventory_id: 39947, page: 1 });
+    const allProds = rList.products ? Object.entries(rList.products) : [];
+    const pids = allProds.slice(0, 3).map(([id]) => Number(id));
+    const rData = _bl_call('getInventoryProductsData', { inventory_id: 39947, products: pids });
+    out += '\n══ PRODUTO — stock + locations ══\n';
+    pids.forEach(pid => {
+      const p = rData.products ? rData.products[String(pid)] : null;
+      if (!p) return;
+      out += '\n  product_id=' + pid + ' sku="' + p.sku + '"\n';
+      out += '  Medidas: weight=' + p.weight + ' h=' + p.height + ' w=' + p.width + ' l=' + p.length + '\n';
+      out += '  STOCK: '     + JSON.stringify(p.stock     || {}) + '\n';
+      out += '  LOCATIONS: ' + JSON.stringify(p.locations || {}) + '\n';
+    });
+  } catch(e) { out += '❌ getInventoryProductsData (stock+loc): ' + e.message + '\n'; }
+
+  // 7. getInventoryProductsStock — parâmetro correto
+  try {
+    const rStock = _bl_call('getInventoryProductsStock', {
       inventory_id: 39947,
-      page:         1,
+      products:     [83984413],
     });
-    const prods = rList.products ? Object.entries(rList.products) : [];
-    out += '\n══ PRODUTO — amostra de dimensões ══\n';
-    if (prods.length > 0) {
-      const [pid] = prods[0];
-      const rData = _bl_call('getInventoryProductsData', {
-        inventory_id: 39947,
-        products:     [Number(pid)],
-      });
-      const pData = rData.products ? rData.products[pid] : null;
-      if (pData) {
-        out += '  product_id=' + pid + ' sku="' + pData.sku + '"\n';
-        out += '  weight=' + pData.weight +
-               ' height=' + pData.height +
-               ' width='  + pData.width  +
-               ' length=' + pData.length + '\n';
-        out += '  Campos: ' + Object.keys(pData).join(', ') + '\n';
-      }
-    }
-  } catch(e) { out += '❌ getInventoryProductsData: ' + e.message + '\n'; }
-
-  // 7. Amostra de estoque por armazém
-  try {
-    const rList = _bl_call('getInventoryProductsList', {
-      inventory_id: '',
-      page:         1,
-    });
-    const prods = rList.products ? Object.entries(rList.products) : [];
-    if (prods.length > 0) {
-      const [pid] = prods[0];
-      const rStock = _bl_call('getInventoryProductsStock', {
-        inventory_id: 39947,
-        products:     [Number(pid)],
-      });
-      const pStock = rStock.products ? rStock.products[pid] : null;
-      out += '\n══ ESTOQUE — estrutura de armazéns (1 produto) ══\n';
-      out += '  product_id=' + pid + '\n';
-      if (pStock) {
-        out += '  Armazéns e estoques:\n';
-        Object.entries(pStock).forEach(([key, val]) => {
-          out += '    "' + key + '" = ' + JSON.stringify(val) + '\n';
-        });
-      }
-    }
+    out += '\n══ getInventoryProductsStock (produto 83984413) ══\n';
+    const pStock = rStock.products ? rStock.products['83984413'] : rStock;
+    out += JSON.stringify(pStock).substring(0, 800) + '\n';
   } catch(e) { out += '❌ getInventoryProductsStock: ' + e.message + '\n'; }
 
   // Grava resultado em aba oculta
