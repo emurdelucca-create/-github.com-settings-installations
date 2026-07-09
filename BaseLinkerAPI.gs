@@ -67,31 +67,40 @@ function _bl_diagnosticarAPI() {
     });
   } catch(e) { out += '❌ getOrderStatusList: ' + e.message + '\n'; }
 
-  // 4. Localizações — estrutura (primeira página, 1 inventário)
+  // 4. Warehouses do inventário (Padrão / Armazenamento / Chegou)
   try {
-    // Primeiro tenta sem inventory_id (usa o padrão)
-    const r = _bl_call('getInventoryLocations', {});
-    const locs = r.locations || [];
-    out += '\n══ LOCALIZAÇÕES — amostra (' + locs.length + ' retornadas) ══\n';
-    locs.slice(0, 10).forEach(l => {
-      out += '  loc_id=' + l.location_id +
-             ' nome="' + l.name + '"' +
-             ' warehouse="' + (l.warehouse_id || l.storage_id || '-') + '"' +
-             ' desc="' + (l.description || '') + '"\n';
+    const r = _bl_call('getInventoryWarehousesList', { inventory_id: 39947 });
+    const whs = r.warehouses || [];
+    out += '\n══ WAREHOUSES DO INVENTÁRIO (' + whs.length + ') ══\n';
+    whs.forEach(w => {
+      out += '  id=' + (w.warehouse_id || w.id) +
+             ' nome="' + w.name + '"' +
+             ' desc="' + (w.description || '') + '"\n';
     });
-    if (locs.length > 10) out += '  ... e mais ' + (locs.length - 10) + '\n';
+    if (whs.length > 0) out += '  Campos: ' + Object.keys(whs[0]).join(', ') + '\n';
+  } catch(e) { out += '❌ getInventoryWarehousesList: ' + e.message + '\n'; }
 
-    // Mostra keys do primeiro objeto para entender todos os campos
-    if (locs.length > 0) {
-      out += '  Campos disponíveis: ' + Object.keys(locs[0]).join(', ') + '\n';
+  // 4b. Localizações — tenta métodos alternativos
+  const locMethods = [
+    ['getInventoryLocationsList',    { inventory_id: 39947 }],
+    ['getInventoryLocationsGroups',  { inventory_id: 39947 }],
+    ['getInventoryProductLocations', { inventory_id: 39947 }],
+  ];
+  for (const [m, p] of locMethods) {
+    try {
+      const r = _bl_call(m, p);
+      out += '\n✅ ' + m + ' FUNCIONOU:\n' + JSON.stringify(r).substring(0, 500) + '\n';
+      break;
+    } catch(e) {
+      out += '❌ ' + m + ': ' + e.message + '\n';
     }
-  } catch(e) { out += '❌ getInventoryLocations: ' + e.message + '\n'; }
+  }
 
   // 5. Amostra de 1 pedido para ver estrutura de campos
   try {
     const r = _bl_call('getOrders', {
-      status_id:       0,  // 0 = todos
-      date_from:       Math.floor(Date.now()/1000) - 2*86400, // últimas 48h
+      status_id:       0,  // 0 = todos os status
+      date_from:       Math.floor(Date.now()/1000) - 30*86400, // últimos 30 dias
       get_unconfirmed: false,
       page:            1,
     });
@@ -121,7 +130,7 @@ function _bl_diagnosticarAPI() {
   try {
     // Busca 1 produto para ver campos de dimensão
     const rList = _bl_call('getInventoryProductsList', {
-      inventory_id: '',  // deixa vazio para padrão
+      inventory_id: 39947,
       page:         1,
     });
     const prods = rList.products ? Object.entries(rList.products) : [];
@@ -129,7 +138,7 @@ function _bl_diagnosticarAPI() {
     if (prods.length > 0) {
       const [pid] = prods[0];
       const rData = _bl_call('getInventoryProductsData', {
-        inventory_id: '',
+        inventory_id: 39947,
         products:     [Number(pid)],
       });
       const pData = rData.products ? rData.products[pid] : null;
@@ -154,7 +163,7 @@ function _bl_diagnosticarAPI() {
     if (prods.length > 0) {
       const [pid] = prods[0];
       const rStock = _bl_call('getInventoryProductsStock', {
-        inventory_id: '',
+        inventory_id: 39947,
         products:     [Number(pid)],
       });
       const pStock = rStock.products ? rStock.products[pid] : null;
