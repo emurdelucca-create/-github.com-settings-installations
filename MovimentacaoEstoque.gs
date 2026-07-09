@@ -1,8 +1,25 @@
 // ============================================================
 // MOVIMENTAÇÃO DE ESTOQUE  v2 — Corretiva / Planejada / Excesso
 // 35 colunas (A–AI), 5 linhas de cabeçalho, dados a partir da linha 6
-// Depende de BaseLinkerAPI.gs → _bl_call()
+// Arquivo autossuficiente — não depende de outros .gs
 // ============================================================
+
+// ── Chamada à API BaseLinker (lê chave de Script Properties) ──
+function _me_bl_call(method, params) {
+  const key = PropertiesService.getScriptProperties().getProperty('BASELINKER_API_KEY');
+  if (!key) throw new Error('BASELINKER_API_KEY não configurada nas propriedades do script.');
+  const resp = UrlFetchApp.fetch('https://api.baselinker.com/connector.php', {
+    method:      'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload:     'token=' + key + '&method=' + method + '&parameters=' + JSON.stringify(params || {}),
+    muteHttpExceptions: true,
+  });
+  const data = JSON.parse(resp.getContentText());
+  if (data.status !== 'SUCCESS') {
+    throw new Error('[BL:' + method + '] ' + (data.error_message || JSON.stringify(data)));
+  }
+  return data;
+}
 
 const ME = {
   ID_GE:  '1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo',
@@ -183,7 +200,7 @@ function _me_carregarDadosAPI() {
   const pidToSku = {};
   let page = 1;
   while (true) {
-    const r       = _bl_call('getInventoryProductsList', { inventory_id: ME.INVENTORY_ID, page });
+    const r       = _me_bl_call('getInventoryProductsList', { inventory_id: ME.INVENTORY_ID, page });
     const entries = Object.entries(r.products || {});
     if (!entries.length) break;
     entries.forEach(([pid, info]) => { pidToSku[pid] = String(info.sku || '').trim(); });
@@ -198,7 +215,7 @@ function _me_carregarDadosAPI() {
   const LOTE    = 1000;
   for (let i = 0; i < allPids.length; i += LOTE) {
     const lote = allPids.slice(i, i + LOTE).map(Number);
-    const r    = _bl_call('getInventoryProductsData', { inventory_id: ME.INVENTORY_ID, products: lote });
+    const r    = _me_bl_call('getInventoryProductsData', { inventory_id: ME.INVENTORY_ID, products: lote });
     Object.entries(r.products || {}).forEach(([pid, p]) => { rawData[pid] = p; });
     if (i + LOTE < allPids.length) Utilities.sleep(300);
   }
@@ -321,7 +338,7 @@ function _me_carregarPedidos() {
   for (const sid of ME.STATUS_IDS) {
     let idFrom = 0;
     for (let iter = 0; iter < 200; iter++) {
-      const r     = _bl_call('getOrders', { status_id: sid, id_from: idFrom });
+      const r     = _me_bl_call('getOrders', { status_id: sid, id_from: idFrom });
       const batch = r.orders || [];
       if (!batch.length) break;
       batch.forEach(o => {
