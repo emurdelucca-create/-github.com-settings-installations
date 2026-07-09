@@ -1,66 +1,40 @@
 // ============================================================
-// MOVIMENTAÇÃO DE ESTOQUE — Corretiva / Planejada / Excesso
-// Fontes: GE Finance (vendas 0-5/7/10/15d) + BaseLinker API
-//
-// Requer:
-//   BaseLinkerAPI.gs → _bl_call()
-//   BASELINKER_API_KEY em Script Properties
+// MOVIMENTAÇÃO DE ESTOQUE  v2 — Corretiva / Planejada / Excesso
+// 35 colunas (A–AI), 5 linhas de cabeçalho, dados a partir da linha 6
+// Depende de BaseLinkerAPI.gs → _bl_call()
 // ============================================================
 
 const ME = {
-  // Planilhas externas
   ID_GE:  '1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo',
   ABA_GE: 'Dados Completos',
   ID_BL:  '1wy-tJoDxGDjfnd0AXQfdQ0bw9qmTtxz7wV4UKDlQrik',
   ABA_BL: 'estoque',
 
-  // Colunas GE (0-indexed)
-  GE_SKU:   1,   // B
-  GE_QTD:   2,   // C
-  GE_DATA:  3,   // D
-  GE_CANAL: 7,   // H
+  GE_SKU: 1, GE_QTD: 2, GE_DATA: 3, GE_CANAL: 7,
+  BL_SKU: 1, BL_COD: 2, BL_QTDE: 3, BL_TIPO:  7,
 
-  // Colunas BL estoque (0-indexed)
-  BL_SKU:      1,
-  BL_COD_EST:  2,
-  BL_QTDE_EST: 3,
-  BL_TIPO:     7,
+  INVENTORY_ID:     39947,
+  WH_PADRAO:        'bl_44285',
+  WH_ARMAZENAMENTO: 'bl_50394',
+  WH_CHEGOU:        'bl_51442',
 
-  // BaseLinker
-  INVENTORY_ID:    39947,
-  WH_PADRAO:       'bl_44285',
-  WH_ARMAZENAMENTO:'bl_50394',
-  WH_CHEGOU:       'bl_51442',
-
-  // Períodos de vendas (dias)
-  PERIODOS: [5, 7, 10, 15],
-
-  // Status de pedidos em andamento com pagamento confirmado
   STATUS_IDS: [
-    252551,  // Novos pedidos
-    268797,  // NF Emitida
-    268798,  // Erro NF
-    268799,  // Erro Etiqueta
-    268813,  // [SEP] ML Flex
-    268814,  // [SEP] ML Agência
-    268806,  // [SEP] Shopee Direta
-    268805,  // [SEP] Shopee Xpress
-    268800,  // [EMB] ML Flex
-    268801,  // [EMB] ML Agência
-    268803,  // [EMB] Shopee Direta
-    268804,  // [EMB] Shopee Xpress
-    252552,  // [EXP] ML Flex
-    268792,  // [EXP] ML Agência
-    268794,  // [EXP] Shopee Direta
-    268795,  // [EXP] Shopee Xpress
+    252551, 268797, 268798, 268799,   // Novos, NF Emitida, Erro NF, Erro Etiqueta
+    268813, 268814, 268806, 268805,   // [SEP]
+    268800, 268801, 268803, 268804,   // [EMB]
+    252552, 268792, 268794, 268795,   // [EXP]
   ],
 
-  // Métodos de envio agrupados (correspondência em delivery_method)
-  METODOS: ['ML Flex', 'ML Agência', 'Shopee Direta', 'Shopee Xpress'],
+  ABC_A: 0.70, ABC_B: 0.90,
+  HEADER_ROWS: 5,
+  NCOLS: 35,
+};
 
-  // Curvas ABC
-  ABC_A: 0.70,
-  ABC_B: 0.90,
+// Peso AABBCC para sort da Corretiva (menor = mais urgente)
+const ME_AABBCC_W = {
+  AA:0.88, AB:0.93, AC:0.98,
+  BA:0.91, BB:0.96, BC:1.02,
+  CA:0.94, CB:0.99, CC:1.06,
 };
 
 // ============================================================
@@ -68,12 +42,12 @@ const ME = {
 // ============================================================
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('📦 Movimentação Estoque')
-    .addItem('🔴 Corretiva',         'meGerarCorretiva')
-    .addItem('🟡 Planejada',         'meGerarPlanejada')
-    .addItem('🟢 Excesso',           'meGerarExcesso')
+    .createMenu('📋 Mov. Estoque')
+    .addItem('🔴 Corretiva',       'meGerarCorretiva')
+    .addItem('🟡 Planejada',       'meGerarPlanejada')
+    .addItem('🟢 Excesso',         'meGerarExcesso')
     .addSeparator()
-    .addItem('🔄 Atualizar Todas',   'meGerarTodas')
+    .addItem('🔄 Atualizar Todas', 'meGerarTodas')
     .addToUi();
 }
 
@@ -81,71 +55,80 @@ function meGerarCorretiva() { _me_gerarAba('Corretiva'); }
 function meGerarPlanejada()  { _me_gerarAba('Planejada'); }
 function meGerarExcesso()    { _me_gerarAba('Excesso'); }
 
+// Carrega dados uma vez → gera as 3 abas
 function meGerarTodas() {
-  _me_gerarAba('Corretiva');
-  _me_gerarAba('Planejada');
-  _me_gerarAba('Excesso');
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('⏳ Gerando todas as abas... Aguarde 2-3 minutos.');
+  try {
+    const itens = _me_carregarTodos();
+    ['Corretiva','Planejada','Excesso'].forEach(t => _me_escreverAba(t, itens));
+    ui.alert('✅ Todas as abas atualizadas! ' + itens.length + ' SKUs.');
+  } catch(e) { ui.alert('❌ Erro: ' + e.message + '\n\n' + e.stack); }
 }
 
-// ============================================================
-// ENTRADA PRINCIPAL
-// ============================================================
+// Carrega dados e gera uma aba
 function _me_gerarAba(tipoAba) {
   const ui = SpreadsheetApp.getUi();
-  ui.alert('⏳ Gerando "' + tipoAba + '"... Aguarde (pode levar ~1 min).');
-
+  ui.alert('⏳ Gerando "' + tipoAba + '"... Aguarde 1-2 minutos.');
   try {
-    const { mapaCompostos } = _me_carregarEstruturaBL();
-    const vendas            = _me_carregarVendas(mapaCompostos);
-    const { stockMap, locMap, dimMap, pidParaSku } = _me_carregarDadosAPI(vendas, mapaCompostos);
-    const pedidos           = _me_carregarPedidos();
-    const itens             = _me_montarItens(vendas, stockMap, locMap, dimMap, pedidos, mapaCompostos);
-    _me_calcularCurvas(itens);
+    const itens = _me_carregarTodos();
     _me_escreverAba(tipoAba, itens);
-    ui.alert('✅ "' + tipoAba + '" atualizada! ' + itens.length + ' SKUs processados.');
-  } catch (e) {
-    ui.alert('❌ Erro: ' + e.message + '\n\n' + e.stack);
-  }
+    ui.alert('✅ "' + tipoAba + '" atualizada! ' + itens.length + ' SKUs.');
+  } catch(e) { ui.alert('❌ Erro: ' + e.message + '\n\n' + e.stack); }
 }
 
 // ============================================================
-// 1. CARREGAR ESTRUTURA BL (Simples / PAI / Composto)
+// PIPELINE COMPLETO
 // ============================================================
-function _me_carregarEstruturaBL() {
-  const ss   = SpreadsheetApp.openById(ME.ID_BL);
-  const aba  = ss.getSheetByName(ME.ABA_BL);
-  if (!aba) throw new Error('Aba BL "' + ME.ABA_BL + '" não encontrada em ' + ME.ID_BL);
-  const rows = aba.getDataRange().getValues();
+function _me_carregarTodos() {
+  Logger.log('[ME] Estrutura BL...');
+  const { mapaCompostos } = _me_carregarBL();
+  Logger.log('[ME] Vendas GE...');
+  const vendas = _me_carregarVendas(mapaCompostos);
+  Logger.log('[ME] Dados API BL...');
+  const stockLocDim = _me_carregarDadosAPI();
+  Logger.log('[ME] Pedidos abertos...');
+  const pedidos = _me_carregarPedidos();
+  Logger.log('[ME] Montando itens...');
+  const itens = _me_montarItens(vendas, stockLocDim, pedidos, mapaCompostos);
+  Logger.log('[ME] Curvas ABC...');
+  _me_calcularCurvas(itens);
+  return itens;
+}
 
-  const mapaCompostos = {};  // skuPAI → [{ codEst, qtde }]
+// ============================================================
+// 1. ESTRUTURA BL — Compostos → lista de componentes
+// ============================================================
+function _me_carregarBL() {
+  const ss  = SpreadsheetApp.openById(ME.ID_BL);
+  const aba = ss.getSheetByName(ME.ABA_BL);
+  if (!aba) throw new Error('Aba BL "' + ME.ABA_BL + '" não encontrada.');
+  const rows = aba.getDataRange().getValues();
+  const mapaCompostos = {};
 
   for (let i = 1; i < rows.length; i++) {
     const r    = rows[i];
-    const sku  = String(r[ME.BL_SKU]     || '').trim();
-    const tipo = String(r[ME.BL_TIPO]    || '').trim();
+    const sku  = String(r[ME.BL_SKU]  || '').trim();
+    const tipo = String(r[ME.BL_TIPO] || '').trim();
     if (!sku || tipo !== 'Composto') continue;
-    const cod  = String(r[ME.BL_COD_EST]  || '').trim();
-    const qtde = Number(r[ME.BL_QTDE_EST] || 0);
+    const cod  = String(r[ME.BL_COD]  || '').trim();
+    const qtde = Number(r[ME.BL_QTDE] || 0);
     if (!cod) continue;
     if (!mapaCompostos[sku]) mapaCompostos[sku] = [];
     mapaCompostos[sku].push({ codEst: cod, qtde });
   }
-
   return { mapaCompostos };
 }
 
 // ============================================================
-// 2. CARREGAR VENDAS GE (0-5, 0-7, 0-10, 0-15 dias)
-//    Exclui linhas onde Canal contém "FULL"
-//    Desmembra Compostos em seus componentes Simples
+// 2. VENDAS GE (0-5 / 0-7 / 0-10 / 0-15 dias, sem FULL)
 // ============================================================
 function _me_carregarVendas(mapaCompostos) {
-  const ss   = SpreadsheetApp.openById(ME.ID_GE);
-  const aba  = ss.getSheetByName(ME.ABA_GE);
-  if (!aba) throw new Error('Aba GE "' + ME.ABA_GE + '" não encontrada em ' + ME.ID_GE);
+  const ss  = SpreadsheetApp.openById(ME.ID_GE);
+  const aba = ss.getSheetByName(ME.ABA_GE);
+  if (!aba) throw new Error('Aba GE "' + ME.ABA_GE + '" não encontrada.');
   const rows = aba.getDataRange().getValues();
 
-  // Descobre a data mais recente na planilha
   let dataMax = new Date(0);
   for (let i = 1; i < rows.length; i++) {
     const d = _me_parseData(rows[i][ME.GE_DATA]);
@@ -153,248 +136,271 @@ function _me_carregarVendas(mapaCompostos) {
   }
   dataMax.setHours(0, 0, 0, 0);
 
-  // vendas: sku → { qtd5, qtd7, qtd10, qtd15 }
   const vendas = {};
-  const maxDias = ME.PERIODOS[ME.PERIODOS.length - 1]; // 15
 
   function acum(sku, dias, qty) {
-    if (!vendas[sku]) vendas[sku] = { qtd5: 0, qtd7: 0, qtd10: 0, qtd15: 0 };
-    if (dias < 5)  vendas[sku].qtd5  += qty;
-    if (dias < 7)  vendas[sku].qtd7  += qty;
-    if (dias < 10) vendas[sku].qtd10 += qty;
-    if (dias < 15) vendas[sku].qtd15 += qty;
+    if (!vendas[sku]) vendas[sku] = { v5:0, v7:0, v10:0, v15:0 };
+    if (dias <  5) vendas[sku].v5  += qty;
+    if (dias <  7) vendas[sku].v7  += qty;
+    if (dias < 10) vendas[sku].v10 += qty;
+    if (dias < 15) vendas[sku].v15 += qty;
   }
 
   for (let i = 1; i < rows.length; i++) {
     const r     = rows[i];
     const canal = String(r[ME.GE_CANAL] || '').toUpperCase();
     if (canal.includes('FULL')) continue;
-
     const d = _me_parseData(r[ME.GE_DATA]);
     if (!d) continue;
     const dNorm = new Date(d.getFullYear(), d.getMonth(), d.getDate());
     const dias  = Math.floor((dataMax - dNorm) / 86400000);
-    if (dias < 0 || dias >= maxDias) continue;
+    if (dias < 0 || dias >= 15) continue;
+    const sku = String(r[ME.GE_SKU] || '').trim();
+    const qty = Number(r[ME.GE_QTD] || 0);
+    if (!sku || !qty) continue;
 
-    const skuGE = String(r[ME.GE_SKU] || '').trim();
-    const qty   = Number(r[ME.GE_QTD] || 0);
-    if (!skuGE || !qty) continue;
-
-    if (mapaCompostos[skuGE]) {
-      // PAI/Composto → distribui pelas peças
-      mapaCompostos[skuGE].forEach(comp => {
-        acum(comp.codEst, dias, qty * comp.qtde);
-      });
+    if (mapaCompostos[sku]) {
+      mapaCompostos[sku].forEach(c => acum(c.codEst, dias, qty * c.qtde));
     } else {
-      acum(skuGE, dias, qty);
+      acum(sku, dias, qty);
     }
   }
-
   return vendas;
 }
 
 // ============================================================
-// 3. CARREGAR ESTOQUE / LOCALIZAÇÕES / DIMENSÕES VIA API
-//    getInventoryProductsList → SKU→pid
-//    getInventoryProductsData (lotes 1000) → stock, locations, dimensions
+// 3. DADOS API — stock / localizações / dimensões
+//    Lógica A8/A9:
+//    • Warehouses secundários (≠ bl_44285/50394/51442) → mapeados
+//      por prefixo de localização para zona A8 ou A9.
+//    • bl_44285 (Padrão master) → stock distribuído pelo prefixo
+//      da location string (A8 → picking, A9 → armPad).
 // ============================================================
-function _me_carregarDadosAPI(vendas, mapaCompostos) {
-  // 3a. Mapeia todos os product IDs do inventário
-  const pidParaSku = {};  // pid → sku
-  const skuParaPid = {};  // sku → pid
+function _me_carregarDadosAPI() {
+  const KNOWN = new Set([ME.WH_PADRAO, ME.WH_ARMAZENAMENTO, ME.WH_CHEGOU]);
+
+  // Passo 1: lista de produtos (paginada)
+  const pidToSku = {};
   let page = 1;
   while (true) {
-    const r = _bl_call('getInventoryProductsList', {
-      inventory_id: ME.INVENTORY_ID,
-      page: page,
-    });
-    const prods = r.products || {};
-    const entries = Object.entries(prods);
-    if (entries.length === 0) break;
-    entries.forEach(([pid, info]) => {
-      const sku = String(info.sku || '').trim();
-      pidParaSku[pid] = sku;
-      if (sku && !skuParaPid[sku]) skuParaPid[sku] = pid;
-    });
+    const r       = _bl_call('getInventoryProductsList', { inventory_id: ME.INVENTORY_ID, page });
+    const entries = Object.entries(r.products || {});
+    if (!entries.length) break;
+    entries.forEach(([pid, info]) => { pidToSku[pid] = String(info.sku || '').trim(); });
     if (entries.length < 1000) break;
     page++;
     Utilities.sleep(200);
   }
 
-  // 3b. Coleta todos os PIDs relevantes (apenas SKUs Simples que nos interessam)
-  const todosSkus = new Set([
-    ...Object.keys(vendas),
-    // Filhos dos compostos
-    ...Object.values(mapaCompostos).flat().map(c => c.codEst),
-  ]);
-  // Exclui SKUs PAI (Composto) — só precisa dos Simples
-  Object.keys(mapaCompostos).forEach(pai => todosSkus.delete(pai));
-
-  const pidsList = [...todosSkus]
-    .map(sku => skuParaPid[sku])
-    .filter(Boolean)
-    .map(Number);
-
-  // Também inclui todos os produtos do inventário para ter localizações completas
-  // (produtos sem venda também podem aparecer no excesso)
-  const todosPids = Object.keys(pidParaSku).map(Number);
-
-  // 3c. Busca dados em lotes de 1000
-  const LOTE = 1000;
-  const stockMap = {};  // sku → { pad, arm, chg }
-  const locMap   = {};  // sku → string da melhor localização
-  const dimMap   = {};  // sku → { peso, vol }
-
-  const whs = [ME.WH_PADRAO, ME.WH_ARMAZENAMENTO, ME.WH_CHEGOU];
-
-  for (let i = 0; i < todosPids.length; i += LOTE) {
-    const lote = todosPids.slice(i, i + LOTE);
-    const r    = _bl_call('getInventoryProductsData', {
-      inventory_id: ME.INVENTORY_ID,
-      products: lote,
-    });
-    Object.entries(r.products || {}).forEach(([pid, p]) => {
-      const sku = pidParaSku[pid] || String(pid);
-      if (!sku) return;
-
-      const s = p.stock || {};
-      stockMap[sku] = {
-        pad: Number(s[ME.WH_PADRAO]        || 0),
-        arm: Number(s[ME.WH_ARMAZENAMENTO] || 0),
-        chg: Number(s[ME.WH_CHEGOU]        || 0),
-      };
-
-      locMap[sku] = _me_melhorLocalizacao(p.locations || {}, whs);
-
-      const h = Number(p.height || 0);
-      const w = Number(p.width  || 0);
-      const l = Number(p.length || 0);
-      dimMap[sku] = {
-        peso: Number(p.weight || 0),
-        vol:  h && w && l ? h * w * l : 0,
-      };
-    });
-
-    if (i + LOTE < todosPids.length) Utilities.sleep(300);
+  // Passo 2: dados completos em lotes de 1000
+  const rawData = {};
+  const allPids = Object.keys(pidToSku);
+  const LOTE    = 1000;
+  for (let i = 0; i < allPids.length; i += LOTE) {
+    const lote = allPids.slice(i, i + LOTE).map(Number);
+    const r    = _bl_call('getInventoryProductsData', { inventory_id: ME.INVENTORY_ID, products: lote });
+    Object.entries(r.products || {}).forEach(([pid, p]) => { rawData[pid] = p; });
+    if (i + LOTE < allPids.length) Utilities.sleep(300);
   }
 
-  return { stockMap, locMap, dimMap, pidParaSku };
+  // Passo 3: mapa de zonas a partir de warehouses secundários
+  // (varre TODOS os produtos para descobrir qual bl_XXXXX é A8 ou A9)
+  const zoneA8 = new Set(); // warehouse IDs mapeados para zona A8
+  const zoneA9 = new Set(); // warehouse IDs mapeados para zona A9
+  Object.values(rawData).forEach(p => {
+    Object.entries(p.locations || {}).forEach(([wid, locStr]) => {
+      if (KNOWN.has(wid) || !locStr || zoneA8.has(wid) || zoneA9.has(wid)) return;
+      _me_parseLocs(locStr).forEach(loc => {
+        const pfx = loc.substring(0, 2).toUpperCase();
+        if (pfx === 'A8') zoneA8.add(wid);
+        else if (pfx === 'A9') zoneA9.add(wid);
+      });
+    });
+  });
+
+  // Passo 4: consolida por SKU
+  const stockLocDim = {};
+
+  Object.entries(rawData).forEach(([pid, p]) => {
+    const sku = pidToSku[pid];
+    if (!sku) return;
+
+    const s = p.stock     || {};
+    const l = p.locations || {};
+
+    // Stock e localizações dos warehouses secundários mapeados
+    let subA8 = 0, subA9 = 0;
+    const a8Locs = [], a9Locs = [];
+
+    zoneA8.forEach(wid => {
+      subA8 += Number(s[wid] || 0);
+      _me_parseLocs(l[wid] || '')
+        .filter(x => x.toUpperCase().startsWith('A8'))
+        .forEach(x => a8Locs.push(x));
+    });
+    zoneA9.forEach(wid => {
+      subA9 += Number(s[wid] || 0);
+      _me_parseLocs(l[wid] || '')
+        .filter(x => x.toUpperCase().startsWith('A9'))
+        .forEach(x => a9Locs.push(x));
+    });
+
+    // bl_44285 (Padrão master) — usa prefixo da localização
+    const padraoStock = Number(s[ME.WH_PADRAO] || 0);
+    const padraoLocs  = _me_parseLocs(l[ME.WH_PADRAO] || '');
+    const padA8 = padraoLocs.filter(x => x.toUpperCase().startsWith('A8'));
+    const padA9 = padraoLocs.filter(x => x.toUpperCase().startsWith('A9'));
+    padA8.forEach(x => a8Locs.push(x));
+    padA9.forEach(x => a9Locs.push(x));
+
+    let picking, armPad;
+    if (subA8 + subA9 > 0) {
+      // Warehouses secundários têm dados — usa diretamente
+      picking = subA8;
+      armPad  = subA9;
+    } else if (padA8.length > 0 && padA9.length === 0) {
+      picking = padraoStock; armPad = 0;
+    } else if (padA9.length > 0 && padA8.length === 0) {
+      picking = 0; armPad = padraoStock;
+    } else {
+      // misto ou sem localização → todo stock vai para picking
+      picking = padraoStock; armPad = 0;
+    }
+
+    const arm = Number(s[ME.WH_ARMAZENAMENTO] || 0);
+    const chg = Number(s[ME.WH_CHEGOU]        || 0);
+
+    // Localização F (A8) e G (A9 ou fallback Armazenamento)
+    const locF  = [...new Set(a8Locs)].join(' / ');
+    const locA9 = [...new Set(a9Locs)].join(' / ');
+    const locArm = _me_parseLocs(l[ME.WH_ARMAZENAMENTO] || '').join(' / ');
+    const locG  = locA9 || locArm;
+
+    // Dimensões
+    const h    = Number(p.height || 0);
+    const w    = Number(p.width  || 0);
+    const c    = Number(p.length || 0);
+    const peso = Number(p.weight || 0);
+    const vol  = h && w && c ? h * w * c : 0;
+
+    if (!stockLocDim[sku]) {
+      stockLocDim[sku] = { picking:0, armPad:0, arm:0, chg:0,
+                           locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+    }
+    const d = stockLocDim[sku];
+    d.picking += picking;
+    d.armPad  += armPad;
+    d.arm     += arm;
+    d.chg     += chg;
+    if (locF && !d.locF)  d.locF = locF;
+    if (locG && !d.locG)  d.locG = locG;
+    if (peso > 0 && !d.peso) { d.h = h; d.w = w; d.c = c; d.peso = peso; d.vol = vol; }
+  });
+
+  return stockLocDim;
 }
 
 // ============================================================
-// 4. CARREGAR PEDIDOS ABERTOS (agrupados por método de envio)
-//    Filtra payment_done > 0 (pagamento confirmado)
+// 4. PEDIDOS ABERTOS (payment_done > 0)
+//    Agrupa por método de entrega
 // ============================================================
 function _me_carregarPedidos() {
-  // pedidoMap: sku → { mlFlex, mlAgencia, shopDireta, shopXpress, total }
-  const pedidoMap = {};
+  const pedMap = {};
 
-  function _addPedido(sku, metodo, qty) {
-    if (!pedidoMap[sku]) {
-      pedidoMap[sku] = { mlFlex: 0, mlAgencia: 0, shopDireta: 0, shopXpress: 0, total: 0 };
-    }
-    const m = pedidoMap[sku];
-    const norm = String(metodo || '').toLowerCase();
-    if      (norm.includes('flex'))   m.mlFlex    += qty;
-    else if (norm.includes('agên') || norm.includes('agen')) m.mlAgencia += qty;
-    else if (norm.includes('direta')) m.shopDireta += qty;
-    else if (norm.includes('xpress')) m.shopXpress += qty;
-    m.total += qty;
+  function add(sku, metodo, qty) {
+    if (!pedMap[sku]) pedMap[sku] = { total:0, entrDireta:0, me2:0, retirada:0, xpress:0 };
+    const m = String(metodo).toLowerCase();
+    pedMap[sku].total += qty;
+    if      (m.includes('entrega direta') || m.includes('flex'))        pedMap[sku].entrDireta += qty;
+    else if (m.includes('me2') || m.includes('mercado envios') ||
+             m.includes('agên') || m.includes('agen'))                  pedMap[sku].me2        += qty;
+    else if (m.includes('retirada'))                                     pedMap[sku].retirada   += qty;
+    else if (m.includes('xpress'))                                       pedMap[sku].xpress     += qty;
   }
 
-  for (const statusId of ME.STATUS_IDS) {
+  for (const sid of ME.STATUS_IDS) {
     let idFrom = 0;
-    let tentativas = 0;
-    while (tentativas < 50) {
-      tentativas++;
-      const r     = _bl_call('getOrders', { status_id: statusId, id_from: idFrom });
+    for (let iter = 0; iter < 200; iter++) {
+      const r     = _bl_call('getOrders', { status_id: sid, id_from: idFrom });
       const batch = r.orders || [];
-      if (batch.length === 0) break;
-
-      batch.forEach(pedido => {
-        if (!(Number(pedido.payment_done) > 0)) return; // só pagamento confirmado
-        const metodo = pedido.delivery_method || '';
-        (pedido.products || []).forEach(prod => {
+      if (!batch.length) break;
+      batch.forEach(o => {
+        if (!(Number(o.payment_done) > 0)) return;
+        const metodo = String(o.delivery_method || '');
+        (o.products || []).forEach(prod => {
           const sku = String(prod.sku || '').trim();
           const qty = Number(prod.quantity) || 0;
-          if (sku && qty) _addPedido(sku, metodo, qty);
+          if (sku && qty) add(sku, metodo, qty);
         });
       });
-
       if (batch.length < 100) break;
       idFrom = batch[batch.length - 1].order_id;
     }
     Utilities.sleep(100);
   }
-
-  return pedidoMap;
+  return pedMap;
 }
 
 // ============================================================
-// 5. MONTAR ITENS — combina todas as fontes
+// 5. MONTAR ITENS
 // ============================================================
-function _me_montarItens(vendas, stockMap, locMap, dimMap, pedidoMap, mapaCompostos) {
-  // Universo de SKUs: todos que temos estoque OU vendas (excluindo PAI/Composto)
-  const allSkus = new Set([
-    ...Object.keys(vendas),
-    ...Object.keys(stockMap),
-  ]);
-  Object.keys(mapaCompostos).forEach(pai => allSkus.delete(pai)); // remove PAIs
+function _me_montarItens(vendas, stockLocDim, pedMap, mapaCompostos) {
+  const allSkus = new Set([...Object.keys(vendas), ...Object.keys(stockLocDim)]);
+  Object.keys(mapaCompostos).forEach(pai => allSkus.delete(pai)); // exclui PAIs/Compostos
 
-  const itens = [];
+  return [...allSkus].map(sku => {
+    const v  = vendas[sku]      || { v5:0, v7:0, v10:0, v15:0 };
+    const s  = stockLocDim[sku] || { picking:0, armPad:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+    const p  = pedMap[sku]      || { total:0, entrDireta:0, me2:0, retirada:0, xpress:0 };
 
-  allSkus.forEach(sku => {
-    const v = vendas[sku]    || { qtd5: 0, qtd7: 0, qtd10: 0, qtd15: 0 };
-    const s = stockMap[sku]  || { pad: 0, arm: 0, chg: 0 };
-    const d = dimMap[sku]    || { peso: 0, vol: 0 };
-    const p = pedidoMap[sku] || { mlFlex: 0, mlAgencia: 0, shopDireta: 0, shopXpress: 0, total: 0 };
-    const loc = locMap[sku]  || '';
+    const totalStock = s.picking + s.armPad + s.arm + s.chg;
 
-    const total     = s.pad + s.arm + s.chg;
-    const diferenca = s.pad - p.total;              // Padrão − pedidos abertos
-    const movimentar = diferenca < 0 ? -diferenca : 0; // qty a mover de Arm/Chg → Padrão
-    const excesso    = s.pad - v.qtd15;             // Padrão − vendas 15d (excesso no picking)
+    function dif(vd) { return s.picking - vd; }
+    function mov(vd) {
+      const raw = vd - s.picking;
+      return raw > 0 ? Math.min(raw, totalStock) : raw;
+    }
 
-    itens.push({
-      sku, loc,
-      pad: s.pad, arm: s.arm, chg: s.chg, total,
-      qtd5: v.qtd5, qtd7: v.qtd7, qtd10: v.qtd10, qtd15: v.qtd15,
-      mlFlex: p.mlFlex, mlAgencia: p.mlAgencia,
-      shopDireta: p.shopDireta, shopXpress: p.shopXpress,
-      pedTotal: p.total,
-      diferenca, movimentar, excesso,
-      peso: d.peso, vol: d.vol,
-      // curvas preenchidas depois
-      abc: '', aabbcc: '',
-    });
+    return {
+      sku,
+      picking: s.picking, armPad: s.armPad, arm: s.arm, chg: s.chg,
+      locF: s.locF, locG: s.locG,
+      v5: v.v5, v7: v.v7, v10: v.v10, v15: v.v15,
+      dif5:  dif(v.v5),  dif7:  dif(v.v7),  dif10: dif(v.v10), dif15: dif(v.v15),
+      mov5:  mov(v.v5),  mov7:  mov(v.v7),   mov10: mov(v.v10), mov15: mov(v.v15),
+      h: s.h, w: s.w, c: s.c, peso: s.peso, vol: s.vol,
+      pedTotal: p.total, entrDireta: p.entrDireta, me2: p.me2,
+      retirada: p.retirada, xpress: p.xpress,
+      abc: '', pctAbc: 0, aabbcc: '', pctAabbcc: 0,
+    };
   });
-
-  return itens;
 }
 
 // ============================================================
 // 6. CURVAS ABC + AABBCC (baseado em vendas 0-15)
 // ============================================================
 function _me_calcularCurvas(itens) {
-  const sorted = [...itens].sort((a, b) => b.qtd15 - a.qtd15);
-  const total  = sorted.reduce((s, x) => s + x.qtd15, 0);
+  const sorted = [...itens].sort((a, b) => b.v15 - a.v15);
+  const total  = sorted.reduce((s, x) => s + x.v15, 0);
 
   let cum = 0;
-  sorted.forEach(item => {
-    cum += item.qtd15;
+  sorted.forEach(x => {
+    cum += x.v15;
     const pct = total > 0 ? cum / total : 1;
-    item.abc = pct <= ME.ABC_A ? 'A' : pct <= ME.ABC_B ? 'B' : 'C';
+    x.abc    = pct <= ME.ABC_A ? 'A' : pct <= ME.ABC_B ? 'B' : 'C';
+    x.pctAbc = pct;
   });
 
   ['A', 'B', 'C'].forEach(grp => {
-    const gi    = sorted.filter(x => x.abc === grp);
-    const gTot  = gi.reduce((s, x) => s + x.qtd15, 0);
+    const gi   = sorted.filter(x => x.abc === grp);
+    const gTot = gi.reduce((s, x) => s + x.v15, 0);
     let gCum = 0;
-    gi.forEach(item => {
-      gCum += item.qtd15;
+    gi.forEach(x => {
+      gCum += x.v15;
       const sp = gTot > 0 ? gCum / gTot : 1;
       const sl = sp <= ME.ABC_A ? 'A' : sp <= ME.ABC_B ? 'B' : 'C';
-      item.aabbcc = grp + sl;
+      x.aabbcc    = grp + sl;
+      x.pctAabbcc = x.pctAbc;
     });
   });
 }
@@ -403,200 +409,273 @@ function _me_calcularCurvas(itens) {
 // 7. ESCREVER ABA
 // ============================================================
 function _me_escreverAba(tipoAba, todosItens) {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  let   aba = ss.getSheetByName(tipoAba);
-  if (!aba) aba = ss.insertSheet(tipoAba);
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  let   aba  = ss.getSheetByName(tipoAba);
+  if (!aba) {
+    aba = ss.insertSheet(tipoAba);
+  } else {
+    try { aba.getRange(1, 1, ME.HEADER_ROWS + 1, ME.NCOLS + 1).breakApart(); } catch(_) {}
+    aba.clearContents();
+    aba.clearFormats();
+  }
 
-  // ── Filtro e ordenação por tipo de aba ──
+  const PRIMA = ME.HEADER_ROWS + 1; // linha 6
+
+  // ── Filtro e ordenação ──
   let itens;
   if (tipoAba === 'Corretiva') {
-    // Padrão < pedidos abertos → mover URGENTE
-    itens = todosItens
-      .filter(x => x.diferenca < 0)
-      .sort((a, b) => (a.loc || 'ZZZZ').localeCompare(b.loc || 'ZZZZ') || a.sku.localeCompare(b.sku));
-
+    itens = [...todosItens].sort((a, b) => {
+      const wa = ME_AABBCC_W[a.aabbcc] || 1.0;
+      const wb = ME_AABBCC_W[b.aabbcc] || 1.0;
+      const sa = a.picking * wa;
+      const sb = b.picking * wb;
+      if (Math.abs(sa - sb) > 0.0001) return sa - sb;
+      return wa - wb;
+    });
   } else if (tipoAba === 'Planejada') {
-    // Padrão < vendas 0-7 (vai faltar nos próximos 7 dias)
-    // OU diferença < 0 mas com total suficiente no armazém
-    itens = todosItens
-      .filter(x => x.pad < x.qtd7 || x.diferenca < 0)
-      .sort((a, b) => {
-        // ABC primeiro (A > B > C), depois maior urgência
-        const abcOrd = a.abc.localeCompare(b.abc);
-        if (abcOrd !== 0) return abcOrd;
-        return a.diferenca - b.diferenca; // mais negativo = mais urgente
-      });
-
+    itens = [...todosItens].sort((a, b) => b.dif7 - a.dif7);
   } else {
-    // Excesso: Padrão > vendas 0-15 (mais de 15 dias de venda no picking)
-    itens = todosItens
-      .filter(x => x.excesso > 0 && x.pad > 0)
-      .sort((a, b) => b.excesso - a.excesso);
+    // Excesso: somente mov10 < 0, do menor para o maior
+    itens = todosItens.filter(x => x.mov10 < 0).sort((a, b) => a.mov10 - b.mov10);
   }
 
   // ── Cabeçalho ──
-  const NCOLS = 21;
-  aba.clearContents();
-  aba.clearFormats();
+  _me_escreverCabecalho(aba);
+  if (!itens.length) { SpreadsheetApp.flush(); return; }
 
-  const h1 = ['', '', 'Estoque', '', '', '', 'Vendas (vendidos)', '', '', '',
-               'Pedidos Abertos', '', '', '', '', '', '', 'Dimensões', '', 'Curva', ''];
-  const h2 = ['', '',
-               'Padrão','Arm.','Chegou','Total',
-               '0-5','0-7','0-10','0-15',
-               'ML Flex','ML Agência','Shopee Direta','Shopee Xpress','Total',
-               tipoAba === 'Excesso' ? 'Excesso Pick' : 'Diferença',
-               tipoAba === 'Excesso' ? 'Retornar'     : 'Movimentar',
-               'Peso (kg)','Vol (cm³)','ABC','AABBCC'];
-  const h3 = ['SKU','Localização',
-               'Padrão','Arm.','Chegou','Total',
-               '0-5d','0-7d','0-10d','0-15d',
-               'ML Flex','ML Agência','Shp.Direta','Shp.Xpress','Total',
-               tipoAba === 'Excesso' ? 'Excesso' : 'Diferença',
-               tipoAba === 'Excesso' ? 'Retornar' : 'Movimentar',
-               'kg','cm³','ABC','AABBCC'];
-
-  aba.getRange(1, 1, 1, NCOLS).setValues([h1]);
-  aba.getRange(2, 1, 1, NCOLS).setValues([h2]);
-  aba.getRange(3, 1, 1, NCOLS).setValues([h3]);
-
-  _me_estilizarCabecalho(aba, tipoAba, NCOLS);
-
-  if (itens.length === 0) { SpreadsheetApp.flush(); return; }
-
-  // Formato texto no SKU antes de escrever
-  aba.getRange(4, 1, itens.length, 1).setNumberFormat('@');
-
-  const col16 = tipoAba === 'Excesso' ? 'excesso' : 'diferenca';
-  const col17 = tipoAba === 'Excesso' ? 'excesso'  : 'movimentar';
+  // Formata SKU como texto ANTES de escrever
+  aba.getRange(PRIMA, 1, itens.length, 1).setNumberFormat('@');
 
   const linhas = itens.map(x => [
-    String(x.sku),                                     // A  SKU
-    x.loc,                                             // B  Localização
-    x.pad, x.arm, x.chg, x.total,                     // C-F Estoque
-    x.qtd5, x.qtd7, x.qtd10, x.qtd15,                 // G-J Vendas
-    x.mlFlex, x.mlAgencia, x.shopDireta, x.shopXpress, x.pedTotal, // K-O Pedidos
-    tipoAba === 'Excesso' ? x.excesso : x.diferenca,   // P
-    tipoAba === 'Excesso' ? x.excesso : x.movimentar,  // Q
-    x.peso, x.vol,                                     // R-S Dimensões
-    x.abc, x.aabbcc,                                   // T-U Curvas
+    String(x.sku),                                                   // A
+    x.picking, x.armPad, x.arm, x.chg,                              // B-E
+    x.locF, x.locG,                                                  // F-G
+    x.v5, x.v7, x.v10, x.v15,                                       // H-K
+    x.dif5, x.dif7, x.dif10, x.dif15,                               // L-O
+    x.mov5, x.mov7, x.mov10, x.mov15,                               // P-S
+    x.abc,    x.pctAbc,                                              // T-U
+    x.aabbcc, x.pctAabbcc,                                           // V-W
+    x.h, x.w, x.c, x.peso, x.vol,                                   // X-AB
+    '', '',                                                           // AC-AD (em branco)
+    x.pedTotal, x.entrDireta, x.me2, x.retirada, x.xpress,          // AE-AI
   ]);
 
-  aba.getRange(4, 1, linhas.length, NCOLS).setValues(linhas);
+  aba.getRange(PRIMA, 1, linhas.length, ME.NCOLS).setValues(linhas);
 
-  // Colorir curvas ABC
-  const BG_ABC = { A: '#c8e6c9', B: '#fff9c4', C: '#ffcdd2' };
-  const FG_ABC = { A: '#1b5e20', B: '#f57f17', C: '#b71c1c' };
-  const grupos = { A: [], B: [], C: [] };
-  itens.forEach((x, i) => {
-    if (x.abc && BG_ABC[x.abc]) grupos[x.abc].push('T' + (4 + i));
-  });
-  ['A', 'B', 'C'].forEach(g => {
-    if (grupos[g].length) {
-      aba.getRangeList(grupos[g]).setBackground(BG_ABC[g]).setFontColor(FG_ABC[g]);
-    }
-  });
+  // Percentuais (U=21, W=23)
+  aba.getRange(PRIMA, 21, linhas.length, 1).setNumberFormat('0.0%');
+  aba.getRange(PRIMA, 23, linhas.length, 1).setNumberFormat('0.0%');
 
-  // Colorir Diferença/Excesso: vermelho se negativo (Corretiva/Planejada)
-  if (tipoAba !== 'Excesso') {
-    const vermelhos = [];
-    itens.forEach((x, i) => { if (x.diferenca < 0) vermelhos.push('P' + (4 + i)); });
-    if (vermelhos.length) aba.getRangeList(vermelhos).setBackground('#ffcdd2');
-  }
+  // Colorir Diferença negativa (L-O = cols 12-15)
+  _me_colorirCols(aba, itens, PRIMA,
+    [12,13,14,15], (x,c) => [x.dif5,x.dif7,x.dif10,x.dif15][c-12] < 0, '#ffcdd2');
 
-  // Data/hora de atualização
-  aba.getRange(1, NCOLS + 1).setValue('Atualização');
-  aba.getRange(2, NCOLS + 1).setValue(
+  // Colorir Movimentar positivo (P-S = cols 16-19)
+  _me_colorirCols(aba, itens, PRIMA,
+    [16,17,18,19], (x,c) => [x.mov5,x.mov7,x.mov10,x.mov15][c-16] > 0, '#fff9c4');
+
+  // Colorir curvas
+  _me_colorirABC(aba, itens, PRIMA);
+  _me_colorirAABBCC(aba, itens, PRIMA);
+
+  // Timestamp
+  aba.getRange(1, ME.NCOLS + 1).setValue('Atualização');
+  aba.getRange(2, ME.NCOLS + 1).setValue(
     Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
   );
 
   SpreadsheetApp.flush();
+  Logger.log('[ME] ' + tipoAba + ': ' + itens.length + ' linhas escritas.');
 }
 
 // ============================================================
-// 8. ESTILIZAR CABEÇALHO
+// 8. CABEÇALHO 5 LINHAS
 // ============================================================
-function _me_estilizarCabecalho(aba, tipoAba, NCOLS) {
-  const CORES = {
-    Corretiva: '#d32f2f',
-    Planejada: '#f57f17',
-    Excesso:   '#388e3c',
-  };
-  const cor = CORES[tipoAba] || '#455a64';
+function _me_escreverCabecalho(aba) {
+  const N = ME.NCOLS;
+  const H = Array.from({ length: 5 }, () => new Array(N).fill(''));
 
-  // Linha 1: grupos
-  const grupos = [
-    [1,  2,  '#455a64'],  // SKU + Localização
-    [3,  6,  '#1565c0'],  // Estoque
-    [7,  10, '#00838f'],  // Vendas
-    [11, 15, '#4527a0'],  // Pedidos
-    [16, 17, cor],        // Diferença/Movimentar ou Excesso/Retornar
-    [18, 19, '#4e342e'],  // Dimensões
-    [20, 21, '#558b2f'],  // Curvas
+  // Linha 1 — grupos (índices 0-based = coluna - 1)
+  H[0][0]  = 'SKU';
+  H[0][1]  = 'Qntd. Estoque';
+  H[0][5]  = 'Endereço';
+  H[0][7]  = 'Qntd. Vend.';
+  H[0][11] = 'Diferença';
+  H[0][15] = 'Movimentar';
+  H[0][19] = 'Curva ABC';
+  H[0][21] = 'Curva AABBCC';
+  H[0][23] = 'Medidas Produto';
+  H[0][28] = 'Classificação Medida';
+  H[0][29] = 'Classificação Peso';
+  H[0][30] = 'Qntd. / Método Entrega';
+
+  // Linha 2 — Armazém
+  H[1][1] = 'Armazém';
+
+  // Linha 3 — sub-armazéns
+  H[2][1] = 'Padrão';
+  H[2][3] = 'Armazenamento';
+  H[2][4] = 'CHEGOU';
+
+  // Linha 4 — zonas
+  H[3][1] = 'A8';
+  H[3][2] = 'A9';
+
+  // Linha 5 — nomes das colunas (35 elementos)
+  H[4] = [
+    '',                                                         // A
+    'Picking','Armazenamento','Armazenamento','CHEGOU',         // B-E
+    'Picking','Armazenamento',                                  // F-G
+    '0-5','0-7','0-10','0-15',                                  // H-K
+    '0-5','0-7','0-10','0-15',                                  // L-O
+    '0-5','0-7','0-10','0-15',                                  // P-S
+    'Curva','%',                                                // T-U
+    'Curva','%',                                                // V-W
+    'Altura','Largura','Comprimento','Peso','cm³',              // X-AB
+    '','',                                                      // AC-AD
+    'Geral (Todos os Métodos)',                                  // AE
+    'Entrega Direta',                                           // AF
+    'ME2 - Mercado Envios Places',                              // AG
+    'Retirada pelo Comprador',                                  // AH
+    'Shopee Xpress',                                            // AI
   ];
-  grupos.forEach(([de, ate, bg]) => {
-    aba.getRange(1, de, 1, ate - de + 1)
-       .setBackground(bg).setFontColor('#ffffff')
+
+  aba.getRange(1, 1, 5, N).setValues(H);
+
+  // ── Merges linha 1 (row=1-indexed, col=1-indexed, span) ──
+  [
+    [1, 2, 4],   // B-E  Qntd. Estoque
+    [1, 6, 2],   // F-G  Endereço
+    [1, 8, 4],   // H-K  Qntd. Vend.
+    [1, 12, 4],  // L-O  Diferença
+    [1, 16, 4],  // P-S  Movimentar
+    [1, 20, 2],  // T-U  Curva ABC
+    [1, 22, 2],  // V-W  Curva AABBCC
+    [1, 24, 5],  // X-AB Medidas Produto
+    [1, 31, 5],  // AE-AI Qntd./Método
+  ].forEach(([row, col, span]) => aba.getRange(row, col, 1, span).merge());
+
+  // ── Merges linha 2 ──
+  aba.getRange(2, 2, 1, 4).merge(); // B-E "Armazém"
+
+  // ── Merges linha 3 ──
+  aba.getRange(3, 2, 1, 2).merge(); // B-C "Padrão"
+
+  _me_estilizarCabecalho(aba);
+}
+
+// ============================================================
+// 9. ESTILIZAR CABEÇALHO
+// ============================================================
+function _me_estilizarCabecalho(aba) {
+  // Cores por grupo de colunas
+  [
+    { de:1,  ate:1,  top:'#455a64', bot:'#263238' },  // SKU
+    { de:2,  ate:5,  top:'#1565c0', bot:'#0d47a1' },  // Estoque
+    { de:6,  ate:7,  top:'#6a1b9a', bot:'#4a148c' },  // Endereço
+    { de:8,  ate:11, top:'#00838f', bot:'#006064' },  // Vendas
+    { de:12, ate:15, top:'#c62828', bot:'#b71c1c' },  // Diferença
+    { de:16, ate:19, top:'#e65100', bot:'#bf360c' },  // Movimentar
+    { de:20, ate:21, top:'#558b2f', bot:'#33691e' },  // ABC
+    { de:22, ate:23, top:'#2e7d32', bot:'#1b5e20' },  // AABBCC
+    { de:24, ate:28, top:'#4e342e', bot:'#3e2723' },  // Medidas
+    { de:29, ate:30, top:'#37474f', bot:'#263238' },  // Classificação
+    { de:31, ate:35, top:'#4527a0', bot:'#311b92' },  // Pedidos
+  ].forEach(g => {
+    const w = g.ate - g.de + 1;
+    aba.getRange(1, g.de, 4, w)
+       .setBackground(g.top).setFontColor('#ffffff')
        .setFontWeight('bold').setHorizontalAlignment('center')
        .setVerticalAlignment('middle');
-    if (ate > de) aba.getRange(1, de, 1, ate - de + 1).merge();
+    aba.getRange(5, g.de, 1, w)
+       .setBackground(g.bot).setFontColor('#ffffff')
+       .setFontWeight('bold').setHorizontalAlignment('center')
+       .setVerticalAlignment('middle').setWrap(true);
   });
-
-  // Linha 2 e 3: sub-cabeçalhos
-  aba.getRange(2, 1, 2, NCOLS)
-     .setBackground('#263238').setFontColor('#ffffff')
-     .setFontWeight('bold').setHorizontalAlignment('center')
-     .setVerticalAlignment('middle').setWrap(true);
 
   // Alturas
-  aba.setRowHeight(1, 25);
-  aba.setRowHeight(2, 25);
-  aba.setRowHeight(3, 40);
+  for (let r = 1; r <= 4; r++) aba.setRowHeight(r, 22);
+  aba.setRowHeight(5, 45);
 
-  // Larguras
-  aba.setColumnWidth(1, 110);  // SKU
-  aba.setColumnWidth(2, 140);  // Localização
+  // Larguras de destaque
+  aba.setColumnWidth(1, 115); // SKU
+  aba.setColumnWidth(6, 150); // Loc A8
+  aba.setColumnWidth(7, 150); // Loc A9
 
-  // Congelar
-  aba.setFrozenRows(3);
-  aba.setFrozenColumns(2);
+  // Congelar 5 linhas e coluna A
+  aba.setFrozenRows(ME.HEADER_ROWS);
+  aba.setFrozenColumns(1);
 }
 
 // ============================================================
-// HELPERS
+// 10. COLORAÇÃO
 // ============================================================
-
-// Seleciona a melhor localização entre os armazéns ativos
-// Prioridade: menor Block (B1 < B2) → menor Floor (A1 < A2)
-function _me_melhorLocalizacao(locsObj, warehouseIds) {
-  let bestRaw     = '';
-  let bestBlock   = 9999;
-  let bestFloor   = 9999;
-
-  warehouseIds.forEach(wid => {
-    const loc = String(locsObj[wid] || '').trim();
-    if (!loc) return;
-    const parts = loc.split('-');
-    // Formato: A9-B2-RA-C3-A2
-    if (parts.length < 5) return;
-    const blockNum = parseInt(parts[1].substring(1)) || 9999;
-    const floorNum = parseInt(parts[4].substring(1)) || 9999;
-    if (blockNum < bestBlock || (blockNum === bestBlock && floorNum < bestFloor)) {
-      bestBlock = blockNum;
-      bestFloor = floorNum;
-      bestRaw   = loc;
-    }
+function _me_colorirCols(aba, itens, prima, cols, testFn, bg) {
+  cols.forEach(col => {
+    const letter = _me_colLetter(col);
+    const cells  = [];
+    itens.forEach((x, i) => { if (testFn(x, col)) cells.push(letter + (prima + i)); });
+    if (cells.length) aba.getRangeList(cells).setBackground(bg);
   });
-
-  return bestRaw;
 }
 
-// Parse de data em DD/MM/YYYY ou Date
+function _me_colorirABC(aba, itens, prima) {
+  const BG = { A:'#c8e6c9', B:'#fff9c4', C:'#ffcdd2' };
+  const FG = { A:'#1b5e20', B:'#f57f17', C:'#b71c1c' };
+  const grps = {};
+  itens.forEach((x, i) => {
+    const g = x.abc;
+    if (!g || !BG[g]) return;
+    if (!grps[g]) grps[g] = [];
+    grps[g].push('T' + (prima + i));
+  });
+  Object.keys(grps).forEach(g => aba.getRangeList(grps[g]).setBackground(BG[g]).setFontColor(FG[g]));
+}
+
+function _me_colorirAABBCC(aba, itens, prima) {
+  const BG = {
+    AA:'#1b5e20', AB:'#388e3c', AC:'#a5d6a7',
+    BA:'#f57f17', BB:'#fbc02d', BC:'#fff176',
+    CA:'#b71c1c', CB:'#e57373', CC:'#ffcdd2',
+  };
+  const FG = {
+    AA:'#fff', AB:'#fff', AC:'#000',
+    BA:'#fff', BB:'#000', BC:'#000',
+    CA:'#fff', CB:'#000', CC:'#000',
+  };
+  const grps = {};
+  itens.forEach((x, i) => {
+    const g = x.aabbcc;
+    if (!g || !BG[g]) return;
+    if (!grps[g]) grps[g] = [];
+    grps[g].push('V' + (prima + i));
+  });
+  Object.keys(grps).forEach(g => aba.getRangeList(grps[g]).setBackground(BG[g]).setFontColor(FG[g]));
+}
+
+// ============================================================
+// 11. HELPERS
+// ============================================================
+function _me_parseLocs(str) {
+  if (!str) return [];
+  return str.split(/[,;\n|]/).map(s => s.trim()).filter(Boolean);
+}
+
 function _me_parseData(v) {
   if (v instanceof Date) return isNaN(v) ? null : v;
   const s = String(v || '').trim();
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
   const d = new Date(s);
   return isNaN(d) ? null : d;
+}
+
+function _me_colLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
