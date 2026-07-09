@@ -69,6 +69,8 @@ function onOpen() {
     .addItem('🔎 Diagnóstico por SKU/ID',       '_sr_diagnosticarProduto')
     .addItem('🏷️ Diagnóstico de promoções',     '_sr_diagnosticarPromos')
     .addItem('📋 Inspecionar pedido por ID',    '_sr_inspecionarPedidoPorId')
+    .addSeparator()
+    .addItem('🔧 Diagnóstico BaseLinker API',   '_bl_diagnosticarAPI')
     .addToUi();
 }
 
