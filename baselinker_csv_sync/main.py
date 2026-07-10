@@ -374,12 +374,17 @@ async def export_inventory_csv(page):
     first_cb = page.locator("input[type='checkbox']").first
     try:
         await first_cb.wait_for(state="attached", timeout=10_000)
-        # force=True ignora verificação de viewport (checkbox customizado com CSS)
-        await first_cb.check(force=True)
-        log.info("[EXPORT] Primeiro inventário selecionado (checkbox)")
+        # dispatch_event ignora viewport (checkbox class="px" é customizado via CSS)
+        await first_cb.dispatch_event("click")
+        log.info("[EXPORT] Primeiro inventário selecionado via dispatch_event")
     except Exception as e:
-        await screenshot(page, "ERR_no_checkbox")
-        raise RuntimeError(f"Checkbox não encontrado: {e}")
+        # Fallback: clica via JavaScript diretamente no DOM
+        try:
+            await page.evaluate("document.querySelector('input[type=\"checkbox\"]').click()")
+            log.info("[EXPORT] Primeiro inventário selecionado via JS eval")
+        except Exception as e2:
+            await screenshot(page, "ERR_no_checkbox")
+            raise RuntimeError(f"Checkbox não clicável: dispatch={e} | js={e2}")
 
     await screenshot(page, "08_checked")
 
