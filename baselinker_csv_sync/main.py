@@ -374,25 +374,33 @@ async def export_inventory_csv(page):
     first_cb = page.locator("input[type='checkbox']").first
     try:
         await first_cb.wait_for(state="attached", timeout=10_000)
-        # dispatch_event ignora viewport (checkbox class="px" é customizado via CSS)
-        await first_cb.dispatch_event("click")
-        log.info("[EXPORT] Primeiro inventário selecionado via dispatch_event")
+        # Dispara click + change com bubbling para acionar o handler JS da toolbar
+        await page.evaluate("""
+            const cb = document.querySelector('input[type="checkbox"]');
+            if (cb) {
+                cb.checked = true;
+                cb.dispatchEvent(new MouseEvent('click',  {bubbles:true, cancelable:true}));
+                cb.dispatchEvent(new Event('change', {bubbles:true}));
+            }
+        """)
+        log.info("[EXPORT] Checkbox marcado via JS (click+change com bubbling)")
     except Exception as e:
-        # Fallback: clica via JavaScript diretamente no DOM
-        try:
-            await page.evaluate("document.querySelector('input[type=\"checkbox\"]').click()")
-            log.info("[EXPORT] Primeiro inventário selecionado via JS eval")
-        except Exception as e2:
-            await screenshot(page, "ERR_no_checkbox")
-            raise RuntimeError(f"Checkbox não clicável: dispatch={e} | js={e2}")
+        await screenshot(page, "ERR_no_checkbox")
+        raise RuntimeError(f"Checkbox não clicável: {e}")
 
+    # Aguarda a barra de ações aparecer após selecionar (pode ser dinâmica/AJAX)
+    await page.wait_for_timeout(3000)
     await screenshot(page, "08_checked")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
+    # Tenta múltiplos seletores — o botão pode ser <button> ou <a>
     print_clicked = await try_click(page, [
-        page.get_by_role("button", name=re.compile(r"imprimir|print", re.I)),
-        page.locator("button:has-text('IMPRIMIR')").first,
-        page.locator("[data-action='print']").first,
+        page.locator("button:has-text('IMPRIMIR'), a:has-text('IMPRIMIR')").first,
+        page.locator("button:has-text('Imprimir'), a:has-text('Imprimir')").first,
+        page.get_by_role("button", name=re.compile(r"imprimir", re.I)).first,
+        page.get_by_role("link",   name=re.compile(r"imprimir", re.I)).first,
+        page.locator("[data-action='print'], [data-bb-handler='print']").first,
+        page.locator(".btn-print, .print-btn, [class*='print']").first,
     ], "IMPRIMIR")
 
     if not print_clicked:
