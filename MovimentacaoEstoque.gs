@@ -220,36 +220,11 @@ function _me_carregarDadosAPI() {
     if (i + LOTE < allPids.length) Utilities.sleep(300);
   }
 
-  // Passo 3a: detectar zona de sub-warehouses a partir de suas próprias location strings
-  const subWhZone = {}; // wid → 'A8' | 'A9'
-  Object.values(rawData).forEach(p => {
-    Object.entries(p.locations || {}).forEach(([wid, locStr]) => {
-      if (KNOWN.has(wid) || subWhZone[wid] || !locStr) return;
-      const locs = _me_parseLocs(locStr);
-      const lA8  = locs.some(x => x.toUpperCase().startsWith('A8'));
-      const lA9  = locs.some(x => x.toUpperCase().startsWith('A9'));
-      if (lA8 && !lA9)       subWhZone[wid] = 'A8';
-      else if (lA9 && !lA8)  subWhZone[wid] = 'A9';
-    });
-  });
-
-  // Passo 3b: inferir zona de sub-warehouses com location string vazia
-  // a partir de produtos onde o armazém Padrão tem SOMENTE A8 ou SOMENTE A9
-  Object.values(rawData).forEach(p => {
-    const padLocs = _me_parseLocs((p.locations || {})[ME.WH_PADRAO] || '');
-    const hasA8   = padLocs.some(x => x.toUpperCase().startsWith('A8'));
-    const hasA9   = padLocs.some(x => x.toUpperCase().startsWith('A9'));
-    if (hasA8 === hasA9) return; // misto ou sem localização → não serve para inferência
-    const zone = hasA8 ? 'A8' : 'A9';
-    Object.keys(p.stock || {}).forEach(wid => {
-      if (!KNOWN.has(wid) && !subWhZone[wid]) subWhZone[wid] = zone;
-    });
-  });
-
-  const zoneA8 = new Set(Object.keys(subWhZone).filter(w => subWhZone[w] === 'A8'));
-  const zoneA9 = new Set(Object.keys(subWhZone).filter(w => subWhZone[w] === 'A9'));
-
-  // Passo 4: consolida por SKU
+  // Passo 3: consolida por SKU — detecção de zona A8/A9 POR PRODUTO
+  // IDs de sub-warehouse são únicos por produto×localização no BaseLinker.
+  // O mapa global (abordagem anterior) falhava porque sub-warehouses de um
+  // produto apareciam no stock de outros produtos com stock "fantasma".
+  // Solução: para cada produto, usar SOMENTE suas próprias location strings.
   const stockLocDim = {};
 
   Object.entries(rawData).forEach(([pid, p]) => {
@@ -259,40 +234,59 @@ function _me_carregarDadosAPI() {
     const s = p.stock     || {};
     const l = p.locations || {};
 
-    // Soma stock dos sub-warehouses de cada zona (apenas os desta produto)
-    let subA8 = 0, subA9 = 0;
-    const a8Locs = [], a9Locs = [];
+    // Stock nos armazéns principais
+    const padraoStock = Number(s[ME.WH_PADRAO] || 0);
 
-    Object.keys(s).forEach(wid => {
-      if (KNOWN.has(wid)) return;
-      const qty = Number(s[wid] || 0);
-      if (zoneA8.has(wid)) {
-        subA8 += qty;
-        _me_parseLocs(l[wid] || '').filter(x => x.toUpperCase().startsWith('A8')).forEach(x => a8Locs.push(x));
-      } else if (zoneA9.has(wid)) {
-        subA9 += qty;
-        _me_parseLocs(l[wid] || '').filter(x => x.toUpperCase().startsWith('A9')).forEach(x => a9Locs.push(x));
-      }
-    });
-
-    // Locações da string do armazém Padrão (bl_44285) — usadas para colunas F/G
+    // Location string do armazém Padrão → determina zona(s) deste produto
     const padraoLocs = _me_parseLocs(l[ME.WH_PADRAO] || '');
-    padraoLocs.filter(x => x.toUpperCase().startsWith('A8')).forEach(x => a8Locs.push(x));
-    padraoLocs.filter(x => x.toUpperCase().startsWith('A9')).forEach(x => a9Locs.push(x));
+    const padA8 = padraoLocs.filter(x => x.toUpperCase().startsWith('A8'));
+    const padA9 = padraoLocs.filter(x => x.toUpperCase().startsWith('A9'));
+    const isPureA8 = padA8.length > 0 && padA9.length === 0;
+    const isPureA9 = padA9.length > 0 && padA8.length === 0;
+    const isMisto  = padA8.length > 0 && padA9.length > 0;
 
-    let picking, armPad;
-    if (subA8 + subA9 > 0) {
-      // Sub-warehouses identificados — usa stock deles diretamente
-      picking = subA8;
-      armPad  = subA9;
+    const a8Locs = [...padA8];
+    const a9Locs = [...padA9];
+    let picking = 0, armPad = 0;
+
+    if (isPureA8) {
+      // Produto somente na zona A8 → todo estoque Padrão é picking
+      picking = padraoStock;
+    } else if (isPureA9) {
+      // Produto somente na zona A9 → todo estoque Padrão é armPad
+      // (NÃO usa sub-warehouses: evita stock "fantasma" de outros produtos)
+      armPad = padraoStock;
+    } else if (isMisto) {
+      // Produto em ambas as zonas: divide pelo sub-warehouse DESTE produto
+      // onde a location string esteja preenchida com prefixo A8 ou A9.
+      let subA8 = 0, subA9 = 0;
+      Object.keys(s).forEach(wid => {
+        if (KNOWN.has(wid)) return;
+        const locStr = l[wid] || '';
+        if (!locStr) return; // sem location para este produto → ignora (pode ser fantasma)
+        const locs = _me_parseLocs(locStr);
+        const wa8 = locs.filter(x => x.toUpperCase().startsWith('A8'));
+        const wa9 = locs.filter(x => x.toUpperCase().startsWith('A9'));
+        const qty = Number(s[wid] || 0);
+        if (wa8.length > 0 && wa9.length === 0) {
+          subA8 += qty;
+          wa8.forEach(x => a8Locs.push(x));
+        } else if (wa9.length > 0 && wa8.length === 0) {
+          subA9 += qty;
+          wa9.forEach(x => a9Locs.push(x));
+        }
+      });
+      if (subA8 + subA9 > 0) {
+        picking = subA8;
+        armPad  = subA9;
+      } else {
+        // Fallback: sem sub-warehouses identificados — atribui ao picking
+        picking = padraoStock;
+        armPad  = 0;
+      }
     } else {
-      // Sem sub-warehouses: usa stock total do bl_44285 com prefixo da localização
-      const padraoStock = Number(s[ME.WH_PADRAO] || 0);
-      const pA8 = a8Locs.length > 0;
-      const pA9 = a9Locs.length > 0;
-      if (pA8 && !pA9)       { picking = padraoStock; armPad = 0; }
-      else if (pA9 && !pA8)  { picking = 0; armPad = padraoStock; }
-      else                   { picking = padraoStock; armPad = 0; } // fallback
+      // Sem location no Padrão → fallback picking
+      picking = padraoStock;
     }
 
     const arm = Number(s[ME.WH_ARMAZENAMENTO] || 0);
