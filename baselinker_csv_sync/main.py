@@ -373,8 +373,9 @@ async def export_inventory_csv(page):
 
     first_cb = page.locator("input[type='checkbox']").first
     try:
-        await first_cb.wait_for(state="visible", timeout=10_000)
-        await first_cb.check()
+        await first_cb.wait_for(state="attached", timeout=10_000)
+        # force=True ignora verificação de viewport (checkbox customizado com CSS)
+        await first_cb.check(force=True)
         log.info("[EXPORT] Primeiro inventário selecionado (checkbox)")
     except Exception as e:
         await screenshot(page, "ERR_no_checkbox")
