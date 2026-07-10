@@ -302,18 +302,17 @@ async def export_inventory_csv(page):
     await screenshot(page, "04_list")
 
     # ── 1. Abre o modal clicando no botão da PÁGINA ──────────────────────────
-    # O botão da página está no canto superior direito — é o PRIMEIRO "Criar inventário"
-    page_btn = page.get_by_role("button", name=re.compile(r"criar inventário", re.I)).first
-    try:
-        await page_btn.wait_for(state="visible", timeout=10_000)
-        await page_btn.click()
-        log.info("[EXPORT] Botão 'Criar inventário' (página) clicado")
-    except Exception:
-        # Fallback: qualquer botão de ação primária/sucesso visível no header
-        await try_click(page, [
-            page.locator(".page-header .btn-success, header .btn-success").first,
-            page.locator("button.btn-success").first,
-        ], "Abrir modal (fallback)")
+    # O botão pode ser <a> ou <button> com classe btn-success ou btn-primary
+    opened = await try_click(page, [
+        page.locator("a.btn-success, button.btn-success, a.btn-primary, button.btn-primary").first,
+        page.locator("[data-action='add'], [id*='add_btn'], [class*='create']").first,
+        page.get_by_role("button", name=re.compile(r"criar|add|novo|new", re.I)).first,
+        page.get_by_role("link",   name=re.compile(r"criar|add|novo|new", re.I)).first,
+    ], "Abrir modal 'Criar inventário'")
+
+    if not opened:
+        await screenshot(page, "ERR_no_open_modal_btn")
+        raise RuntimeError("Botão para abrir modal de criação não encontrado")
 
     # Aguarda modal aparecer
     try:
