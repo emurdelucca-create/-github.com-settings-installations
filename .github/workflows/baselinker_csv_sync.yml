@@ -1,0 +1,41 @@
+name: BaseLinker CSV → SNAPSHOT_BL
+
+on:
+  schedule:
+    # Todo hora, minuto 05 (UTC)
+    - cron: "5 * * * *"
+  workflow_dispatch:  # permite rodar manualmente pelo GitHub Actions UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências Python
+        run: pip install -r baselinker_csv_sync/requirements.txt
+
+      - name: Instalar Chromium (Playwright)
+        run: python -m playwright install chromium --with-deps
+
+      - name: Rodar sync
+        env:
+          BASELINKER_EMAIL:            ${{ secrets.BASELINKER_EMAIL }}
+          BASELINKER_PASSWORD:         ${{ secrets.BASELINKER_PASSWORD }}
+          BASELINKER_API_KEY:          ${{ secrets.BASELINKER_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python baselinker_csv_sync/main.py
+
+      - name: Upload screenshots de debug
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots-${{ github.run_number }}
+          path: debug_screenshots/
+          retention-days: 3
