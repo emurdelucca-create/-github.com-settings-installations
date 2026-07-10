@@ -365,35 +365,61 @@ async def export_inventory_csv(page):
     await page.wait_for_load_state("networkidle")
     await screenshot(page, "06_after_create")
 
-    # ── 3. Volta à lista e seleciona o primeiro inventário (mais recente) ────
+    # ── 3. Volta à lista e abre o primeiro inventário (clica na linha) ────────
     if "/inventory_stocktakes" not in page.url:
         await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
         await page.wait_for_timeout(2000)
     await screenshot(page, "07_list_after_create")
 
-    first_cb = page.locator("input[type='checkbox']").first
-    try:
-        await first_cb.wait_for(state="attached", timeout=10_000)
-        # Dispara click + change com bubbling para acionar o handler JS da toolbar
-        await page.evaluate("""
-            const cb = document.querySelector('input[type="checkbox"]');
-            if (cb) {
-                cb.checked = true;
-                cb.dispatchEvent(new MouseEvent('click',  {bubbles:true, cancelable:true}));
-                cb.dispatchEvent(new Event('change', {bubbles:true}));
-            }
-        """)
-        log.info("[EXPORT] Checkbox marcado via JS (click+change com bubbling)")
-    except Exception as e:
-        await screenshot(page, "ERR_no_checkbox")
-        raise RuntimeError(f"Checkbox não clicável: {e}")
+    # Log HTML da lista para diagnóstico (primeiros 4000 chars)
+    html_snippet = await page.evaluate("document.body.innerHTML.slice(0, 4000)")
+    log.info(f"[DEBUG] HTML lista inventário (4000 chars): {html_snippet}")
 
-    # Aguarda a barra de ações aparecer após selecionar (pode ser dinâmica/AJAX)
+    # Abre o inventário clicando no link/linha da tabela (padrão BaseLinker)
+    opened_inv = False
+    for loc in [
+        # Link com URL de inventário específico
+        page.locator("a[href*='inventory_stocktakes/']").first,
+        page.locator("a[href*='stocktake']").first,
+        # Célula de nome/data na tabela
+        page.locator("table tbody tr:first-child td a").first,
+        page.locator("table tbody tr:first-child td").nth(1),
+        # Botão/ícone de abrir na linha
+        page.locator(".btn-open, [data-action='open'], [title*='Abrir'], [title*='Ver']").first,
+    ]:
+        try:
+            if await loc.is_visible(timeout=3000):
+                await loc.click()
+                log.info("[EXPORT] Linha do inventário aberta")
+                opened_inv = True
+                break
+        except Exception:
+            pass
+
+    if not opened_inv:
+        # Fallback: clica na primeira linha da tabela (qualquer célula)
+        try:
+            first_row = page.locator("table tbody tr").first
+            if await first_row.is_visible(timeout=5000):
+                await first_row.click()
+                log.info("[EXPORT] Primeira linha da tabela clicada (fallback)")
+                opened_inv = True
+        except Exception:
+            pass
+
+    if not opened_inv:
+        await screenshot(page, "ERR_no_inv_row")
+        raise RuntimeError("Não encontrou link/linha do inventário na lista")
+
+    await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
-    await screenshot(page, "08_checked")
+    await screenshot(page, "08_inv_detail")
+
+    # Log HTML da página de detalhe do inventário
+    html_detail = await page.evaluate("document.body.innerHTML.slice(0, 4000)")
+    log.info(f"[DEBUG] HTML detalhe inventário (4000 chars): {html_detail}")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
-    # Tenta múltiplos seletores — o botão pode ser <button> ou <a>
     print_clicked = await try_click(page, [
         page.locator("button:has-text('IMPRIMIR'), a:has-text('IMPRIMIR')").first,
         page.locator("button:has-text('Imprimir'), a:has-text('Imprimir')").first,
@@ -401,11 +427,15 @@ async def export_inventory_csv(page):
         page.get_by_role("link",   name=re.compile(r"imprimir", re.I)).first,
         page.locator("[data-action='print'], [data-bb-handler='print']").first,
         page.locator(".btn-print, .print-btn, [class*='print']").first,
-    ], "IMPRIMIR")
+        # Seletores alternativos: exportar/download direto
+        page.locator("button:has-text('Exportar'), a:has-text('Exportar')").first,
+        page.locator("button:has-text('CSV'), a:has-text('CSV')").first,
+        page.get_by_role("button", name=re.compile(r"export|download|csv", re.I)).first,
+    ], "IMPRIMIR/Exportar")
 
     if not print_clicked:
         await screenshot(page, "ERR_no_print_btn")
-        raise RuntimeError("Botão IMPRIMIR não encontrado")
+        raise RuntimeError("Botão IMPRIMIR/Exportar não encontrado")
 
     await page.wait_for_timeout(700)
     await screenshot(page, "09_print_menu")
@@ -414,6 +444,7 @@ async def export_inventory_csv(page):
         csv_clicked = await try_click(page, [
             page.get_by_text(re.compile(r"exportar.*csv|itens.*inventário", re.I)),
             page.locator("li:has-text('CSV'), a:has-text('CSV')").first,
+            page.locator("li:has-text('Exportar'), a:has-text('Exportar')").first,
         ], "Exportar CSV")
 
         if not csv_clicked:
