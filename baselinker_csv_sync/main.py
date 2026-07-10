@@ -30,6 +30,7 @@ import gspread
 import requests
 from google.oauth2.service_account import Credentials
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
 logging.basicConfig(
     level=logging.INFO,
@@ -159,120 +160,123 @@ async def try_click(page, locators, label):
     return False
 
 
+async def bl_inject_session(ctx):
+    """
+    Alternativa ao login via formulário: injeta cookies de sessão diretamente.
+    Usado quando BASELINKER_SESSION_COOKIE está definido no ambiente.
+    Formato da variável: JSON array de objetos cookie do DevTools.
+    Ex: [{"name":"PHPSESSID","value":"abc123","domain":".baselinker.com","path":"/"}]
+    """
+    raw = os.environ.get("BASELINKER_SESSION_COOKIE", "")
+    if not raw:
+        return False
+    try:
+        cookies = json.loads(raw)
+        # Garante que domain e path estejam presentes
+        for c in cookies:
+            c.setdefault("domain", "panel-u.baselinker.com")
+            c.setdefault("path", "/")
+        await ctx.add_cookies(cookies)
+        log.info(f"[LOGIN] {len(cookies)} cookie(s) de sessão injetado(s)")
+        return True
+    except Exception as e:
+        log.warning(f"[LOGIN] Falha ao injetar cookies: {e}")
+        return False
+
+
 async def bl_login(page):
     log.info("[LOGIN] Acessando login.baselinker.com...")
     await page.goto(BL_LOGIN, wait_until="networkidle")
     await screenshot(page, "01_login_page")
 
-    # Aguarda qualquer input aparecer (página pode ser JS-heavy)
+    # Aguarda formulário aparecer (Cloudflare pode atrasar)
     try:
-        await page.wait_for_selector("input", timeout=15_000)
+        await page.wait_for_selector("input:not([type='hidden'])", timeout=20_000)
     except Exception:
         pass
 
-    # Loga todos os inputs para debug em caso de falha futura
+    # Loga todos os inputs encontrados para diagnóstico
     inputs = await page.locator("input").all()
+    log.info(f"[LOGIN] {len(inputs)} inputs encontrados na página:")
     for i, inp in enumerate(inputs):
         try:
-            t = await inp.get_attribute("type")
-            n = await inp.get_attribute("name")
+            t   = await inp.get_attribute("type")
+            n   = await inp.get_attribute("name")
             iid = await inp.get_attribute("id")
             ph  = await inp.get_attribute("placeholder")
-            log.info(f"[LOGIN] input[{i}] type={t} name={n} id={iid} placeholder={ph}")
+            log.info(f"  input[{i}] type={t} name={n} id={iid} placeholder={ph}")
         except Exception:
             pass
 
-    # ── Preenche email ────────────────────────────────────────────────────────
-    email_filled = False
-    for sel in [
-        "input[type='email']",
-        "input[name='email']",
-        "input[name='login']",
-        "input[id='email']",
-        "input[id='login']",
-        "input[autocomplete='email']",
-        "input[autocomplete='username']",
-        "input[placeholder*='mail']",
-        "input[placeholder*='ogin']",
-        "input[placeholder*='ser']",
+    # ── Preenche campo LOGIN ──────────────────────────────────────────────────
+    # A página usa label "LOGIN" — get_by_label é a forma mais robusta
+    login_filled = False
+    for attempt in [
+        lambda: page.get_by_label("LOGIN", exact=True),
+        lambda: page.get_by_label("Login", exact=False),
+        lambda: page.locator("input[name='login']"),
+        lambda: page.locator("input[name='email']"),
+        lambda: page.locator("input[id='login']"),
+        lambda: page.locator("input[id='email']"),
+        lambda: page.locator("input[type='text']").first,
     ]:
         try:
-            loc = page.locator(sel).first
-            if await loc.is_visible(timeout=2000):
-                await loc.fill(BL_EMAIL)
-                email_filled = True
-                log.info(f"[LOGIN] Email via: {sel}")
+            loc = attempt()
+            if await loc.first.is_visible(timeout=3000):
+                await loc.first.fill(BL_EMAIL)
+                login_filled = True
+                log.info("[LOGIN] Campo LOGIN preenchido")
                 break
         except Exception:
             pass
 
-    if not email_filled:
-        # Fallback: primeiro input visível (que não seja password/hidden)
-        for nth in range(min(len(inputs), 5)):
-            try:
-                inp = page.locator("input:visible").nth(nth)
-                t   = await inp.get_attribute("type") or ""
-                if t.lower() in ("password", "hidden", "submit", "checkbox", "radio"):
-                    continue
-                await inp.fill(BL_EMAIL)
-                email_filled = True
-                log.info(f"[LOGIN] Email via input visível #{nth}")
-                break
-            except Exception:
-                pass
+    if not login_filled:
+        await screenshot(page, "ERR_login_no_login_field")
+        raise RuntimeError("[LOGIN] Campo LOGIN não encontrado — verifique screenshot ERR_login_no_login_field.png")
 
-    if not email_filled:
-        await screenshot(page, "ERR_login_no_email_field")
-        raise RuntimeError("[LOGIN] Campo de email não encontrado")
-
-    # ── Preenche senha ────────────────────────────────────────────────────────
+    # ── Preenche SENHA ────────────────────────────────────────────────────────
     pwd_filled = False
-    for sel in [
-        "input[type='password']",
-        "input[name='password']",
-        "input[id='password']",
-        "input[autocomplete='current-password']",
+    for attempt in [
+        lambda: page.get_by_label("SENHA", exact=True),
+        lambda: page.get_by_label("Senha", exact=False),
+        lambda: page.locator("input[type='password']").first,
+        lambda: page.locator("input[name='password']").first,
     ]:
         try:
-            loc = page.locator(sel).first
-            if await loc.is_visible(timeout=2000):
-                await loc.fill(BL_PASSWORD)
+            loc = attempt()
+            if await loc.first.is_visible(timeout=3000):
+                await loc.first.fill(BL_PASSWORD)
                 pwd_filled = True
-                log.info(f"[LOGIN] Senha via: {sel}")
+                log.info("[LOGIN] Campo SENHA preenchido")
                 break
         except Exception:
             pass
 
     if not pwd_filled:
         await screenshot(page, "ERR_login_no_pwd_field")
-        raise RuntimeError("[LOGIN] Campo de senha não encontrado")
+        raise RuntimeError("[LOGIN] Campo SENHA não encontrado")
 
     await screenshot(page, "02_login_filled")
 
-    # ── Submit ────────────────────────────────────────────────────────────────
+    # ── Clica em "Faça o login" ───────────────────────────────────────────────
     submitted = False
-    for sel in [
-        "button[type='submit']",
-        "input[type='submit']",
-        "button:has-text('Entrar')",
-        "button:has-text('Login')",
-        "button:has-text('Sign in')",
-        "button:has-text('Loguj')",
-        "button:has-text('Zaloguj')",
-        "form button",
+    for attempt in [
+        lambda: page.get_by_role("button", name=re.compile(r"fa.a o login|entrar|login", re.I)),
+        lambda: page.locator("button[type='submit']").first,
+        lambda: page.locator("input[type='submit']").first,
+        lambda: page.locator("form button").first,
     ]:
         try:
-            loc = page.locator(sel).first
-            if await loc.is_visible(timeout=2000):
-                await loc.click()
+            loc = attempt()
+            if await loc.first.is_visible(timeout=3000):
+                await loc.first.click()
                 submitted = True
-                log.info(f"[LOGIN] Submit via: {sel}")
+                log.info("[LOGIN] Botão de login clicado")
                 break
         except Exception:
             pass
 
     if not submitted:
-        # Pressiona Enter como último recurso
         await page.keyboard.press("Enter")
         log.info("[LOGIN] Submit via Enter")
 
@@ -588,15 +592,42 @@ async def run():
 
     # 2. Exportar CSVs via Playwright
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        # headless=False + Xvfb (no workflow) para passar pelo Cloudflare Turnstile
+        browser = await pw.chromium.launch(
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
         ctx = await browser.new_context(
             accept_downloads=True,
             locale="pt-BR",
             viewport={"width": 1280, "height": 900},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
         )
         page = await ctx.new_page()
+        await stealth_async(page)  # mascara sinais de automação
 
-        await bl_login(page)
+        # Tenta injetar cookie de sessão salvo (bypass do Cloudflare)
+        session_injected = await bl_inject_session(ctx)
+        if session_injected:
+            # Verifica se a sessão ainda é válida indo direto ao painel
+            await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
+            if BL_LOGIN in page.url or "login" in page.url.lower():
+                log.warning("[LOGIN] Cookie expirado — fazendo login via formulário")
+                await bl_login(page)
+            else:
+                log.info(f"[LOGIN] Sessão via cookie OK — {page.url}")
+                await screenshot(page, "03_panel_via_cookie")
+        else:
+            await bl_login(page)
 
         padrao_csv = await export_warehouse_csv(page, "padrao", "Padrão")
         arm_csv    = await export_warehouse_csv(page, "arm",    "Armazenamento")

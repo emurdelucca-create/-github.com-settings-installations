@@ -4,7 +4,7 @@ on:
   schedule:
     # Todo hora, minuto 05 (UTC)
     - cron: "5 * * * *"
-  workflow_dispatch:  # permite rodar manualmente pelo GitHub Actions UI
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -24,13 +24,23 @@ jobs:
       - name: Instalar Chromium (Playwright)
         run: python -m playwright install chromium --with-deps
 
+      - name: Instalar Xvfb (display virtual para modo não-headless)
+        run: sudo apt-get install -y xvfb
+
       - name: Rodar sync
         env:
+          DISPLAY: ":99"
           BASELINKER_EMAIL:            ${{ secrets.BASELINKER_EMAIL }}
           BASELINKER_PASSWORD:         ${{ secrets.BASELINKER_PASSWORD }}
           BASELINKER_API_KEY:          ${{ secrets.BASELINKER_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python baselinker_csv_sync/main.py
+          # Opcional: cookie de sessão para bypass do Cloudflare
+          # Formato JSON: [{"name":"PHPSESSID","value":"...","domain":"panel-u.baselinker.com","path":"/"}]
+          BASELINKER_SESSION_COOKIE:   ${{ secrets.BASELINKER_SESSION_COOKIE }}
+        run: |
+          Xvfb :99 -screen 0 1280x900x24 &
+          sleep 2
+          python baselinker_csv_sync/main.py
 
       - name: Upload screenshots de debug
         if: always()
