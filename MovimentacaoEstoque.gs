@@ -45,6 +45,8 @@ const ME = {
   ABC_A: 0.70, ABC_B: 0.90,
   HEADER_ROWS: 5,
   NCOLS: 35,
+
+  SNAPSHOT_SHEET: 'SNAPSHOT_BL',
 };
 
 // Peso AABBCC para sort da Corretiva (menor = mais urgente)
@@ -64,7 +66,10 @@ function onOpen() {
     .addItem('🟡 Planejada',       'meGerarPlanejada')
     .addItem('🟢 Excesso',         'meGerarExcesso')
     .addSeparator()
-    .addItem('🔄 Atualizar Todas', 'meGerarTodas')
+    .addItem('🔄 Atualizar Todas',             'meGerarTodas')
+    .addSeparator()
+    .addItem('📸 Atualizar Snapshot BL',       'me_atualizarSnapshotEstoque')
+    .addItem('⏰ Configurar Trigger Horário',  'me_configurarTriggerHorario')
     .addToUi();
 }
 
@@ -197,6 +202,15 @@ function _me_carregarDadosAPI(mapaCompostos) {
   const KNOWN     = new Set([ME.WH_PADRAO, ME.WH_ARMAZENAMENTO, ME.WH_CHEGOU]);
   const compostos = new Set(Object.keys(mapaCompostos || {}));
 
+  // Prefere snapshot gerado por me_atualizarSnapshotEstoque() — mais preciso e rápido
+  const snapAba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ME.SNAPSHOT_SHEET);
+  if (snapAba && snapAba.getLastRow() > 2) {
+    const info = String(snapAba.getRange(1, 1).getValue());
+    Logger.log('[API] Usando SNAPSHOT_BL: ' + info);
+    return _me_carregarDoSnapshot(snapAba, compostos);
+  }
+  Logger.log('[API] Sem snapshot disponível — usando getInventoryProductsData (fallback)');
+
   // Passo 1: lista de produtos (paginada)
   const pidToSku = {};
   let page = 1;
@@ -319,6 +333,147 @@ function _me_carregarDadosAPI(mapaCompostos) {
   });
 
   return stockLocDim;
+}
+
+// ============================================================
+// 3b. SNAPSHOT DE ESTOQUE — cria inventários no BaseLinker,
+//     lê itens com localização e grava na aba SNAPSHOT_BL.
+//     Execute manualmente ou via trigger horário.
+// ============================================================
+function me_atualizarSnapshotEstoque() {
+  Logger.log('[SNAPSHOT] Iniciando...');
+
+  // 1. Cria rascunho de inventário nos dois armazéns
+  const rPad = _me_bl_call('addInventoryStocktake', {
+    inventory_id: ME.INVENTORY_ID,
+    warehouse_id: ME.WH_PADRAO,
+    name: 'AUTO_PAD',
+  });
+  const idPad = rPad.inventory_stocktake_id;
+  Logger.log('[SNAPSHOT] Padrão criado id=' + idPad);
+
+  const rArm = _me_bl_call('addInventoryStocktake', {
+    inventory_id: ME.INVENTORY_ID,
+    warehouse_id: ME.WH_ARMAZENAMENTO,
+    name: 'AUTO_ARM',
+  });
+  const idArm = rArm.inventory_stocktake_id;
+  Logger.log('[SNAPSHOT] Armazenamento criado id=' + idArm);
+
+  // 2. Aguarda geração dos itens pelo BaseLinker
+  Utilities.sleep(8000);
+
+  // 3. Lê itens paginados (localização + unidades) de cada inventário
+  const linhas = [];
+
+  function lerItens(id, rotulo) {
+    let page = 1;
+    while (true) {
+      const r     = _me_bl_call('getInventoryStocktakeDocumentItems', {
+        inventory_stocktake_document_id: id,
+        page,
+      });
+      const items = r.items || [];
+      if (page === 1) Logger.log('[SNAPSHOT] ' + rotulo + ' exemplo item[0]: ' + JSON.stringify(items[0] || {}));
+      items.forEach(it => {
+        const sku = String(it.sku || '').trim();
+        const loc = String(it.location || '').trim();
+        const qty = Number(it.quantity || 0);
+        if (sku) linhas.push([sku, loc, qty, rotulo]);
+      });
+      Logger.log('[SNAPSHOT] ' + rotulo + ' p.' + page + ': ' + items.length + ' itens');
+      if (items.length < 1000) break;
+      page++;
+      Utilities.sleep(200);
+    }
+  }
+
+  lerItens(idPad, 'Padrão');
+  lerItens(idArm, 'Armazenamento');
+
+  // 4. Exclui os rascunhos (não altera estoque real)
+  try { _me_bl_call('deleteInventoryStocktake', { inventory_stocktake_id: idPad }); } catch(e) { Logger.log('Erro ao excluir Padrão: ' + e); }
+  try { _me_bl_call('deleteInventoryStocktake', { inventory_stocktake_id: idArm }); } catch(e) { Logger.log('Erro ao excluir Arm: ' + e); }
+  Logger.log('[SNAPSHOT] Rascunhos excluídos');
+
+  // 5. Grava na aba SNAPSHOT_BL
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  let   aba = ss.getSheetByName(ME.SNAPSHOT_SHEET);
+  if (!aba) aba = ss.insertSheet(ME.SNAPSHOT_SHEET);
+  aba.clearContents();
+  aba.clearFormats();
+
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+  aba.getRange(1, 1).setValue('Atualizado: ' + ts + '  |  Itens: ' + linhas.length);
+
+  const header = [['SKU', 'Localização', 'Unidades', 'Armazém']];
+  aba.getRange(2, 1, 1, 4).setValues(header);
+  aba.getRange(2, 1, 1, 4).setFontWeight('bold');
+
+  if (linhas.length > 0) {
+    // Formata coluna SKU como texto para preservar zeros à esquerda (ex: 00118)
+    aba.getRange(3, 1, linhas.length, 1).setNumberFormat('@');
+    aba.getRange(3, 1, linhas.length, 4).setValues(linhas);
+  }
+
+  SpreadsheetApp.flush();
+  Logger.log('[SNAPSHOT] Concluído: ' + linhas.length + ' linhas');
+
+  try {
+    SpreadsheetApp.getUi().alert('✅ Snapshot atualizado!\n' + linhas.length + ' itens  |  ' + ts);
+  } catch(e) { /* rodando via trigger — sem UI */ }
+}
+
+// Lê SNAPSHOT_BL e monta stockLocDim no mesmo formato de _me_carregarDadosAPI()
+function _me_carregarDoSnapshot(aba, compostos) {
+  const dados = aba.getDataRange().getValues();
+  // linha 0 = info timestamp | linha 1 = cabeçalho | dados a partir da linha 2
+  const stockLocDim = {};
+
+  for (let i = 2; i < dados.length; i++) {
+    const sku     = String(dados[i][0] || '').trim();
+    const loc     = String(dados[i][1] || '').trim().toUpperCase();
+    const qty     = Number(dados[i][2] || 0);
+    const armazem = String(dados[i][3] || '').trim();
+    if (!sku || compostos.has(sku)) continue;
+
+    if (!stockLocDim[sku]) {
+      stockLocDim[sku] = { picking:0, armPad:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+    }
+    const d = stockLocDim[sku];
+
+    if (armazem === 'Padrão') {
+      if (loc.startsWith('A8')) {
+        d.picking += qty;
+        if (!d.locF) d.locF = loc;
+      } else if (loc.startsWith('A9')) {
+        d.armPad += qty;
+        if (!d.locG) d.locG = loc;
+      } else {
+        // sem localização ou prefixo desconhecido → vai para picking
+        d.picking += qty;
+      }
+    } else if (armazem === 'Armazenamento') {
+      d.arm += qty;
+      if (loc && !d.locG) d.locG = loc;
+    }
+  }
+
+  return stockLocDim;
+}
+
+// Configura trigger automático de hora em hora
+function me_configurarTriggerHorario() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'me_atualizarSnapshotEstoque')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('me_atualizarSnapshotEstoque')
+    .timeBased()
+    .everyHours(1)
+    .create();
+
+  SpreadsheetApp.getUi().alert('✅ Trigger configurado!\nme_atualizarSnapshotEstoque rodará automaticamente a cada hora.');
 }
 
 // ============================================================
@@ -785,10 +940,10 @@ function meDiagnosticarSKU() {
 }
 
 // ============================================================
-// COMPARAÇÃO CSV vs API — confronta estoque A8/A9 do armazém
-// Padrão entre o CSV exportado do BaseLinker (10/07/2026) e o
-// que a API retorna via getInventoryProductsData.
-// Execute meCompararComCSV() e veja a aba DEBUG_Comparacao.
+// COMPARAÇÃO — confronta o CSV manual de 10/07/2026 contra o
+// SNAPSHOT_BL atual (se existir) ou a API de produtos.
+// Use para validar que o snapshot está correto após configurar
+// o trigger horário. Veja a aba DEBUG_Comparacao.
 // ============================================================
 function meCompararComCSV() {
   // Snapshot do CSV exportado do BaseLinker em 10/07/2026 12:18
