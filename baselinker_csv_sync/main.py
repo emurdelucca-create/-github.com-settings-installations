@@ -286,138 +286,149 @@ async def bl_login(page):
     await screenshot(page, "03_panel")
 
 
-async def export_warehouse_csv(page, wh_key, wh_display):
+async def export_inventory_csv(page):
     """
-    Cria inventário rascunho para o armazém, exporta CSV, exclui rascunho.
-    Retorna o conteúdo do CSV como string.
+    Cria um inventário rascunho (sem seleção de armazém — modal é simples),
+    exporta o CSV completo, exclui o rascunho.
+    Retorna o conteúdo CSV como string.
+
+    FIX: o botão "Criar inventário" existe tanto na PÁGINA (abre o modal)
+    quanto DENTRO do modal (confirma a criação). O `.last` garante que
+    clicamos no do modal, não no da página.
     """
-    log.info(f"[{wh_display}] Abrindo lista de inventários...")
+    log.info("[EXPORT] Abrindo inventory_stocktakes...")
     await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
-    await page.wait_for_timeout(1500)
-    await screenshot(page, f"04_{wh_key}_list")
+    await page.wait_for_timeout(2000)
+    await screenshot(page, "04_list")
 
-    # ── 1. Criar novo inventário ─────────────────────────────────────────────
-    opened = await try_click(page, [
-        page.get_by_role("button", name=re.compile(r"(Adicionar|Novo|Add|New|\+)", re.I)),
-        page.get_by_role("link",   name=re.compile(r"(Adicionar|Novo|Add|New)", re.I)),
-        page.locator("a.btn-success, button.btn-success, a.btn-primary, button.btn-primary").first,
-        page.locator("[data-action='add'], [id*='add_btn'], [class*='add']").first,
-    ], f"Adicionar inventário ({wh_display})")
-
-    if not opened:
-        await screenshot(page, f"ERR_{wh_key}_no_add_btn")
-        raise RuntimeError(f"[{wh_display}] Botão de criar inventário não encontrado")
-
-    await page.wait_for_timeout(1500)
-    await screenshot(page, f"05_{wh_key}_modal")
-
-    # ── 2. Selecionar armazém no formulário ──────────────────────────────────
-    # Tenta <select> com a opção pelo nome do armazém
-    select_with_wh = page.locator("select").filter(
-        has=page.locator(f"option:has-text('{wh_display}')")
-    )
+    # ── 1. Abre o modal clicando no botão da PÁGINA ──────────────────────────
+    # O botão da página está no canto superior direito — é o PRIMEIRO "Criar inventário"
+    page_btn = page.get_by_role("button", name=re.compile(r"criar inventário", re.I)).first
     try:
-        if await select_with_wh.first.is_visible(timeout=3000):
-            await select_with_wh.first.select_option(label=wh_display)
-            log.info(f"[{wh_display}] Armazém selecionado via <select>")
+        await page_btn.wait_for(state="visible", timeout=10_000)
+        await page_btn.click()
+        log.info("[EXPORT] Botão 'Criar inventário' (página) clicado")
     except Exception:
-        # Tenta clicar no texto do armazém (radio, checkbox, ou item de lista)
-        wh_option = page.locator(
-            f"label:has-text('{wh_display}'), li:has-text('{wh_display}'), "
-            f"div:has-text('{wh_display}'), span:has-text('{wh_display}')"
-        ).first
+        # Fallback: qualquer botão de ação primária/sucesso visível no header
+        await try_click(page, [
+            page.locator(".page-header .btn-success, header .btn-success").first,
+            page.locator("button.btn-success").first,
+        ], "Abrir modal (fallback)")
+
+    # Aguarda modal aparecer
+    try:
+        await page.wait_for_selector(
+            ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
+            state="visible", timeout=10_000
+        )
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
+    await screenshot(page, "05_modal")
+
+    # ── 2. Clica "Criar inventário" DENTRO do modal ──────────────────────────
+    # CRÍTICO: usar .last para pegar o botão do modal, não o que abriu o modal
+    confirm_clicked = False
+    modal = page.locator(".modal.in, .modal.show, [role='dialog']").first
+
+    for btn_loc in [
+        # Escopo do modal — mais confiável
+        modal.get_by_role("button", name=re.compile(r"criar inventário", re.I)),
+        modal.locator("button.btn-primary").last,
+        modal.locator("button.btn-success").last,
+        modal.locator(".modal-footer button").last,
+        # Fallback global: ÚLTIMO botão com esse texto (o do modal)
+        page.get_by_role("button", name=re.compile(r"criar inventário", re.I)).last,
+    ]:
         try:
-            if await wh_option.is_visible(timeout=3000):
-                await wh_option.click()
-                log.info(f"[{wh_display}] Armazém selecionado via texto")
+            if await btn_loc.is_visible(timeout=2000):
+                await btn_loc.click()
+                confirm_clicked = True
+                log.info("[EXPORT] Botão confirmar (modal) clicado")
+                break
         except Exception:
-            log.warning(f"[{wh_display}] Seleção de armazém não confirmada — continuando...")
+            pass
 
-    await screenshot(page, f"06_{wh_key}_wh_selected")
+    if not confirm_clicked:
+        await screenshot(page, "ERR_no_confirm_btn")
+        raise RuntimeError("Botão 'Criar inventário' no modal não encontrado")
 
-    # ── 3. Confirmar criação ─────────────────────────────────────────────────
-    await try_click(page, [
-        page.get_by_role("button", name=re.compile(r"(Salvar|Criar|Confirmar|OK|Zapisz|Dodaj)", re.I)),
-        page.locator("button[type='submit']").first,
-        page.locator(".modal-footer .btn-primary, .modal-footer .btn-success").first,
-        page.locator("form .btn-primary").first,
-    ], f"Confirmar criação ({wh_display})")
-
-    # Aguarda o sistema gerar o inventário (usuário relatou ~5 segundos)
-    log.info(f"[{wh_display}] Aguardando inventário ser gerado (até 15s)...")
-    await page.wait_for_timeout(15_000)
+    # Aguarda modal fechar
+    log.info("[EXPORT] Aguardando modal fechar e inventário ser gerado (~15s)...")
+    try:
+        await page.wait_for_selector(
+            ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
+            state="hidden", timeout=30_000
+        )
+    except Exception:
+        pass
+    await page.wait_for_timeout(8_000)
     await page.wait_for_load_state("networkidle")
-    await screenshot(page, f"07_{wh_key}_after_create")
+    await screenshot(page, "06_after_create")
 
-    # ── 4. Selecionar o inventário recém-criado (primeiro da lista) ──────────
-    # Se redirecionou para a página do inventário, volta à lista
+    # ── 3. Volta à lista e seleciona o primeiro inventário (mais recente) ────
     if "/inventory_stocktakes" not in page.url:
         await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(2000)
+    await screenshot(page, "07_list_after_create")
 
-    selected = await try_click(page, [
-        page.locator("table tbody tr:first-child input[type='checkbox']"),
-        page.locator(".list-item:first-child input[type='checkbox']"),
-        page.locator("tr:first-child input[type='checkbox']").first,
-        page.locator("input[type='checkbox']").first,
-    ], f"Checkbox do inventário ({wh_display})")
+    first_cb = page.locator("input[type='checkbox']").first
+    try:
+        await first_cb.wait_for(state="visible", timeout=10_000)
+        await first_cb.check()
+        log.info("[EXPORT] Primeiro inventário selecionado (checkbox)")
+    except Exception as e:
+        await screenshot(page, "ERR_no_checkbox")
+        raise RuntimeError(f"Checkbox não encontrado: {e}")
 
-    if not selected:
-        await screenshot(page, f"ERR_{wh_key}_no_checkbox")
-        raise RuntimeError(f"[{wh_display}] Checkbox do inventário não encontrado")
+    await screenshot(page, "08_checked")
 
-    await screenshot(page, f"08_{wh_key}_checked")
-
-    # ── 5. Clicar em IMPRIMIR ────────────────────────────────────────────────
-    clicked_print = await try_click(page, [
+    # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
+    print_clicked = await try_click(page, [
         page.get_by_role("button", name=re.compile(r"imprimir|print", re.I)),
-        page.locator("button:has-text('IMPRIMIR'), a:has-text('IMPRIMIR')").first,
-        page.locator("[data-action='print'], .btn-print").first,
-    ], f"IMPRIMIR ({wh_display})")
+        page.locator("button:has-text('IMPRIMIR')").first,
+        page.locator("[data-action='print']").first,
+    ], "IMPRIMIR")
 
-    if not clicked_print:
-        await screenshot(page, f"ERR_{wh_key}_no_print_btn")
-        raise RuntimeError(f"[{wh_display}] Botão IMPRIMIR não encontrado")
+    if not print_clicked:
+        await screenshot(page, "ERR_no_print_btn")
+        raise RuntimeError("Botão IMPRIMIR não encontrado")
 
     await page.wait_for_timeout(700)
-    await screenshot(page, f"09_{wh_key}_print_menu")
+    await screenshot(page, "09_print_menu")
 
-    # ── 6. Exportar itens de inventário (CSV) ────────────────────────────────
     async with page.expect_download(timeout=30_000) as dl_info:
-        clicked_csv = await try_click(page, [
-            page.get_by_text(re.compile(r"exportar.*csv|csv.*export|itens.*inventário", re.I)),
+        csv_clicked = await try_click(page, [
+            page.get_by_text(re.compile(r"exportar.*csv|itens.*inventário", re.I)),
             page.locator("li:has-text('CSV'), a:has-text('CSV')").first,
-        ], f"Exportar CSV ({wh_display})")
+        ], "Exportar CSV")
 
-        if not clicked_csv:
-            await screenshot(page, f"ERR_{wh_key}_no_csv_option")
-            raise RuntimeError(f"[{wh_display}] Opção de exportar CSV não encontrada")
+        if not csv_clicked:
+            await screenshot(page, "ERR_no_csv_option")
+            raise RuntimeError("Opção exportar CSV não encontrada")
 
     download = await dl_info.value
-    log.info(f"[{wh_display}] Download: {download.suggested_filename}")
-
     tmp_path = await download.path()
     csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
-    log.info(f"[{wh_display}] CSV: {len(csv_content)} chars, {csv_content.count(chr(10))} linhas")
-    await screenshot(page, f"10_{wh_key}_downloaded")
+    log.info(f"[EXPORT] CSV: {len(csv_content)} chars, {csv_content.count(chr(10))} linhas")
+    await screenshot(page, "10_downloaded")
 
-    # ── 7. Excluir rascunho ──────────────────────────────────────────────────
+    # ── 5. Exclui o rascunho ─────────────────────────────────────────────────
     deleted = await try_click(page, [
-        page.get_by_role("button", name=re.compile(r"(Excluir|Deletar|Remover|Delete|Usuń)", re.I)),
-        page.locator("button.btn-danger, a.btn-danger").first,
+        page.get_by_role("button", name=re.compile(r"excluir|deletar|delete|remover", re.I)),
+        page.locator("button.btn-danger").first,
         page.locator("[data-action='delete']").first,
-    ], f"Excluir rascunho ({wh_display})")
+    ], "Excluir inventário")
 
     if deleted:
         await page.wait_for_timeout(500)
-        # Confirma diálogo de confirmação se aparecer
         await try_click(page, [
-            page.get_by_role("button", name=re.compile(r"(Sim|Yes|Confirmar|OK|Tak)", re.I)),
-            page.locator(".modal-footer .btn-danger, .bootbox .btn-danger").first,
-        ], f"Confirmar exclusão ({wh_display})")
-        log.info(f"[{wh_display}] Rascunho excluído")
+            page.get_by_role("button", name=re.compile(r"sim|yes|confirmar|ok", re.I)),
+            page.locator(".modal-footer .btn-danger, .bootbox-accept").first,
+        ], "Confirmar exclusão")
+        log.info("[EXPORT] Inventário excluído")
     else:
-        log.warning(f"[{wh_display}] Não conseguiu excluir rascunho — remova manualmente")
+        log.warning("[EXPORT] Não conseguiu excluir — remova manualmente")
 
     return csv_content
 
@@ -439,19 +450,29 @@ def find_col(headers, *candidates):
     return None
 
 
-def parse_csv(csv_content, is_padrao):
+def parse_csv(csv_content):
     """
-    Parseia o CSV de inventário do BaseLinker.
-    Para Padrão:       A8 locations → picking; A9 → armPad; locF/locG
-    Para Armazenamento: tudo → arm; locG
-    Retorna {sku: {picking, armPad, arm, locF, locG}}
+    Parseia o CSV único de inventário do BaseLinker.
+
+    Lógica de zona por localização:
+      A8... → picking   (locF)
+      A9... → armPad    (locG)   [Padrão — zona de armazenagem pequena]
+      Sem A8/A9 → picking (fallback)
+
+    Se o CSV tiver coluna de armazém, produtos do armazém "Armazenamento"
+    com A9 vão para arm em vez de armPad (detectado pelo nome da coluna).
+
+    Retorna {sku: {picking, armPad, arm, locF: set, locG: set}}
+
+    NOTA: depois de ver o CSV real os headers serão logados —
+    ajuste as colunas se necessário.
     """
     result = {}
     delim = detect_delimiter(csv_content[:3000])
     reader = csv.reader(io.StringIO(csv_content), delimiter=delim)
 
     headers = None
-    sku_col = loc_col = qty_col = None
+    sku_col = loc_col = qty_col = wh_col = None
 
     for row in reader:
         if not any(c.strip() for c in row):
@@ -462,8 +483,9 @@ def parse_csv(csv_content, is_padrao):
             sku_col = find_col(headers, "sku", "cod", "codigo", "code", "ean", "referencia")
             loc_col = find_col(headers, "locali", "location", "posicao", "posição", "prateleira", "shelf")
             qty_col = find_col(headers, "esperado", "expected", "quantidade", "quantity", "estoque", "qty")
-            log.info(f"[CSV {'Padrão' if is_padrao else 'Arm'}] headers={headers}")
-            log.info(f"[CSV] cols → sku:{sku_col} loc:{loc_col} qty:{qty_col}")
+            wh_col  = find_col(headers, "armazem", "armazém", "warehouse", "deposito", "depósito")
+            log.info(f"[CSV] headers={headers}")
+            log.info(f"[CSV] cols → sku:{sku_col} loc:{loc_col} qty:{qty_col} wh:{wh_col}")
             if sku_col is None:
                 sku_col = 0
                 log.warning("[CSV] Coluna SKU não identificada — usando col 0")
@@ -481,6 +503,7 @@ def parse_csv(csv_content, is_padrao):
             continue
 
         loc = str(row[loc_col]).strip() if loc_col is not None else ""
+        wh  = str(row[wh_col]).strip()  if wh_col  is not None else ""
         try:
             qty = int(float(str(row[qty_col]).replace(",", ".").strip() or "0"))
         except (ValueError, IndexError):
@@ -492,52 +515,50 @@ def parse_csv(csv_content, is_padrao):
         loc_up = loc.upper()
         is_a8 = loc_up.startswith("A8")
         is_a9 = loc_up.startswith("A9")
+        is_arm_wh = "armazenamento" in wh.lower() if wh else False
 
         if sku not in result:
             result[sku] = {"picking": 0, "armPad": 0, "arm": 0, "locF": set(), "locG": set()}
 
         d = result[sku]
 
-        if is_padrao:
-            if is_a8:
-                d["picking"] += qty
-                if loc:
-                    d["locF"].add(loc)
-            elif is_a9:
-                d["armPad"] += qty
-                if loc:
-                    d["locG"].add(loc)
+        if is_a8:
+            d["picking"] += qty
+            if loc:
+                d["locF"].add(loc)
+        elif is_a9:
+            if is_arm_wh:
+                # A9 no armazém Armazenamento → arm
+                d["arm"] += qty
             else:
-                d["picking"] += qty   # fallback sem prefixo A8/A9
-        else:
-            d["arm"] += qty
+                # A9 no armazém Padrão (ou sem info de armazém) → armPad
+                d["armPad"] += qty
             if loc:
                 d["locG"].add(loc)
+        else:
+            d["picking"] += qty  # fallback
 
-    wh = "Padrão" if is_padrao else "Armazenamento"
-    log.info(f"[CSV {wh}] {len(result)} SKUs parseados")
+    log.info(f"[CSV] {len(result)} SKUs parseados")
     return result
 
 
 # ─── Merge + Google Sheets ────────────────────────────────────────────────────
 
-def merge_data(padrao, arm, api):
-    """Combina dados de CSV (picking/armPad/arm/loc) e API (chg/peso/vol)."""
-    all_skus = sorted(set(padrao) | set(arm) | set(api))
+def merge_data(csv_data, api):
+    """Combina dados do CSV único (picking/armPad/arm/loc) com API (chg/peso/vol)."""
+    all_skus = sorted(set(csv_data) | set(api))
     rows = []
     for sku in all_skus:
-        p = padrao.get(sku, {})
-        a = arm.get(sku, {})
+        c = csv_data.get(sku, {})
         q = api.get(sku, {})
 
-        picking = p.get("picking", 0) or 0
-        arm_pad = p.get("armPad",  0) or 0
-        arm_qty = a.get("arm",     0) or 0
+        picking = c.get("picking", 0) or 0
+        arm_pad = c.get("armPad",  0) or 0
+        arm_qty = c.get("arm",     0) or 0
         chg     = q.get("chg",     0) or 0
 
-        locF = " / ".join(sorted(p.get("locF") or set())) or ""
-        locG_set = (p.get("locG") or set()) | (a.get("locG") or set())
-        locG = " / ".join(sorted(locG_set)) or ""
+        locF = " / ".join(sorted(c.get("locF") or set())) or ""
+        locG = " / ".join(sorted(c.get("locG") or set())) or ""
 
         peso = q.get("peso", 0) or 0
         vol  = q.get("vol",  0) or 0
@@ -629,21 +650,21 @@ async def run():
         else:
             await bl_login(page)
 
-        padrao_csv = await export_warehouse_csv(page, "padrao", "Padrão")
-        arm_csv    = await export_warehouse_csv(page, "arm",    "Armazenamento")
+        # Uma única exportação — o inventário cobre todos os armazéns
+        inv_csv = await export_inventory_csv(page)
 
         await browser.close()
 
-    # Salva CSVs brutos para debug
-    (DEBUG_DIR / "padrao.csv").write_bytes(padrao_csv.encode("utf-8"))
-    (DEBUG_DIR / "armazenamento.csv").write_bytes(arm_csv.encode("utf-8"))
+    # Salva CSV bruto para debug
+    (DEBUG_DIR / "inventory.csv").write_bytes(inv_csv.encode("utf-8"))
 
-    # 3. Parseia
-    padrao_data = parse_csv(padrao_csv, is_padrao=True)
-    arm_data    = parse_csv(arm_csv,    is_padrao=False)
+    # 3. Parseia: A8→picking, A9 Padrão→armPad, A9 Arm→arm
+    # parse_csv com is_padrao=True extrai picking+armPad (A8/A9)
+    # O merge_data combina com api_data (CHEGOU) para arm separado quando necessário
+    csv_data = parse_csv(inv_csv)
 
     # 4. Merge
-    rows = merge_data(padrao_data, arm_data, api_data)
+    rows = merge_data(csv_data, api_data)
 
     # 5. Grava no Sheets
     write_to_sheets(rows)
