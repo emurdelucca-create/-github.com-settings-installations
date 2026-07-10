@@ -325,119 +325,144 @@ async def export_inventory_csv(page):
     await page.wait_for_timeout(2000)
     await screenshot(page, "05_modal")
 
-    # ── 2. Clica "Criar inventário" DENTRO do modal via JS ───────────────────
-    # PROBLEMA ANTERIOR: o seletor Playwright pegava o botão VERDE da PAGE
-    # (atrás do modal) em vez do botão no footer do modal.
-    # SOLUÇÃO: JS direto no DOM — encontra o modal visível e clica no seu botão.
-    confirm_clicked = await page.evaluate("""
-        () => {
-            // Tenta botões dentro de qualquer elemento de modal visível
-            const candidates = [
-                ...document.querySelectorAll('.modal .modal-footer button'),
-                ...document.querySelectorAll('.modal-dialog button'),
-                ...document.querySelectorAll('[role="dialog"] button'),
-                ...document.querySelectorAll('.modal button'),
-            ];
-            for (const btn of candidates) {
-                const txt = btn.textContent.trim().toLowerCase();
-                const rect = btn.getBoundingClientRect();
-                if ((txt.includes('criar') || btn.classList.contains('btn-primary') || btn.classList.contains('btn-success'))
-                    && rect.width > 0 && rect.height > 0) {
-                    btn.click();
-                    return btn.textContent.trim();
+    # ── 2. Clica "Criar inventário" DENTRO do modal ──────────────────────────
+    # Usa force=True para ignorar overlay e clicar diretamente no botão do modal
+    modal_btn = page.locator(
+        ".modal .modal-footer .btn-primary, .modal .modal-footer .btn-success, "
+        ".modal-dialog .btn-primary, .modal-dialog .btn-success"
+    ).first
+    try:
+        await modal_btn.click(force=True, timeout=5000)
+        log.info("[EXPORT] Botão modal clicado (force)")
+    except Exception:
+        # Fallback JS: procura visualmente o botão
+        result = await page.evaluate("""
+            () => {
+                for (const sel of ['.modal .btn-primary', '.modal .btn-success', '.modal-footer button']) {
+                    const btn = document.querySelector(sel);
+                    if (btn && btn.getBoundingClientRect().width > 0) {
+                        btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+                        return btn.textContent.trim();
+                    }
                 }
+                return null;
+            }
+        """)
+        log.info(f"[EXPORT] Botão modal clicado via JS fallback: {result}")
+
+    # Aguarda 5s para AJAX completar (inventário é criado em background)
+    await page.wait_for_timeout(5000)
+    await screenshot(page, "06_after_confirm")
+
+    # FORÇA fechar modal (independente de auto-close) via botão X
+    closed = await page.evaluate("""
+        () => {
+            // Tenta botão X (data-dismiss ou .close)
+            const x = document.querySelector('.modal .close, .modal [data-dismiss="modal"], .modal-header button');
+            if (x) { x.click(); return 'X-btn'; }
+            // Tenta Bootstrap modal('hide')
+            if (window.$) {
+                const m = $('.modal:visible');
+                if (m.length) { m.modal('hide'); return 'modal-hide'; }
+            }
+            return null;
+        }
+    """)
+    if closed:
+        log.info(f"[EXPORT] Modal fechado: {closed}")
+    await page.keyboard.press("Escape")
+    await page.wait_for_timeout(2000)
+    await screenshot(page, "06_after_create")
+
+    # ── 3. Vai à lista, diagnostica linhas e abre o primeiro inventário ───────
+    await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
+    await page.wait_for_timeout(3000)
+    await screenshot(page, "07_list_after_create")
+
+    # Diagnóstico: loga atributos e HTML dos primeiros rows para descobrir href/data-id
+    row_debug = await page.evaluate("""
+        () => {
+            const rows = [...document.querySelectorAll('table tbody tr')].slice(0, 3);
+            return rows.map(row => {
+                const attrs = {};
+                for (const a of row.attributes) attrs[a.name] = a.value;
+                const links = [...row.querySelectorAll('a[href]')].map(a => a.href);
+                return { attrs, links, html: row.innerHTML.slice(0, 400) };
+            });
+        }
+    """)
+    log.info(f"[DEBUG] Rows da tabela: {json.dumps(row_debug)[:3000]}")
+
+    # Extrai URL de detalhe da primeira linha
+    inv_href = await page.evaluate("""
+        () => {
+            const rows = document.querySelectorAll('table tbody tr, [data-id], [data-href]');
+            for (const row of rows) {
+                // data-href diretamente na linha
+                const dh = row.getAttribute('data-href');
+                if (dh) return location.origin + dh;
+                // data-id → constrói URL
+                const did = row.getAttribute('data-id') || row.getAttribute('data-stocktake-id');
+                if (did) return location.origin + '/inventory_stocktakes/' + did;
+                // onclick com URL
+                const oc = row.getAttribute('onclick') || '';
+                const m = oc.match(/['"]([^'"]*inventory_stocktakes[^'"]+)['"]/i)
+                         || oc.match(/location(?:\\.href)?\s*=\s*['"]([^'"]+)['"]/);
+                if (m) return m[1].startsWith('http') ? m[1] : location.origin + m[1];
+                // link direto em TD
+                const a = row.querySelector('a[href]');
+                if (a && /stocktake|inventory/i.test(a.href)) return a.href;
             }
             return null;
         }
     """)
 
-    if confirm_clicked:
-        log.info(f"[EXPORT] Botão modal clicado via JS: '{confirm_clicked}'")
-    else:
-        # Fallback: Enter submete o modal focado
-        await page.keyboard.press("Enter")
-        log.info("[EXPORT] Modal submetido via Enter (fallback)")
-        confirm_clicked = "Enter"
-
-    # Aguarda modal fechar
-    log.info("[EXPORT] Aguardando modal fechar e inventário ser gerado (~15s)...")
-    try:
-        await page.wait_for_selector(
-            ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
-            state="hidden", timeout=30_000
-        )
-    except Exception:
-        pass
-    await page.wait_for_timeout(8_000)
-    await page.wait_for_load_state("networkidle")
-    await screenshot(page, "06_after_create")
-
-    # ── 3. Vai à lista e abre o primeiro inventário ───────────────────────────
-    # Primeiro: fecha qualquer modal aberto (incluindo se o confirm do passo 2
-    # não funcionou e o modal ficou aberto)
-    await page.keyboard.press("Escape")
-    await page.wait_for_timeout(1000)
-
-    # Navega para a lista (recarrega para garantir estado limpo)
-    await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
-    await page.wait_for_timeout(3000)
-    await screenshot(page, "07_list_after_create")
-
-    # Usa JS para encontrar o href do primeiro link de inventário na tabela
-    inv_href = await page.evaluate("""
-        () => {
-            // Procura links na tabela que apontam para detalhe de inventário
-            const patterns = [/inventory_stocktakes[\\/\\?]/, /stocktake/, /inventory.*id=/i];
-            const links = [...document.querySelectorAll('table tbody tr a[href], .list-item a[href], tr td a[href]')];
-            for (const a of links) {
-                const h = a.href || '';
-                if (patterns.some(p => p.test(h))) return h;
-            }
-            // Fallback: primeiro link em qualquer linha de tabela
-            const first = document.querySelector('table tbody tr a[href]');
-            return first ? first.href : null;
-        }
-    """)
-
     if inv_href:
-        log.info(f"[EXPORT] Navegando para inventário: {inv_href}")
+        log.info(f"[EXPORT] Navegando para detalhe: {inv_href}")
         await page.goto(inv_href, wait_until="networkidle")
+        await page.wait_for_timeout(2000)
     else:
-        # Último fallback: clica na primeira linha da tabela
+        # Fallback: clica no segundo TD da primeira linha (normalmente contém o nome)
+        log.warning("[EXPORT] Nenhum href encontrado — clicando no 2o TD da linha")
         try:
-            first_row = page.locator("table tbody tr").first
-            await first_row.wait_for(state="visible", timeout=10_000)
-            await first_row.click()
-            log.info("[EXPORT] Primeira linha da tabela clicada (fallback)")
+            td = page.locator("table tbody tr:first-child td").nth(1)
+            await td.click(timeout=5000)
             await page.wait_for_load_state("networkidle")
-        except Exception:
-            await screenshot(page, "ERR_no_inv_row")
-            # Log HTML para diagnóstico
-            html = await page.evaluate("document.body.innerHTML.slice(0, 6000)")
-            log.error(f"[DEBUG] HTML: {html}")
-            raise RuntimeError("Não encontrou link/linha do inventário na lista")
+            await page.wait_for_timeout(2000)
+        except Exception as e:
+            log.warning(f"[EXPORT] Click no TD falhou: {e}")
+            # Tenta JS click direto no primeiro TD
+            await page.evaluate("""
+                () => {
+                    const td = document.querySelector('table tbody tr td:nth-child(2)') ||
+                               document.querySelector('table tbody tr td');
+                    if (td) td.click();
+                }
+            """)
+            await page.wait_for_timeout(3000)
 
-    await page.wait_for_timeout(3000)
     await screenshot(page, "08_inv_detail")
-    log.info(f"[EXPORT] URL do detalhe: {page.url}")
+    log.info(f"[EXPORT] URL após navegação: {page.url}")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
+    # Busca APENAS <button> (exclui links do nav lateral que também têm "Imprimir")
     print_clicked = await try_click(page, [
-        page.locator("button:has-text('IMPRIMIR'), a:has-text('IMPRIMIR')").first,
-        page.locator("button:has-text('Imprimir'), a:has-text('Imprimir')").first,
+        page.locator("button:has-text('IMPRIMIR')").first,
+        page.locator("button:has-text('Imprimir')").first,
         page.get_by_role("button", name=re.compile(r"imprimir", re.I)).first,
-        page.get_by_role("link",   name=re.compile(r"imprimir", re.I)).first,
         page.locator("[data-action='print'], [data-bb-handler='print']").first,
-        page.locator(".btn-print, .print-btn, [class*='print']").first,
-        # Seletores alternativos: exportar/download direto
-        page.locator("button:has-text('Exportar'), a:has-text('Exportar')").first,
-        page.locator("button:has-text('CSV'), a:has-text('CSV')").first,
-        page.get_by_role("button", name=re.compile(r"export|download|csv", re.I)).first,
-    ], "IMPRIMIR/Exportar")
+        page.locator(".btn-print, [class*='print-btn']").first,
+    ], "IMPRIMIR")
 
     if not print_clicked:
         await screenshot(page, "ERR_no_print_btn")
-        raise RuntimeError("Botão IMPRIMIR/Exportar não encontrado")
+        # Log HTML da área de conteúdo para diagnóstico
+        html_main = await page.evaluate("""
+            document.querySelector('#main-content, .content, .page-content, main')?.innerHTML.slice(0, 3000)
+            || document.body.innerHTML.slice(0, 3000)
+        """)
+        log.error(f"[DEBUG] HTML main: {html_main}")
+        raise RuntimeError("Botão IMPRIMIR não encontrado na página de detalhe")
 
     await page.wait_for_timeout(700)
     await screenshot(page, "09_print_menu")
