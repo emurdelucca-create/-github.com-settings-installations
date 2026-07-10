@@ -813,12 +813,13 @@ function meCompararComCSV() {
   const allSkus = new Set([...Object.keys(CSV_EST), ...Object.keys(stockLocDim)]);
 
   allSkus.forEach(sku => {
-    const csv = CSV_EST[sku]     || { a8: 0, a9: 0 };
-    const api = stockLocDim[sku] || { picking: 0, armPad: 0 };
-    const difA8 = api.picking - csv.a8;
-    const difA9 = api.armPad  - csv.a9;
-    const ok = (Math.abs(difA8) <= 5 && Math.abs(difA9) <= 5); // tolerância de 5 vendas
-    rows.push([sku, csv.a8, api.picking, difA8, csv.a9, api.armPad, difA9, ok ? 'OK' : 'DIVERGENTE']);
+    const csv    = CSV_EST[sku]     || { a8: 0, a9: 0 };
+    const api    = stockLocDim[sku] || { picking: 0, armPad: 0, arm: 0 };
+    const apiA9  = (api.armPad || 0) + (api.arm || 0); // A9 = zona padrao + WH_ARMAZENAMENTO
+    const difA8  = api.picking - csv.a8;
+    const difA9  = apiA9 - csv.a9;
+    const ok = (Math.abs(difA8) <= 5 && Math.abs(difA9) <= 5); // tolerância de 5 unidades
+    rows.push([sku, csv.a8, api.picking, difA8, csv.a9, apiA9, difA9, ok ? 'OK' : 'DIVERGENTE']);
   });
 
   // Ordena: DIVERGENTE primeiro, depois por SKU
