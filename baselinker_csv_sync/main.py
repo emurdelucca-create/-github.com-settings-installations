@@ -326,29 +326,42 @@ async def export_inventory_csv(page):
     await screenshot(page, "05_modal")
 
     # ── 2. Clica "Criar inventário" DENTRO do modal ──────────────────────────
-    # Usa force=True para ignorar overlay e clicar diretamente no botão do modal
-    modal_btn = page.locator(
-        ".modal .modal-footer .btn-primary, .modal .modal-footer .btn-success, "
-        ".modal-dialog .btn-primary, .modal-dialog .btn-success"
-    ).first
-    try:
-        await modal_btn.click(force=True, timeout=5000)
-        log.info("[EXPORT] Botão modal clicado (force)")
-    except Exception:
-        # Fallback JS: procura visualmente o botão
-        result = await page.evaluate("""
-            () => {
-                for (const sel of ['.modal .btn-primary', '.modal .btn-success', '.modal-footer button']) {
-                    const btn = document.querySelector(sel);
-                    if (btn && btn.getBoundingClientRect().width > 0) {
-                        btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
-                        return btn.textContent.trim();
-                    }
+    # Loga TODOS os botões dentro do modal para diagnóstico
+    modal_buttons = await page.evaluate("""
+        () => {
+            const modal = document.querySelector('.modal');
+            if (!modal) return [];
+            return [...modal.querySelectorAll('button')].map(b => ({
+                text: b.textContent.trim(),
+                classes: b.className,
+                id: b.id,
+                dismiss: b.getAttribute('data-dismiss'),
+                rect: [b.getBoundingClientRect().width, b.getBoundingClientRect().height]
+            }));
+        }
+    """)
+    log.info(f"[DEBUG] Modal buttons: {json.dumps(modal_buttons)}")
+
+    # Clica no botão do modal que NÃO é cancelar/fechar
+    result = await page.evaluate("""
+        () => {
+            const modal = document.querySelector('.modal');
+            if (!modal) return 'no modal';
+            const btns = [...modal.querySelectorAll('button')];
+            for (const btn of btns) {
+                const text = btn.textContent.trim().toLowerCase();
+                const isCancel = btn.getAttribute('data-dismiss') === 'modal'
+                    || text.includes('cancelar') || text.includes('cancel')
+                    || btn.classList.contains('close');
+                if (!isCancel) {
+                    btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+                    return btn.textContent.trim();
                 }
-                return null;
             }
-        """)
-        log.info(f"[EXPORT] Botão modal clicado via JS fallback: {result}")
+            return null;
+        }
+    """)
+    log.info(f"[EXPORT] Modal submit via JS: {result}")
 
     # Aguarda 5s para AJAX completar (inventário é criado em background)
     await page.wait_for_timeout(5000)
@@ -393,53 +406,47 @@ async def export_inventory_csv(page):
     """)
     log.info(f"[DEBUG] Rows da tabela: {json.dumps(row_debug)[:3000]}")
 
-    # Extrai URL de detalhe da primeira linha
-    inv_href = await page.evaluate("""
+    # Extrai ID do primeiro row via id="row_XXXXX" (padrão BaseLinker)
+    inv_id = await page.evaluate("""
         () => {
-            const rows = document.querySelectorAll('table tbody tr, [data-id], [data-href]');
-            for (const row of rows) {
-                // data-href diretamente na linha
-                const dh = row.getAttribute('data-href');
-                if (dh) return location.origin + dh;
-                // data-id → constrói URL
-                const did = row.getAttribute('data-id') || row.getAttribute('data-stocktake-id');
-                if (did) return location.origin + '/inventory_stocktakes/' + did;
-                // onclick com URL
-                const oc = row.getAttribute('onclick') || '';
-                const m = oc.match(/['"]([^'"]*inventory_stocktakes[^'"]+)['"]/i)
-                         || oc.match(/location(?:\\.href)?\s*=\s*['"]([^'"]+)['"]/);
-                if (m) return m[1].startsWith('http') ? m[1] : location.origin + m[1];
-                // link direto em TD
-                const a = row.querySelector('a[href]');
-                if (a && /stocktake|inventory/i.test(a.href)) return a.href;
+            // Busca row com id="row_NNNNN" — padrão BaseLinker stocktake
+            const row = document.querySelector('tr[id^="row_"].stocktake_row, tr[id^="row_"]');
+            if (row) {
+                const m = row.id.match(/row_(\\d+)/);
+                return m ? m[1] : null;
             }
             return null;
         }
     """)
+    log.info(f"[EXPORT] ID do inventário: {inv_id}")
 
-    if inv_href:
-        log.info(f"[EXPORT] Navegando para detalhe: {inv_href}")
-        await page.goto(inv_href, wait_until="networkidle")
+    if inv_id:
+        inv_url = f"{BL_PANEL}/inventory_stocktakes/{inv_id}"
+        log.info(f"[EXPORT] Navegando para: {inv_url}")
+        await page.goto(inv_url, wait_until="networkidle")
         await page.wait_for_timeout(2000)
     else:
-        # Fallback: clica no segundo TD da primeira linha (normalmente contém o nome)
-        log.warning("[EXPORT] Nenhum href encontrado — clicando no 2o TD da linha")
-        try:
-            td = page.locator("table tbody tr:first-child td").nth(1)
-            await td.click(timeout=5000)
-            await page.wait_for_load_state("networkidle")
-            await page.wait_for_timeout(2000)
-        except Exception as e:
-            log.warning(f"[EXPORT] Click no TD falhou: {e}")
-            # Tenta JS click direto no primeiro TD
-            await page.evaluate("""
-                () => {
-                    const td = document.querySelector('table tbody tr td:nth-child(2)') ||
-                               document.querySelector('table tbody tr td');
-                    if (td) td.click();
+        # Fallback: extrai qualquer ID numérico de data-id, onclick, etc.
+        inv_href = await page.evaluate("""
+            () => {
+                for (const row of document.querySelectorAll('table tbody tr')) {
+                    const dh = row.getAttribute('data-href');
+                    if (dh) return location.origin + dh;
+                    const did = row.getAttribute('data-id');
+                    if (did) return location.origin + '/inventory_stocktakes/' + did;
+                    const oc = row.getAttribute('onclick') || '';
+                    const m = oc.match(/['"]([^'"]*inventory_stocktakes[^'"]+)['"]/i);
+                    if (m) return m[1].startsWith('http') ? m[1] : location.origin + m[1];
                 }
-            """)
-            await page.wait_for_timeout(3000)
+                return null;
+            }
+        """)
+        if inv_href:
+            await page.goto(inv_href, wait_until="networkidle")
+            await page.wait_for_timeout(2000)
+        else:
+            await screenshot(page, "ERR_no_inv_row")
+            raise RuntimeError("Não conseguiu extrair ID do inventário da lista")
 
     await screenshot(page, "08_inv_detail")
     log.info(f"[EXPORT] URL após navegação: {page.url}")
