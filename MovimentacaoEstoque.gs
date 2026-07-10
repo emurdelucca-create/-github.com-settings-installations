@@ -714,3 +714,76 @@ function _me_colLetter(n) {
   }
   return s;
 }
+
+// ============================================================
+// DIAGNÓSTICO — dumpa dados brutos da API para um SKU específico
+// Cria (ou limpa) a aba DEBUG_SKU com todos os campos retornados
+// pela API: stock por warehouse, locations por warehouse, dimensões.
+// Modifique SKU_ALVO antes de executar.
+// ============================================================
+function meDiagnosticarSKU() {
+  const SKU_ALVO = '06045-S'; // ← altere aqui
+
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  let   aba = ss.getSheetByName('DEBUG_SKU');
+  if (!aba) aba = ss.insertSheet('DEBUG_SKU');
+  aba.clearContents();
+
+  // 1. Encontra o product_id
+  let pid = null;
+  let page = 1;
+  while (true) {
+    const r       = _me_bl_call('getInventoryProductsList', { inventory_id: ME.INVENTORY_ID, page });
+    const entries = Object.entries(r.products || {});
+    if (!entries.length) break;
+    for (const [id, info] of entries) {
+      if (String(info.sku || '').trim() === SKU_ALVO) { pid = id; break; }
+    }
+    if (pid || entries.length < 1000) break;
+    page++;
+    Utilities.sleep(200);
+  }
+
+  if (!pid) {
+    aba.getRange(1, 1).setValue('SKU não encontrado: ' + SKU_ALVO);
+    SpreadsheetApp.flush();
+    return;
+  }
+
+  // 2. Busca dados completos
+  const r = _me_bl_call('getInventoryProductsData', {
+    inventory_id: ME.INVENTORY_ID,
+    products: [Number(pid)],
+  });
+  const p = (r.products || {})[pid];
+
+  if (!p) {
+    aba.getRange(1, 1).setValue('Produto não retornado por getInventoryProductsData');
+    SpreadsheetApp.flush();
+    return;
+  }
+
+  const rows = [];
+  rows.push(['SKU', SKU_ALVO]);
+  rows.push(['product_id', pid]);
+  rows.push(['name', p.name || '']);
+  rows.push(['height (cm)', p.height || 0]);
+  rows.push(['width (cm)',  p.width  || 0]);
+  rows.push(['length (cm)', p.length || 0]);
+  rows.push(['weight (kg)', p.weight || 0]);
+  rows.push(['', '']);
+  rows.push(['=== STOCK (wid → qty) ===', '']);
+  Object.entries(p.stock || {}).forEach(([wid, qty]) => rows.push([wid, qty]));
+  rows.push(['', '']);
+  rows.push(['=== LOCATIONS (wid → string) ===', '']);
+  Object.entries(p.locations || {}).forEach(([wid, loc]) => rows.push([wid, loc || '(vazio)']));
+  rows.push(['', '']);
+  rows.push(['=== STOCK bruto JSON ===', JSON.stringify(p.stock)]);
+  rows.push(['=== LOCATIONS bruto JSON ===', JSON.stringify(p.locations)]);
+
+  aba.getRange(1, 1, rows.length, 2).setValues(rows);
+  aba.autoResizeColumns(1, 2);
+  SpreadsheetApp.flush();
+
+  Logger.log('Diagnóstico de "' + SKU_ALVO + '" (pid=' + pid + ') escrito na aba DEBUG_SKU');
+}
