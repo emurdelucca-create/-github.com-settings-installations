@@ -164,15 +164,120 @@ async def bl_login(page):
     await page.goto(BL_LOGIN, wait_until="networkidle")
     await screenshot(page, "01_login_page")
 
-    # Preenche credenciais
-    await page.locator("input[type='email'], input[name='login'], #login").first.fill(BL_EMAIL)
-    await page.locator("input[type='password'], input[name='password'], #password").first.fill(BL_PASSWORD)
+    # Aguarda qualquer input aparecer (página pode ser JS-heavy)
+    try:
+        await page.wait_for_selector("input", timeout=15_000)
+    except Exception:
+        pass
+
+    # Loga todos os inputs para debug em caso de falha futura
+    inputs = await page.locator("input").all()
+    for i, inp in enumerate(inputs):
+        try:
+            t = await inp.get_attribute("type")
+            n = await inp.get_attribute("name")
+            iid = await inp.get_attribute("id")
+            ph  = await inp.get_attribute("placeholder")
+            log.info(f"[LOGIN] input[{i}] type={t} name={n} id={iid} placeholder={ph}")
+        except Exception:
+            pass
+
+    # ── Preenche email ────────────────────────────────────────────────────────
+    email_filled = False
+    for sel in [
+        "input[type='email']",
+        "input[name='email']",
+        "input[name='login']",
+        "input[id='email']",
+        "input[id='login']",
+        "input[autocomplete='email']",
+        "input[autocomplete='username']",
+        "input[placeholder*='mail']",
+        "input[placeholder*='ogin']",
+        "input[placeholder*='ser']",
+    ]:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=2000):
+                await loc.fill(BL_EMAIL)
+                email_filled = True
+                log.info(f"[LOGIN] Email via: {sel}")
+                break
+        except Exception:
+            pass
+
+    if not email_filled:
+        # Fallback: primeiro input visível (que não seja password/hidden)
+        for nth in range(min(len(inputs), 5)):
+            try:
+                inp = page.locator("input:visible").nth(nth)
+                t   = await inp.get_attribute("type") or ""
+                if t.lower() in ("password", "hidden", "submit", "checkbox", "radio"):
+                    continue
+                await inp.fill(BL_EMAIL)
+                email_filled = True
+                log.info(f"[LOGIN] Email via input visível #{nth}")
+                break
+            except Exception:
+                pass
+
+    if not email_filled:
+        await screenshot(page, "ERR_login_no_email_field")
+        raise RuntimeError("[LOGIN] Campo de email não encontrado")
+
+    # ── Preenche senha ────────────────────────────────────────────────────────
+    pwd_filled = False
+    for sel in [
+        "input[type='password']",
+        "input[name='password']",
+        "input[id='password']",
+        "input[autocomplete='current-password']",
+    ]:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=2000):
+                await loc.fill(BL_PASSWORD)
+                pwd_filled = True
+                log.info(f"[LOGIN] Senha via: {sel}")
+                break
+        except Exception:
+            pass
+
+    if not pwd_filled:
+        await screenshot(page, "ERR_login_no_pwd_field")
+        raise RuntimeError("[LOGIN] Campo de senha não encontrado")
+
     await screenshot(page, "02_login_filled")
 
-    await page.locator("button[type='submit'], input[type='submit']").first.click()
+    # ── Submit ────────────────────────────────────────────────────────────────
+    submitted = False
+    for sel in [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Entrar')",
+        "button:has-text('Login')",
+        "button:has-text('Sign in')",
+        "button:has-text('Loguj')",
+        "button:has-text('Zaloguj')",
+        "form button",
+    ]:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=2000):
+                await loc.click()
+                submitted = True
+                log.info(f"[LOGIN] Submit via: {sel}")
+                break
+        except Exception:
+            pass
+
+    if not submitted:
+        # Pressiona Enter como último recurso
+        await page.keyboard.press("Enter")
+        log.info("[LOGIN] Submit via Enter")
+
     await page.wait_for_url(f"{BL_PANEL}/**", timeout=30_000)
     await page.wait_for_load_state("networkidle")
-
     log.info(f"[LOGIN] OK — {page.url}")
     await screenshot(page, "03_panel")
 
