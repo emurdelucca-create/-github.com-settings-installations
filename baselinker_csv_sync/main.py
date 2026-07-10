@@ -325,32 +325,39 @@ async def export_inventory_csv(page):
     await page.wait_for_timeout(2000)
     await screenshot(page, "05_modal")
 
-    # ── 2. Clica "Criar inventário" DENTRO do modal ──────────────────────────
-    # CRÍTICO: usar .last para pegar o botão do modal, não o que abriu o modal
-    confirm_clicked = False
-    modal = page.locator(".modal.in, .modal.show, [role='dialog']").first
+    # ── 2. Clica "Criar inventário" DENTRO do modal via JS ───────────────────
+    # PROBLEMA ANTERIOR: o seletor Playwright pegava o botão VERDE da PAGE
+    # (atrás do modal) em vez do botão no footer do modal.
+    # SOLUÇÃO: JS direto no DOM — encontra o modal visível e clica no seu botão.
+    confirm_clicked = await page.evaluate("""
+        () => {
+            // Tenta botões dentro de qualquer elemento de modal visível
+            const candidates = [
+                ...document.querySelectorAll('.modal .modal-footer button'),
+                ...document.querySelectorAll('.modal-dialog button'),
+                ...document.querySelectorAll('[role="dialog"] button'),
+                ...document.querySelectorAll('.modal button'),
+            ];
+            for (const btn of candidates) {
+                const txt = btn.textContent.trim().toLowerCase();
+                const rect = btn.getBoundingClientRect();
+                if ((txt.includes('criar') || btn.classList.contains('btn-primary') || btn.classList.contains('btn-success'))
+                    && rect.width > 0 && rect.height > 0) {
+                    btn.click();
+                    return btn.textContent.trim();
+                }
+            }
+            return null;
+        }
+    """)
 
-    for btn_loc in [
-        # Escopo do modal — mais confiável
-        modal.get_by_role("button", name=re.compile(r"criar inventário", re.I)),
-        modal.locator("button.btn-primary").last,
-        modal.locator("button.btn-success").last,
-        modal.locator(".modal-footer button").last,
-        # Fallback global: ÚLTIMO botão com esse texto (o do modal)
-        page.get_by_role("button", name=re.compile(r"criar inventário", re.I)).last,
-    ]:
-        try:
-            if await btn_loc.is_visible(timeout=2000):
-                await btn_loc.click()
-                confirm_clicked = True
-                log.info("[EXPORT] Botão confirmar (modal) clicado")
-                break
-        except Exception:
-            pass
-
-    if not confirm_clicked:
-        await screenshot(page, "ERR_no_confirm_btn")
-        raise RuntimeError("Botão 'Criar inventário' no modal não encontrado")
+    if confirm_clicked:
+        log.info(f"[EXPORT] Botão modal clicado via JS: '{confirm_clicked}'")
+    else:
+        # Fallback: Enter submete o modal focado
+        await page.keyboard.press("Enter")
+        log.info("[EXPORT] Modal submetido via Enter (fallback)")
+        confirm_clicked = "Enter"
 
     # Aguarda modal fechar
     log.info("[EXPORT] Aguardando modal fechar e inventário ser gerado (~15s)...")
@@ -365,59 +372,54 @@ async def export_inventory_csv(page):
     await page.wait_for_load_state("networkidle")
     await screenshot(page, "06_after_create")
 
-    # ── 3. Volta à lista e abre o primeiro inventário (clica na linha) ────────
-    if "/inventory_stocktakes" not in page.url:
-        await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
-        await page.wait_for_timeout(2000)
+    # ── 3. Vai à lista e abre o primeiro inventário ───────────────────────────
+    # Primeiro: fecha qualquer modal aberto (incluindo se o confirm do passo 2
+    # não funcionou e o modal ficou aberto)
+    await page.keyboard.press("Escape")
+    await page.wait_for_timeout(1000)
+
+    # Navega para a lista (recarrega para garantir estado limpo)
+    await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
+    await page.wait_for_timeout(3000)
     await screenshot(page, "07_list_after_create")
 
-    # Log HTML da lista para diagnóstico (primeiros 4000 chars)
-    html_snippet = await page.evaluate("document.body.innerHTML.slice(0, 4000)")
-    log.info(f"[DEBUG] HTML lista inventário (4000 chars): {html_snippet}")
+    # Usa JS para encontrar o href do primeiro link de inventário na tabela
+    inv_href = await page.evaluate("""
+        () => {
+            // Procura links na tabela que apontam para detalhe de inventário
+            const patterns = [/inventory_stocktakes[\\/\\?]/, /stocktake/, /inventory.*id=/i];
+            const links = [...document.querySelectorAll('table tbody tr a[href], .list-item a[href], tr td a[href]')];
+            for (const a of links) {
+                const h = a.href || '';
+                if (patterns.some(p => p.test(h))) return h;
+            }
+            // Fallback: primeiro link em qualquer linha de tabela
+            const first = document.querySelector('table tbody tr a[href]');
+            return first ? first.href : null;
+        }
+    """)
 
-    # Abre o inventário clicando no link/linha da tabela (padrão BaseLinker)
-    opened_inv = False
-    for loc in [
-        # Link com URL de inventário específico
-        page.locator("a[href*='inventory_stocktakes/']").first,
-        page.locator("a[href*='stocktake']").first,
-        # Célula de nome/data na tabela
-        page.locator("table tbody tr:first-child td a").first,
-        page.locator("table tbody tr:first-child td").nth(1),
-        # Botão/ícone de abrir na linha
-        page.locator(".btn-open, [data-action='open'], [title*='Abrir'], [title*='Ver']").first,
-    ]:
-        try:
-            if await loc.is_visible(timeout=3000):
-                await loc.click()
-                log.info("[EXPORT] Linha do inventário aberta")
-                opened_inv = True
-                break
-        except Exception:
-            pass
-
-    if not opened_inv:
-        # Fallback: clica na primeira linha da tabela (qualquer célula)
+    if inv_href:
+        log.info(f"[EXPORT] Navegando para inventário: {inv_href}")
+        await page.goto(inv_href, wait_until="networkidle")
+    else:
+        # Último fallback: clica na primeira linha da tabela
         try:
             first_row = page.locator("table tbody tr").first
-            if await first_row.is_visible(timeout=5000):
-                await first_row.click()
-                log.info("[EXPORT] Primeira linha da tabela clicada (fallback)")
-                opened_inv = True
+            await first_row.wait_for(state="visible", timeout=10_000)
+            await first_row.click()
+            log.info("[EXPORT] Primeira linha da tabela clicada (fallback)")
+            await page.wait_for_load_state("networkidle")
         except Exception:
-            pass
+            await screenshot(page, "ERR_no_inv_row")
+            # Log HTML para diagnóstico
+            html = await page.evaluate("document.body.innerHTML.slice(0, 6000)")
+            log.error(f"[DEBUG] HTML: {html}")
+            raise RuntimeError("Não encontrou link/linha do inventário na lista")
 
-    if not opened_inv:
-        await screenshot(page, "ERR_no_inv_row")
-        raise RuntimeError("Não encontrou link/linha do inventário na lista")
-
-    await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
     await screenshot(page, "08_inv_detail")
-
-    # Log HTML da página de detalhe do inventário
-    html_detail = await page.evaluate("document.body.innerHTML.slice(0, 4000)")
-    log.info(f"[DEBUG] HTML detalhe inventário (4000 chars): {html_detail}")
+    log.info(f"[EXPORT] URL do detalhe: {page.url}")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
     print_clicked = await try_click(page, [
