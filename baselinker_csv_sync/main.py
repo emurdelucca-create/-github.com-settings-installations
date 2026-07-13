@@ -387,72 +387,67 @@ async def export_inventory_csv(page):
     await page.wait_for_timeout(2000)
     await screenshot(page, "06_after_create")
 
-    # ── 3. Vai à lista, diagnostica linhas e abre o primeiro inventário ───────
+    # ── 3. Vai à lista e abre o detalhe do primeiro inventário ───────────────
+    # IMPORTANTE: BaseLinker usa SPA/AJAX — a URL NÃO muda ao abrir um inventário.
+    # O conteúdo é carregado dinamicamente dentro da mesma página.
+    # Estratégia: clicar em tr.stocktake_row e aguardar o AJAX carregar.
     await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
     await page.wait_for_timeout(3000)
     await screenshot(page, "07_list_after_create")
 
-    # Diagnóstico: loga atributos e HTML dos primeiros rows para descobrir href/data-id
-    row_debug = await page.evaluate("""
-        () => {
-            const rows = [...document.querySelectorAll('table tbody tr')].slice(0, 3);
-            return rows.map(row => {
-                const attrs = {};
-                for (const a of row.attributes) attrs[a.name] = a.value;
-                const links = [...row.querySelectorAll('a[href]')].map(a => a.href);
-                return { attrs, links, html: row.innerHTML.slice(0, 400) };
-            });
-        }
-    """)
-    log.info(f"[DEBUG] Rows da tabela: {json.dumps(row_debug)[:3000]}")
-
-    # Extrai ID do primeiro row via id="row_XXXXX" (padrão BaseLinker)
+    # Extrai ID do primeiro row para log (não para navegação via URL)
     inv_id = await page.evaluate("""
         () => {
-            // Busca row com id="row_NNNNN" — padrão BaseLinker stocktake
-            const row = document.querySelector('tr[id^="row_"].stocktake_row, tr[id^="row_"]');
-            if (row) {
-                const m = row.id.match(/row_(\\d+)/);
-                return m ? m[1] : null;
-            }
+            const row = document.querySelector('tr.stocktake_row[id^="row_"]');
+            if (row) { const m = row.id.match(/row_(\\d+)/); return m ? m[1] : null; }
             return null;
         }
     """)
-    log.info(f"[EXPORT] ID do inventário: {inv_id}")
+    log.info(f"[EXPORT] ID do primeiro inventário: {inv_id}")
 
-    if inv_id:
-        inv_url = f"{BL_PANEL}/inventory_stocktakes/{inv_id}"
-        log.info(f"[EXPORT] Navegando para: {inv_url}")
-        await page.goto(inv_url, wait_until="networkidle")
-        await page.wait_for_timeout(2000)
-    else:
-        # Fallback: extrai qualquer ID numérico de data-id, onclick, etc.
-        inv_href = await page.evaluate("""
+    # Clica no primeiro stocktake_row para carregar o detalhe via AJAX
+    clicked_row = False
+    for sel in [
+        "tr.stocktake_row",                      # classe específica BaseLinker
+        "tr[id^='row_']",                         # id="row_XXXXX"
+        "table tbody tr",                          # fallback genérico
+    ]:
+        try:
+            row_loc = page.locator(sel).first
+            if await row_loc.is_visible(timeout=3000):
+                await row_loc.click()
+                log.info(f"[EXPORT] Row clicado via '{sel}'")
+                clicked_row = True
+                break
+        except Exception:
+            pass
+
+    if not clicked_row:
+        # Fallback JS: jQuery click no primeiro row (aciona handler mesmo que elemento seja "inert")
+        clicked_row = await page.evaluate("""
             () => {
-                for (const row of document.querySelectorAll('table tbody tr')) {
-                    const dh = row.getAttribute('data-href');
-                    if (dh) return location.origin + dh;
-                    const did = row.getAttribute('data-id');
-                    if (did) return location.origin + '/inventory_stocktakes/' + did;
-                    const oc = row.getAttribute('onclick') || '';
-                    const m = oc.match(/['"]([^'"]*inventory_stocktakes[^'"]+)['"]/i);
-                    if (m) return m[1].startsWith('http') ? m[1] : location.origin + m[1];
-                }
-                return null;
+                const row = document.querySelector('tr.stocktake_row') || document.querySelector('tr[id^="row_"]');
+                if (!row) return false;
+                if (window.$) { $(row).trigger('click'); return 'jquery'; }
+                row.click();
+                return 'native';
             }
         """)
-        if inv_href:
-            await page.goto(inv_href, wait_until="networkidle")
-            await page.wait_for_timeout(2000)
-        else:
-            await screenshot(page, "ERR_no_inv_row")
-            raise RuntimeError("Não conseguiu extrair ID do inventário da lista")
+        log.info(f"[EXPORT] Row clicado via JS: {clicked_row}")
 
+    if not clicked_row:
+        await screenshot(page, "ERR_no_inv_row")
+        raise RuntimeError("Não encontrou linha de inventário para clicar")
+
+    # Aguarda AJAX carregar o detalhe (URL permanece a mesma no BaseLinker SPA)
+    await page.wait_for_timeout(5000)
+    await page.wait_for_load_state("networkidle")
     await screenshot(page, "08_inv_detail")
-    log.info(f"[EXPORT] URL após navegação: {page.url}")
+    log.info(f"[EXPORT] URL após clique (SPA, não muda): {page.url}")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
-    # Busca APENAS <button> (exclui links do nav lateral que também têm "Imprimir")
+    # O botão IMPRIMIR aparece no toolbar do detalhe carregado via AJAX.
+    # Busca APENAS <button> (exclui o link "Imprimir/Exportar" do nav lateral).
     print_clicked = await try_click(page, [
         page.locator("button:has-text('IMPRIMIR')").first,
         page.locator("button:has-text('Imprimir')").first,
