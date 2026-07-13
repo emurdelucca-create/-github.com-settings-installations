@@ -212,11 +212,11 @@ async def bl_login(page):
     # A página usa label "LOGIN" — get_by_label é a forma mais robusta
     login_filled = False
     for attempt in [
+        lambda: page.locator("input[id='loginField']"),          # id exato da BaseLinker
+        lambda: page.locator("input[name='login'][type='text']"), # name='login' mas só type=text
         lambda: page.get_by_label("LOGIN", exact=True),
         lambda: page.get_by_label("Login", exact=False),
-        lambda: page.locator("input[name='login']"),
-        lambda: page.locator("input[name='email']"),
-        lambda: page.locator("input[id='login']"),
+        lambda: page.locator("input[name='login']:not([type='hidden'])"),
         lambda: page.locator("input[id='email']"),
         lambda: page.locator("input[type='text']").first,
     ]:
