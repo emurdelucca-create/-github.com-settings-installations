@@ -387,15 +387,11 @@ async def export_inventory_csv(page):
     await page.wait_for_timeout(2000)
     await screenshot(page, "06_after_create")
 
-    # ── 3. Vai à lista e abre o detalhe do primeiro inventário ───────────────
-    # IMPORTANTE: BaseLinker usa SPA/AJAX — a URL NÃO muda ao abrir um inventário.
-    # O conteúdo é carregado dinamicamente dentro da mesma página.
-    # Estratégia: clicar em tr.stocktake_row e aguardar o AJAX carregar.
+    # ── 3. Vai à lista e descobre como abrir o inventário ────────────────────
     await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
     await page.wait_for_timeout(3000)
     await screenshot(page, "07_list_after_create")
 
-    # Extrai ID do primeiro row para log (não para navegação via URL)
     inv_id = await page.evaluate("""
         () => {
             const row = document.querySelector('tr.stocktake_row[id^="row_"]');
@@ -405,84 +401,130 @@ async def export_inventory_csv(page):
     """)
     log.info(f"[EXPORT] ID do primeiro inventário: {inv_id}")
 
-    # Clica no primeiro stocktake_row para carregar o detalhe via AJAX
-    clicked_row = False
+    # Loga elementos interativos da linha para entender como abrir o detalhe
+    row_info = await page.evaluate("""
+        () => {
+            const row = document.querySelector('tr.stocktake_row');
+            if (!row) return null;
+            const els = [...row.querySelectorAll('*')].filter(el =>
+                ['A','BUTTON'].includes(el.tagName) || el.getAttribute('onclick') ||
+                el.getAttribute('data-action') || el.getAttribute('data-href')
+            ).map(el => ({
+                tag: el.tagName,
+                text: el.textContent.trim().slice(0, 40),
+                cls: el.className.slice(0, 60),
+                href: el.getAttribute('href'),
+                onclick: (el.getAttribute('onclick') || '').slice(0, 80),
+                action: el.getAttribute('data-action'),
+                rect: [Math.round(el.getBoundingClientRect().width),
+                       Math.round(el.getBoundingClientRect().height)]
+            }));
+            return {rowCls: row.className, els};
+        }
+    """)
+    log.info(f"[DEBUG] Row interativos: {json.dumps(row_info)[:3000]}")
+
+    # Monitora requests de rede ao clicar a linha
+    network_calls = []
+    page.on("request", lambda r: network_calls.append(r.url)
+            if any(x in r.url for x in ["ajax", "api", "stocktake", "inventory", "connector"])
+            else None)
+
+    # Tenta clicar o .product-title-wrapper (nome do inventário) dentro da linha
+    title_clicked = False
     for sel in [
-        "tr.stocktake_row",                      # classe específica BaseLinker
-        "tr[id^='row_']",                         # id="row_XXXXX"
-        "table tbody tr",                          # fallback genérico
+        "tr.stocktake_row .product-title-wrapper",
+        "tr.stocktake_row td:nth-child(2)",
+        "tr.stocktake_row td.tbl-100",
+        "tr.stocktake_row",
     ]:
         try:
-            row_loc = page.locator(sel).first
-            if await row_loc.is_visible(timeout=3000):
-                await row_loc.click()
-                log.info(f"[EXPORT] Row clicado via '{sel}'")
-                clicked_row = True
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=3000):
+                await loc.click()
+                log.info(f"[EXPORT] Clicado: '{sel}'")
+                title_clicked = True
                 break
         except Exception:
             pass
 
-    if not clicked_row:
-        # Fallback JS: jQuery click no primeiro row (aciona handler mesmo que elemento seja "inert")
-        clicked_row = await page.evaluate("""
-            () => {
-                const row = document.querySelector('tr.stocktake_row') || document.querySelector('tr[id^="row_"]');
-                if (!row) return false;
-                if (window.$) { $(row).trigger('click'); return 'jquery'; }
-                row.click();
-                return 'native';
-            }
-        """)
-        log.info(f"[EXPORT] Row clicado via JS: {clicked_row}")
-
-    if not clicked_row:
-        await screenshot(page, "ERR_no_inv_row")
-        raise RuntimeError("Não encontrou linha de inventário para clicar")
-
-    # Aguarda AJAX carregar o detalhe (URL permanece a mesma no BaseLinker SPA)
-    await page.wait_for_timeout(5000)
+    await page.wait_for_timeout(4000)
     await page.wait_for_load_state("networkidle")
+
+    log.info(f"[DEBUG] Requests após clique: {network_calls[:20]}")
     await screenshot(page, "08_inv_detail")
-    log.info(f"[EXPORT] URL após clique (SPA, não muda): {page.url}")
 
     # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
-    # O botão IMPRIMIR aparece no toolbar do detalhe carregado via AJAX.
-    # Busca APENAS <button> (exclui o link "Imprimir/Exportar" do nav lateral).
+    # Loga todos os buttons visíveis para diagnóstico (antes de clicar)
+    all_btns = await page.evaluate("""
+        () => [...document.querySelectorAll('button')].map(b => ({
+            text: b.textContent.trim().slice(0,40),
+            cls: b.className.slice(0,60),
+            rect: [Math.round(b.getBoundingClientRect().width),
+                   Math.round(b.getBoundingClientRect().height)]
+        })).filter(b => b.rect[0] > 0 && b.rect[1] > 0)
+    """)
+    log.info(f"[DEBUG] Botões visíveis: {json.dumps(all_btns)[:3000]}")
+
+    # Busca IMPRIMIR somente no conteúdo principal (não nav lateral)
+    # O nav lateral "Imprimir/Exportar" é um <button> mas tem texto "Imprimir/Exportar"
+    # A barra de ações do inventário usa exatamente "IMPRIMIR" ou "Imprimir" sem "/"
     print_clicked = await try_click(page, [
-        page.locator("button:has-text('IMPRIMIR')").first,
-        page.locator("button:has-text('Imprimir')").first,
-        page.get_by_role("button", name=re.compile(r"imprimir", re.I)).first,
+        page.locator("button").filter(has_text=re.compile(r"^IMPRIMIR$")).first,
+        page.locator("button").filter(has_text=re.compile(r"^Imprimir$")).first,
         page.locator("[data-action='print'], [data-bb-handler='print']").first,
         page.locator(".btn-print, [class*='print-btn']").first,
     ], "IMPRIMIR")
 
     if not print_clicked:
         await screenshot(page, "ERR_no_print_btn")
-        # Log HTML da área de conteúdo para diagnóstico
-        html_main = await page.evaluate("""
-            document.querySelector('#main-content, .content, .page-content, main')?.innerHTML.slice(0, 3000)
-            || document.body.innerHTML.slice(0, 3000)
-        """)
-        log.error(f"[DEBUG] HTML main: {html_main}")
-        raise RuntimeError("Botão IMPRIMIR não encontrado na página de detalhe")
+        raise RuntimeError("Botão IMPRIMIR não encontrado")
 
     await page.wait_for_timeout(700)
     await screenshot(page, "09_print_menu")
 
-    async with page.expect_download(timeout=30_000) as dl_info:
-        csv_clicked = await try_click(page, [
-            page.get_by_text(re.compile(r"exportar.*csv|itens.*inventário", re.I)),
-            page.locator("li:has-text('CSV'), a:has-text('CSV')").first,
-            page.locator("li:has-text('Exportar'), a:has-text('Exportar')").first,
-        ], "Exportar CSV")
+    # Captura requests de rede ao clicar CSV (para ver URL do export)
+    csv_requests = []
+    page.on("request", lambda r: csv_requests.append(r.url))
 
-        if not csv_clicked:
+    # Tenta capturar como download OU como nova aba OU como navegação
+    csv_content = None
+
+    try:
+        async with page.expect_download(timeout=20_000) as dl_info:
+            csv_clicked = await try_click(page, [
+                page.get_by_text(re.compile(r"exportar.*csv|itens.*inventário", re.I)),
+                page.locator("li:has-text('CSV'), a:has-text('CSV')").first,
+                page.locator("li:has-text('Exportar'), a:has-text('Exportar')").first,
+            ], "Exportar CSV (download)")
+            if not csv_clicked:
+                raise RuntimeError("nenhum clique")
+        dl = await dl_info.value
+        tmp_path = await dl.path()
+        csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
+        log.info(f"[EXPORT] CSV via download: {len(csv_content)} chars")
+    except Exception as e:
+        log.warning(f"[EXPORT] Download direto falhou ({e}) — tentando via URL/nova aba")
+        log.info(f"[DEBUG] Requests CSV: {csv_requests[-20:]}")
+        await screenshot(page, "09b_after_csv_click")
+
+        # Verifica se a URL atual contém CSV ou se navegou
+        await page.wait_for_timeout(3000)
+        cur_url = page.url
+        log.info(f"[DEBUG] URL após CSV click: {cur_url}")
+
+        if "csv" in cur_url.lower() or "export" in cur_url.lower():
+            # Navegou para uma página CSV — lê o conteúdo como texto
+            csv_content = await page.content()
+            log.info(f"[EXPORT] CSV via navegação: {len(csv_content)} chars")
+        else:
+            # Tenta nova aba
             await screenshot(page, "ERR_no_csv_option")
-            raise RuntimeError("Opção exportar CSV não encontrada")
+            raise RuntimeError(f"CSV não capturado. Requests: {csv_requests[-10:]}")
 
-    download = await dl_info.value
-    tmp_path = await download.path()
-    csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
+    if not csv_content:
+        raise RuntimeError("Conteúdo CSV vazio")
+
     log.info(f"[EXPORT] CSV: {len(csv_content)} chars, {csv_content.count(chr(10))} linhas")
     await screenshot(page, "10_downloaded")
 
