@@ -401,84 +401,47 @@ async def export_inventory_csv(page):
     """)
     log.info(f"[EXPORT] ID do primeiro inventário: {inv_id}")
 
-    # Loga elementos interativos da linha para entender como abrir o detalhe
-    row_info = await page.evaluate("""
-        () => {
-            const row = document.querySelector('tr.stocktake_row');
-            if (!row) return null;
-            const els = [...row.querySelectorAll('*')].filter(el =>
-                ['A','BUTTON'].includes(el.tagName) || el.getAttribute('onclick') ||
-                el.getAttribute('data-action') || el.getAttribute('data-href')
-            ).map(el => ({
-                tag: el.tagName,
-                text: el.textContent.trim().slice(0, 40),
-                cls: el.className.slice(0, 60),
-                href: el.getAttribute('href'),
-                onclick: (el.getAttribute('onclick') || '').slice(0, 80),
-                action: el.getAttribute('data-action'),
-                rect: [Math.round(el.getBoundingClientRect().width),
-                       Math.round(el.getBoundingClientRect().height)]
-            }));
-            return {rowCls: row.className, els};
-        }
-    """)
-    log.info(f"[DEBUG] Row interativos: {json.dumps(row_info)[:3000]}")
-
-    # Monitora requests de rede ao clicar a linha
-    network_calls = []
-    page.on("request", lambda r: network_calls.append(r.url)
-            if any(x in r.url for x in ["ajax", "api", "stocktake", "inventory", "connector"])
-            else None)
-
-    # Tenta clicar o .product-title-wrapper (nome do inventário) dentro da linha
-    title_clicked = False
-    for sel in [
-        "tr.stocktake_row .product-title-wrapper",
-        "tr.stocktake_row td:nth-child(2)",
-        "tr.stocktake_row td.tbl-100",
-        "tr.stocktake_row",
-    ]:
-        try:
-            loc = page.locator(sel).first
-            if await loc.is_visible(timeout=3000):
-                await loc.click()
-                log.info(f"[EXPORT] Clicado: '{sel}'")
-                title_clicked = True
-                break
-        except Exception:
-            pass
-
-    await page.wait_for_timeout(4000)
-    await page.wait_for_load_state("networkidle")
-
-    log.info(f"[DEBUG] Requests após clique: {network_calls[:20]}")
     await screenshot(page, "08_inv_detail")
 
-    # ── 4. IMPRIMIR → Exportar CSV ───────────────────────────────────────────
-    # Loga todos os buttons visíveis para diagnóstico (antes de clicar)
-    all_btns = await page.evaluate("""
-        () => [...document.querySelectorAll('button')].map(b => ({
-            text: b.textContent.trim().slice(0,40),
-            cls: b.className.slice(0,60),
-            rect: [Math.round(b.getBoundingClientRect().width),
-                   Math.round(b.getBoundingClientRect().height)]
-        })).filter(b => b.rect[0] > 0 && b.rect[1] > 0)
+    # ── 4. Seleciona checkbox do primeiro inventário via JS e clica Imprimir ──
+    # Descoberto no debug: o "Imprimir" é um button.btn-reset.list-item-mobile
+    # na toolbar da lista. Para exportar UM inventário específico, selecionar
+    # via checkbox primeiro (o checkbox tem class="px" e está fora do viewport,
+    # então usamos JS direto).
+    sel_result = await page.evaluate("""
+        () => {
+            // Seleciona checkbox do primeiro row
+            const row = document.querySelector('tr.stocktake_row');
+            if (!row) return {cb: false};
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (cb) {
+                cb.checked = true;
+                cb.dispatchEvent(new Event('change', {bubbles: true}));
+                cb.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+            }
+            // Clica no botão "Imprimir" da toolbar (btn-reset com texto exato)
+            const btns = [...document.querySelectorAll('button')];
+            const imprimir = btns.find(b =>
+                b.textContent.trim() === 'Imprimir' && b.classList.contains('btn-reset')
+            );
+            if (imprimir) {
+                imprimir.click();
+                return {cb: !!cb, imprimir: true, btnCls: imprimir.className};
+            }
+            // Fallback: qualquer botão visível com texto Imprimir
+            const any = btns.find(b =>
+                b.textContent.trim() === 'Imprimir' &&
+                b.getBoundingClientRect().width > 0
+            );
+            if (any) { any.click(); return {cb: !!cb, imprimir: true, fallback: true}; }
+            return {cb: !!cb, imprimir: false};
+        }
     """)
-    log.info(f"[DEBUG] Botões visíveis: {json.dumps(all_btns)[:3000]}")
+    log.info(f"[EXPORT] Selecionar+Imprimir via JS: {sel_result}")
 
-    # Busca IMPRIMIR somente no conteúdo principal (não nav lateral)
-    # O nav lateral "Imprimir/Exportar" é um <button> mas tem texto "Imprimir/Exportar"
-    # A barra de ações do inventário usa exatamente "IMPRIMIR" ou "Imprimir" sem "/"
-    print_clicked = await try_click(page, [
-        page.locator("button").filter(has_text=re.compile(r"^IMPRIMIR$")).first,
-        page.locator("button").filter(has_text=re.compile(r"^Imprimir$")).first,
-        page.locator("[data-action='print'], [data-bb-handler='print']").first,
-        page.locator(".btn-print, [class*='print-btn']").first,
-    ], "IMPRIMIR")
-
-    if not print_clicked:
+    if not sel_result.get("imprimir"):
         await screenshot(page, "ERR_no_print_btn")
-        raise RuntimeError("Botão IMPRIMIR não encontrado")
+        raise RuntimeError("Botão Imprimir não encontrado")
 
     await page.wait_for_timeout(700)
     await screenshot(page, "09_print_menu")
