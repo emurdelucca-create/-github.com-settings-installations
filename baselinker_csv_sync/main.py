@@ -501,8 +501,24 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         log.warning(f"[EXPORT:{warehouse_name}] Botão submit não encontrado — tentando Enter")
         await page.keyboard.press("Enter")
 
-    # Aguarda AJAX criar o inventário
-    await page.wait_for_timeout(5000)
+    # Aguarda o modal FECHAR — indica que o AJAX de criação completou.
+    # 5s era insuficiente: o servidor leva até ~20s para criar o inventário.
+    log.info(f"[EXPORT:{warehouse_name}] Aguardando modal fechar (até 30s)...")
+    try:
+        await page.wait_for_function(
+            """() => {
+                return ![...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                    .some(m => {
+                        const r = m.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    });
+            }""",
+            timeout=30_000,
+        )
+        log.info(f"[EXPORT:{warehouse_name}] Modal fechou — inventário criado")
+    except Exception:
+        log.warning(f"[EXPORT:{warehouse_name}] Modal não fechou em 30s — forçando fechamento")
+
     await screenshot(page, f"{pfx}06_after_confirm")
 
     # Fecha modal caso ainda esteja aberto
@@ -531,21 +547,22 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     await page.wait_for_timeout(5000)  # 5s: produtos carregam via AJAX após o reload
     await screenshot(page, f"{pfx}07b_list_after_reload")
 
-    # Pega o ID da linha MAS TAMBÉM anota o ID máximo para identificar o novo inventário
+    # Pega o ID do inventário mais recente (maior ID = recém-criado).
+    # Usa seletor amplo: tr[id^="row_"] cobre também novas linhas sem a classe stocktake_row.
     inv_info = await page.evaluate("""
         () => {
-            const rows = [...document.querySelectorAll('tr.stocktake_row[id^="row_"]')];
+            const rows = [...document.querySelectorAll('tr[id^="row_"], tr.stocktake_row')];
             const ids = rows.map(r => {
                 const m = r.id.match(/row_(\\d+)/);
                 return m ? parseInt(m[1]) : 0;
             }).filter(Boolean);
-            if (!ids.length) return null;
-            const maxId = Math.max(...ids);
-            return {first: String(ids[0]), max: String(maxId), all: ids.map(String)};
+            const unique = [...new Set(ids)];
+            if (!unique.length) return null;
+            const maxId = Math.max(...unique);
+            return {first: String(unique[0]), max: String(maxId), all: unique.map(String)};
         }
     """)
     log.info(f"[EXPORT:{warehouse_name}] Inventários na lista: {json.dumps(inv_info)}")
-    # Usa o mais recente (maior ID = recém-criado)
     inv_id = inv_info["max"] if inv_info else None
     log.info(f"[EXPORT:{warehouse_name}] Usando inventário ID: {inv_id}")
 
@@ -602,125 +619,167 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         await screenshot(page, f"ERR_{pfx}no_print_btn")
         raise RuntimeError(f"Botão Imprimir não encontrado [{warehouse_name}]")
 
-    # Clica com mouse real + força abertura do dropdown via classList
+    # Clica com mouse real — o botão tem classe 'collapse-btn dropdown-toggle',
+    # então abre um painel inline (Bootstrap collapse), não um dropdown flutuante.
     await page.mouse.click(btn_pos["x"], btn_pos["y"])
     log.info(f"[EXPORT:{warehouse_name}] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
-    await page.wait_for_timeout(800)
+    await page.wait_for_timeout(1200)
 
-    # Garante que o dropdown pai tem classe 'open' (Bootstrap 3)
-    forced = await page.evaluate("""
+    # Força abertura de dropdown pai E de qualquer collapse associado
+    await page.evaluate("""
         (pos) => {
+            // Bootstrap dropdown
             const el = document.elementFromPoint(pos.x, pos.y);
-            if (!el) return 'no element';
-            const parent = el.closest('.dropdown, .btn-group');
-            if (!parent) return 'no dropdown parent';
-            const wasOpen = parent.classList.contains('open');
-            parent.classList.add('open');
-            return wasOpen ? 'was-already-open' : 'forced-open';
-        }
-    """, {"x": btn_pos["x"], "y": btn_pos["y"]})
-    log.info(f"[EXPORT:{warehouse_name}] Dropdown force-open: {forced}")
-    await page.wait_for_timeout(500)
-    await screenshot(page, f"{pfx}09_dropdown_open")
-
-    # ── 7. Procura item CSV especificamente dentro do dropdown-menu aberto ────
-    csv_item = None
-
-    # Estratégia 1: procura dentro de .dropdown.open .dropdown-menu
-    dropdown_items = await page.evaluate("""
-        () => {
-            const openMenus = [
-                ...document.querySelectorAll(
-                    '.dropdown.open .dropdown-menu, ' +
-                    '.btn-group.open .dropdown-menu, ' +
-                    'ul.dropdown-menu[style*="display: block"], ' +
-                    'ul.dropdown-menu[style*="display:block"]'
-                )
-            ];
-            const items = [];
-            for (const menu of openMenus) {
-                for (const el of menu.querySelectorAll('a, li, button')) {
-                    const r = el.getBoundingClientRect();
-                    if (r.width <= 0 || r.height <= 0) continue;
-                    items.push({
-                        tag: el.tagName,
-                        text: el.textContent.trim().substring(0, 80),
-                        href: el.getAttribute('href') || '',
-                        x: Math.round(r.left + r.width / 2),
-                        y: Math.round(r.top + r.height / 2),
-                        w: Math.round(r.width),
-                        h: Math.round(r.height)
-                    });
+            if (el) {
+                const parent = el.closest('.dropdown, .btn-group');
+                if (parent) parent.classList.add('open');
+            }
+            // Bootstrap collapse: qualquer .collapse adjacente ao botão
+            const btn = [...document.querySelectorAll('button.collapse-btn')]
+                .find(b => b.textContent.trim() === 'Imprimir');
+            if (btn) {
+                const target = btn.getAttribute('data-target') || btn.getAttribute('href');
+                if (target) {
+                    const el2 = document.querySelector(target);
+                    if (el2) { el2.classList.add('in'); el2.classList.add('show'); }
+                }
+                // Também tenta abrir o próximo .collapse irmão
+                let sib = btn.parentElement;
+                while (sib) {
+                    const c = sib.querySelector('.collapse');
+                    if (c) { c.classList.add('in'); c.classList.add('show'); break; }
+                    sib = sib.parentElement;
+                    if (!sib || sib === document.body) break;
                 }
             }
-            return items;
+        }
+    """, {"x": btn_pos["x"], "y": btn_pos["y"]})
+    await page.wait_for_timeout(600)
+    await screenshot(page, f"{pfx}09_dropdown_open")
+
+    # ── 7. Procura e clica no link de exportação CSV ──────────────────────────
+    # O painel é um Bootstrap collapse (clipped by table overflow), por isso
+    # getBoundingClientRect() retorna 0 para itens dentro da tabela.
+    # Usamos JS .click() diretamente no elemento, que funciona independente de overflow.
+    #
+    # Log diagnóstico: mostra TODOS os itens dentro de qualquer dropdown-menu / collapse.
+    diag = await page.evaluate("""
+        () => {
+            const containers = [
+                ...document.querySelectorAll(
+                    '.collapse.in, .collapse.show, ' +
+                    '.dropdown-menu, .open .dropdown-menu, ' +
+                    '.btn-group.open .dropdown-menu, ' +
+                    '[aria-expanded="true"] ~ *, [aria-expanded="true"] + *'
+                )
+            ];
+            return containers.flatMap(c =>
+                [...c.querySelectorAll('a, button, li')].map(el => ({
+                    tag: el.tagName,
+                    text: el.textContent.trim().substring(0, 80),
+                    href: el.getAttribute('href') || ''
+                }))
+            ).slice(0, 50);
         }
     """)
-    log.info(f"[DEBUG:{warehouse_name}] Dropdown-menu items: {json.dumps(dropdown_items)}")
+    log.info(f"[DEBUG:{warehouse_name}] Itens em colapso/dropdown: {json.dumps(diag)}")
 
-    for item in dropdown_items:
-        t = item["text"].lower()
-        if "csv" in t or "exportar" in t:
-            csv_item = item
-            break
-
-    # Estratégia 2: todos os elementos visíveis com csv/exportar, mas excluindo sidebar (x < 250)
-    if not csv_item:
-        log.warning(f"[EXPORT:{warehouse_name}] Dropdown-menu vazio — varredura geral (excluindo sidebar)")
-        all_visible = await page.evaluate("""
-            () => {
-                return [...document.querySelectorAll('a, li, button, span')]
-                    .filter(el => {
-                        const t = el.textContent.trim().toLowerCase();
-                        const r = el.getBoundingClientRect();
-                        const cx = r.left + r.width / 2;
-                        // Exclui sidebar (x < 250) e links de importação
-                        if (cx < 250) return false;
-                        if ((el.getAttribute('href') || '').includes('inventory_import')) return false;
-                        return r.width > 0 && r.height > 0
-                            && (t.includes('csv') || (t.includes('exportar') && t.length < 80));
-                    })
-                    .map(el => {
-                        const r = el.getBoundingClientRect();
-                        return {
-                            tag: el.tagName,
-                            text: el.textContent.trim().substring(0, 80),
-                            href: el.getAttribute('href') || '',
-                            x: Math.round(r.left + r.width / 2),
-                            y: Math.round(r.top + r.height / 2),
-                            w: Math.round(r.width),
-                            h: Math.round(r.height)
-                        };
-                    });
+    # Clique direto via JS — não depende de coordenadas nem de visibilidade CSS
+    js_click = await page.evaluate("""
+        () => {
+            const KEYWORDS = ['csv', 'exportar item', 'export item', 'exportar itens',
+                              'export itens', 'baixar', 'download'];
+            // Escopo prioritário: collapse aberto + dropdown-menu
+            const primary = [
+                ...document.querySelectorAll(
+                    '.collapse.in a, .collapse.show a, ' +
+                    '.dropdown-menu a, .open .dropdown-menu a, ' +
+                    '.btn-group.open .dropdown-menu a'
+                )
+            ];
+            for (const el of primary) {
+                const t = el.textContent.toLowerCase();
+                if (KEYWORDS.some(k => t.includes(k))) {
+                    el.click();
+                    return {clicked: el.textContent.trim(), from: 'primary'};
+                }
             }
-        """)
-        log.info(f"[DEBUG:{warehouse_name}] Itens visíveis (sem sidebar): {json.dumps(all_visible)}")
-        if all_visible:
-            csv_item = all_visible[0]
 
-    if not csv_item:
+            // Busca ampla: qualquer <a> com CSV no texto (exceto sidebar)
+            for (const el of document.querySelectorAll('a')) {
+                const t = el.textContent.toLowerCase();
+                if (!t.includes('csv')) continue;
+                const href = el.getAttribute('href') || '';
+                if (href.includes('inventory_import')) continue;
+                const r = el.getBoundingClientRect();
+                // Aceita mesmo com rect zerado (overflow clipped) se não estiver na sidebar
+                if (r.left > 0 && r.left < 250) continue;
+                el.click();
+                return {clicked: el.textContent.trim(), from: 'broad',
+                        rect: [Math.round(r.left), Math.round(r.top)]};
+            }
+
+            // Log de todos os .dropdown-menu no DOM para diagnóstico
+            const allMenuText = [...document.querySelectorAll('.dropdown-menu a, .collapse a')]
+                .map(a => a.textContent.trim().substring(0, 60));
+            return {not_found: true, allMenuText};
+        }
+    """)
+    log.info(f"[EXPORT:{warehouse_name}] JS click result: {json.dumps(js_click)}")
+
+    if not js_click or not js_click.get("clicked"):
+        # Tenta Playwright force-click como último recurso
+        for pl_loc in [
+            page.locator('.collapse a').filter(has_text=re.compile(r'csv', re.I)),
+            page.locator('.dropdown-menu a').filter(has_text=re.compile(r'csv', re.I)),
+            page.get_by_role("menuitem", name=re.compile(r'csv', re.I)),
+            page.get_by_text(re.compile(r'exportar.*csv|csv', re.I)).first,
+        ]:
+            try:
+                cnt = await pl_loc.count()
+                if cnt > 0:
+                    await pl_loc.first.click(force=True, timeout=2000)
+                    log.info(f"[EXPORT:{warehouse_name}] CSV clicado via Playwright force ({cnt})")
+                    js_click = {"clicked": "playwright-force", "from": "playwright"}
+                    break
+            except Exception as pe:
+                log.warning(f"[EXPORT:{warehouse_name}] Playwright force: {pe}")
+
+    if not js_click or not js_click.get("clicked"):
         await screenshot(page, f"ERR_{pfx}no_csv_item")
         raise RuntimeError(
-            f"Item CSV não encontrado no dropdown [{warehouse_name}]. "
-            f"dropdown_items={dropdown_items}"
+            f"Item CSV não encontrado no dropdown/collapse [{warehouse_name}]. "
+            f"diag={json.dumps(diag)}"
         )
 
-    log.info(f"[EXPORT:{warehouse_name}] CSV item: '{csv_item['text']}' em ({csv_item['x']}, {csv_item['y']})")
+    log.info(f"[EXPORT:{warehouse_name}] CSV clicado: '{js_click.get('clicked')}' via {js_click.get('from')}")
 
-    # ── 8. Clica no item CSV e captura o download ─────────────────────────────
+    # ── 8. Captura o download disparado pelo clique JS ────────────────────────
+    # O clique JS acima já foi executado. Agora aguardamos o download.
     csv_content = None
 
     try:
-        async with page.expect_download(timeout=15_000) as dl_info:
-            await page.mouse.click(csv_item["x"], csv_item["y"])
+        # O download pode já estar em andamento; expect_download com timeout curto
+        async with page.expect_download(timeout=12_000) as dl_info:
+            # Re-dispara caso o download anterior não tenha iniciado
+            await page.evaluate("""
+                () => {
+                    const KEYWORDS = ['csv', 'exportar item', 'exportar itens'];
+                    for (const scope of ['.collapse.in', '.collapse.show', '.dropdown-menu', '.open .dropdown-menu']) {
+                        for (const a of document.querySelectorAll(scope + ' a')) {
+                            const t = a.textContent.toLowerCase();
+                            if (KEYWORDS.some(k => t.includes(k))) { a.click(); return; }
+                        }
+                    }
+                }
+            """)
             log.info(f"[EXPORT:{warehouse_name}] Aguardando download...")
         dl = await dl_info.value
         dl_path = await dl.path()
         csv_content = Path(dl_path).read_text(encoding="utf-8-sig", errors="replace")
         log.info(f"[EXPORT:{warehouse_name}] Download OK: {dl.suggested_filename}")
     except Exception as e:
-        log.warning(f"[EXPORT:{warehouse_name}] expect_download falhou: {e} — tentando URL capturada")
-        await page.mouse.click(csv_item["x"], csv_item["y"])
+        log.warning(f"[EXPORT:{warehouse_name}] expect_download falhou: {e} — verificando URL capturada")
         await page.wait_for_timeout(3000)
 
     if not csv_content:
