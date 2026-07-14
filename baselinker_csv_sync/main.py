@@ -553,21 +553,32 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             log.info(f"[NET:{warehouse_name}] {url}")
     page.on("request", _on_req)
 
-    # Seleciona o checkbox do inventário com o ID mais recente
-    cb_ok = await page.evaluate("""
-        (invId) => {
-            // Tenta selecionar o checkbox do inventário específico primeiro
-            let row = invId ? document.querySelector(`tr#row_${invId}`) : null;
-            if (!row) row = document.querySelector('tr.stocktake_row');
-            if (!row) return false;
-            const cb = row.querySelector('input[type="checkbox"]');
-            if (!cb) return false;
-            cb.checked = true;
-            cb.dispatchEvent(new Event('change', {bubbles: true}));
-            return row.id || true;
-        }
-    """, inv_id)
-    log.info(f"[EXPORT:{warehouse_name}] Checkbox JS: {cb_ok}")
+    # Seleciona o checkbox via Playwright (isTrusted: true).
+    # JS cb.checked=true + dispatchEvent é isTrusted:false — BaseLinker ignora o evento
+    # e não atualiza o array interno de itens selecionados, então o export exporta 0 itens.
+    cb_clicked = False
+    if inv_id:
+        try:
+            cb_loc = page.locator(f'tr#row_{inv_id} input[type="checkbox"]')
+            if await cb_loc.count() > 0:
+                await cb_loc.first.scroll_into_view_if_needed()
+                await cb_loc.first.click(force=True)
+                cb_clicked = True
+                log.info(f"[EXPORT:{warehouse_name}] Checkbox clicado (isTrusted) row_{inv_id}")
+        except Exception as e:
+            log.warning(f"[EXPORT:{warehouse_name}] Checkbox Playwright: {e}")
+    if not cb_clicked:
+        try:
+            cb_loc = page.locator('tr.stocktake_row input[type="checkbox"]').first
+            if await cb_loc.count() > 0:
+                await cb_loc.scroll_into_view_if_needed()
+                await cb_loc.click(force=True)
+                cb_clicked = True
+                log.info(f"[EXPORT:{warehouse_name}] Checkbox clicado (fallback, isTrusted)")
+        except Exception as e:
+            log.warning(f"[EXPORT:{warehouse_name}] Checkbox fallback: {e}")
+    if not cb_clicked:
+        log.warning(f"[EXPORT:{warehouse_name}] Nenhum checkbox clicável encontrado")
     await page.wait_for_timeout(800)
 
     # Acha coordenadas do botão Imprimir
@@ -655,41 +666,8 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     """)
     log.info(f"[DEBUG:{warehouse_name}] Itens em colapso/dropdown: {json.dumps(diag)}")
 
-    def _find_csv_js():
-        return """
-            () => {
-                const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
-                // Escopo prioritário: collapse aberto + dropdown-menu (inclui menu de ação da linha)
-                for (const el of document.querySelectorAll(
-                    '.collapse.in a, .collapse.show a, ' +
-                    '.dropdown-menu a, .open .dropdown-menu a, .btn-group.open .dropdown-menu a'
-                )) {
-                    const t = el.textContent.toLowerCase();
-                    if (KW.some(k => t.includes(k))) {
-                        el.click();
-                        return {clicked: el.textContent.trim(), from: 'primary',
-                                href: el.getAttribute('href') || ''};
-                    }
-                }
-                // Busca ampla: qualquer <a> com CSV no texto (exceto sidebar e imports)
-                for (const el of document.querySelectorAll('a')) {
-                    const t = el.textContent.toLowerCase();
-                    if (!t.includes('csv')) continue;
-                    const href = el.getAttribute('href') || '';
-                    if (href.includes('inventory_import')) continue;
-                    const r = el.getBoundingClientRect();
-                    if (r.left > 0 && r.left < 250) continue;  // exclui sidebar
-                    el.click();
-                    return {clicked: el.textContent.trim(), from: 'broad', href};
-                }
-                const allMenuText = [...document.querySelectorAll('.dropdown-menu a, .collapse a')]
-                    .map(a => a.textContent.trim().substring(0, 60)).filter(t => t);
-                return {not_found: true, allMenuText};
-            }
-        """
-
-    def _confirm_export_modal_js():
-        """Clica no botão primário de um modal de configuração de exportação."""
+    def _find_export_modal_btn_js():
+        """Retorna posição do botão de confirmação num modal de exportação (sem clicar)."""
         return """
             () => {
                 const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
@@ -703,7 +681,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     .map(b => ({text: b.textContent.trim(), cls: b.className,
                                 dismiss: b.getAttribute('data-dismiss')}));
 
-                // Candidato primário: btn-primary ou texto confirmatório
                 const confirmBtn = [...modal.querySelectorAll('button, a.btn, input[type="submit"]')]
                     .find(b => {
                         const t = b.textContent.trim().toLowerCase();
@@ -716,7 +693,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                             || t.includes('baixar') || t.includes('gerar')
                             || t.includes('confirmar') || t.includes('download');
                     })
-                    // Se nenhum primário, pega qualquer botão não-cancel
                     || [...modal.querySelectorAll('button, a.btn')]
                         .find(b => {
                             const t = b.textContent.trim().toLowerCase();
@@ -726,10 +702,12 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                         });
 
                 if (confirmBtn) {
-                    confirmBtn.click();
-                    return {found: true, clicked: confirmBtn.textContent.trim(), allBtns};
+                    const r = confirmBtn.getBoundingClientRect();
+                    return {found: true, text: confirmBtn.textContent.trim(), allBtns,
+                            x: r.left + r.width / 2, y: r.top + r.height / 2,
+                            w: r.width, h: r.height};
                 }
-                return {found: true, clicked: null, allBtns};
+                return {found: true, text: null, allBtns};
             }
         """
 
@@ -737,45 +715,121 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
 
     try:
         async with page.expect_download(timeout=30_000) as dl_info:
-            # Clique 1: item "Exportar itens de inventário (CSV)"
-            js_click = await page.evaluate(_find_csv_js())
-            log.info(f"[EXPORT:{warehouse_name}] CSV item click: {json.dumps(js_click)}")
+            # Obtém posição do link CSV e clica com mouse real (isTrusted: true).
+            # JS el.click() produzia isTrusted:false — BaseLinker verifica event.isTrusted
+            # e ignora eventos programáticos, resultando em export silencioso de 0 itens.
+            csv_pos = await page.evaluate("""
+                () => {
+                    const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
+                    let foundEl = null;
+                    for (const el of document.querySelectorAll(
+                        '.collapse.in a, .collapse.show a, ' +
+                        '.dropdown-menu a, .open .dropdown-menu a, .btn-group.open .dropdown-menu a'
+                    )) {
+                        if (KW.some(k => el.textContent.toLowerCase().includes(k))) {
+                            foundEl = el; break;
+                        }
+                    }
+                    if (!foundEl) {
+                        for (const el of document.querySelectorAll('a')) {
+                            const t = el.textContent.toLowerCase();
+                            if (!t.includes('csv')) continue;
+                            if ((el.getAttribute('href') || '').includes('inventory_import')) continue;
+                            const r = el.getBoundingClientRect();
+                            if (r.left >= 0 && r.left < 250) continue;
+                            foundEl = el; break;
+                        }
+                    }
+                    if (!foundEl) return null;
 
-            if not js_click or not js_click.get("clicked"):
-                # Fallback Playwright force
-                for pl_loc in [
-                    page.locator('.dropdown-menu a').filter(has_text=re.compile(r'csv', re.I)),
-                    page.locator('.collapse a').filter(has_text=re.compile(r'csv', re.I)),
-                ]:
-                    try:
-                        if await pl_loc.count() > 0:
-                            await pl_loc.first.click(force=True, timeout=2000)
-                            js_click = {"clicked": "playwright-force", "from": "playwright"}
-                            break
-                    except Exception as pe:
-                        log.warning(f"[EXPORT:{warehouse_name}] Playwright force: {pe}")
+                    foundEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                    let r = foundEl.getBoundingClientRect();
 
-            if not js_click or not js_click.get("clicked"):
+                    if (r.width === 0 || r.height === 0) {
+                        // Remove overflow:hidden de ancestrais temporariamente para obter rect válido
+                        const saved = [];
+                        let p = foundEl.parentElement;
+                        while (p && p !== document.body) {
+                            const cs = window.getComputedStyle(p);
+                            if (cs.overflow === 'hidden' || cs.overflowY === 'hidden') {
+                                saved.push({el: p, ov: p.style.overflow, ovY: p.style.overflowY});
+                                p.style.overflow = 'visible';
+                                p.style.overflowY = 'visible';
+                            }
+                            p = p.parentElement;
+                        }
+                        foundEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                        r = foundEl.getBoundingClientRect();
+                        saved.forEach(s => { s.el.style.overflow = s.ov; s.el.style.overflowY = s.ovY; });
+                    }
+
+                    return {text: foundEl.textContent.trim(),
+                            x: r.left + r.width / 2, y: r.top + r.height / 2,
+                            w: r.width, h: r.height};
+                }
+            """)
+            log.info(f"[EXPORT:{warehouse_name}] CSV pos: {json.dumps(csv_pos)}")
+
+            if not csv_pos:
                 await screenshot(page, f"ERR_{pfx}no_csv_item")
                 raise RuntimeError(
-                    f"Item CSV não encontrado no dropdown/collapse [{warehouse_name}]. "
-                    f"diag={json.dumps(diag)}"
+                    f"Item CSV não encontrado [{warehouse_name}]. diag={json.dumps(diag)}"
                 )
 
-            log.info(f"[EXPORT:{warehouse_name}] CSV clicado: '{js_click.get('clicked')}'")
+            if csv_pos.get("w", 0) > 0 and csv_pos.get("h", 0) > 0:
+                await page.mouse.click(csv_pos["x"], csv_pos["y"])
+                log.info(f"[EXPORT:{warehouse_name}] CSV mouse.click '{csv_pos['text']}' "
+                         f"@ ({csv_pos['x']:.0f},{csv_pos['y']:.0f})")
+            else:
+                # Coordenadas inválidas (clippado por overflow) — Playwright force click
+                csv_force_ok = False
+                for pl_sel in ['.collapse.in a', '.collapse.show a', '.dropdown-menu a']:
+                    try:
+                        pl_loc = page.locator(pl_sel).filter(has_text=re.compile(r'csv', re.I))
+                        if await pl_loc.count() > 0:
+                            await pl_loc.first.click(force=True, timeout=2000)
+                            csv_force_ok = True
+                            log.info(f"[EXPORT:{warehouse_name}] CSV force click via {pl_sel}")
+                            break
+                    except Exception as pe:
+                        log.warning(f"[EXPORT:{warehouse_name}] Force click {pl_sel}: {pe}")
+                if not csv_force_ok:
+                    log.warning(f"[EXPORT:{warehouse_name}] Fallback JS click (isTrusted:false)")
+                    await page.evaluate("""
+                        () => {
+                            const KW = ['csv','exportar item','export item','exportar itens','export itens'];
+                            for (const el of document.querySelectorAll(
+                                '.collapse.in a,.collapse.show a,.dropdown-menu a'
+                            )) {
+                                if (KW.some(k => el.textContent.toLowerCase().includes(k))) {
+                                    el.click(); return;
+                                }
+                            }
+                        }
+                    """)
 
-            # Aguarda 2s — clicking abre modal de configuração de exportação
+            # Aguarda 2s — pode abrir modal de configuração antes do download
             await page.wait_for_timeout(2000)
             await screenshot(page, f"{pfx}09b_after_csv_click")
 
             # Trata modal de configuração/confirmação de exportação (se aparecer)
-            export_modal = await page.evaluate(_confirm_export_modal_js())
+            export_modal = await page.evaluate(_find_export_modal_btn_js())
             log.info(f"[EXPORT:{warehouse_name}] Export modal: {json.dumps(export_modal)}")
 
-            if export_modal and export_modal.get("found") and not export_modal.get("clicked"):
-                # Modal encontrado mas sem botão confirmatório claro; loga e tenta Enter
-                log.warning(f"[EXPORT:{warehouse_name}] Modal sem botão primário identificado — tentando Enter")
-                await page.keyboard.press("Enter")
+            if export_modal and export_modal.get("found"):
+                if export_modal.get("w", 0) > 0:
+                    await page.mouse.click(export_modal["x"], export_modal["y"])
+                    log.info(f"[EXPORT:{warehouse_name}] Modal confirm mouse.click "
+                             f"'{export_modal.get('text')}' @ ({export_modal['x']:.0f},{export_modal['y']:.0f})")
+                elif export_modal.get("text"):
+                    try:
+                        await page.get_by_role("button", name=re.compile(
+                            re.escape(export_modal["text"]), re.I)).first.click(timeout=2000)
+                    except Exception:
+                        await page.keyboard.press("Enter")
+                else:
+                    log.warning(f"[EXPORT:{warehouse_name}] Modal sem botão primário — tentando Enter")
+                    await page.keyboard.press("Enter")
 
             log.info(f"[EXPORT:{warehouse_name}] Aguardando download (até 30s)...")
 
