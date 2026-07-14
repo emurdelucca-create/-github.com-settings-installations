@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    body { padding: 20px; background: #f5f5f5; }
+
+    h3 { color: #1a73e8; margin-bottom: 6px; font-size: 17px; }
+    .subtitle { font-size: 12px; color: #777; margin-bottom: 18px; }
+
+    .field { margin-bottom: 14px; }
+    label.lbl { display: block; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 5px; }
+
+    .file-row {
+      display: flex; align-items: center; gap: 10px;
+      background: #fff; border: 1px solid #ddd; border-radius: 6px;
+      padding: 8px 12px;
+    }
+    .file-row input[type="file"] { flex: 1; font-size: 13px; }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 12px;
+      background: #e8f0fe; color: #1a73e8; white-space: nowrap;
+    }
+    .file-name {
+      font-size: 11px; color: #555; margin-top: 4px; padding-left: 4px;
+      min-height: 16px;
+    }
+
+    .hint {
+      background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px;
+      padding: 9px 12px; font-size: 12px; color: #5d4037; margin-bottom: 16px;
+    }
+    .hint strong { color: #e65100; }
+
+    button {
+      background: #1a73e8; color: #fff; border: none; border-radius: 6px;
+      padding: 11px 0; font-size: 14px; cursor: pointer; width: 100%;
+      font-weight: bold; transition: background 0.2s;
+    }
+    button:hover:not(:disabled) { background: #1558c0; }
+    button:disabled { background: #9fc3f8; cursor: not-allowed; }
+
+    #status {
+      margin-top: 14px; padding: 10px 14px; border-radius: 6px;
+      font-size: 13px; display: none; line-height: 1.5;
+    }
+    .ok   { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .err  { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+    .info { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+  </style>
+</head>
+<body>
+
+  <h3>📦 Atualizar Estoque — SNAPSHOT_BL</h3>
+  <p class="subtitle">Faça upload dos 2 CSVs exportados do BaseLinker. O estoque CHEGOU é buscado via API automaticamente.</p>
+
+  <div class="hint">
+    ℹ️ No BaseLinker: <strong>Inventário</strong> → selecione o inventário do armazém →
+    <strong>Imprimir → Exportar itens de inventário (CSV)</strong>
+  </div>
+
+  <div class="field">
+    <label class="lbl">CSV — Armazém Padrão (picking A8 + armPad A9):</label>
+    <div class="file-row">
+      <input type="file" id="padraoFile" accept=".csv,.txt" onchange="onFile('padraoFile','padraoName')">
+      <span class="badge">Padrão</span>
+    </div>
+    <div class="file-name" id="padraoName">Nenhum arquivo selecionado</div>
+  </div>
+
+  <div class="field">
+    <label class="lbl">CSV — Armazém Armazenamento (arm — todas as locações):</label>
+    <div class="file-row">
+      <input type="file" id="armFile" accept=".csv,.txt" onchange="onFile('armFile','armName')">
+      <span class="badge">Armazenamento</span>
+    </div>
+    <div class="file-name" id="armName">Nenhum arquivo selecionado</div>
+  </div>
+
+  <button id="btn" onclick="submit()" disabled>📤 Importar e Atualizar Planilha</button>
+
+  <div id="status"></div>
+
+<script>
+  function onFile(inputId, nameId) {
+    const f = document.getElementById(inputId).files[0];
+    document.getElementById(nameId).textContent = f ? f.name : 'Nenhum arquivo selecionado';
+    checkReady();
+  }
+
+  function checkReady() {
+    const p = document.getElementById('padraoFile').files[0];
+    const a = document.getElementById('armFile').files[0];
+    document.getElementById('btn').disabled = !(p && a);
+  }
+
+  function setStatus(msg, cls) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = cls;
+    el.style.display = 'block';
+  }
+
+  function readAsText(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload  = e => resolve(e.target.result);
+      r.onerror = () => reject(new Error('Falha ao ler ' + file.name));
+      // Tenta UTF-8; se o CSV tiver BOM o próprio script remove
+      r.readAsText(file, 'UTF-8');
+    });
+  }
+
+  async function submit() {
+    const padraoFile = document.getElementById('padraoFile').files[0];
+    const armFile    = document.getElementById('armFile').files[0];
+    if (!padraoFile || !armFile) return;
+
+    document.getElementById('btn').disabled = true;
+    setStatus('⏳ Lendo arquivos...', 'info');
+
+    let padraoText, armText;
+    try {
+      [padraoText, armText] = await Promise.all([
+        readAsText(padraoFile),
+        readAsText(armFile),
+      ]);
+    } catch (e) {
+      setStatus('❌ ' + e.message, 'err');
+      document.getElementById('btn').disabled = false;
+      return;
+    }
+
+    setStatus('⏳ Buscando CHEGOU na API BaseLinker e processando...', 'info');
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.ok) {
+          setStatus('✅ Planilha atualizada com sucesso! ' + res.count + ' SKUs gravados na aba SNAPSHOT_BL.', 'ok');
+          setTimeout(google.script.host.close, 3000);
+        } else {
+          setStatus('❌ Erro: ' + res.error, 'err');
+          document.getElementById('btn').disabled = false;
+        }
+      })
+      .withFailureHandler(function(err) {
+        setStatus('❌ Erro inesperado: ' + err.message, 'err');
+        document.getElementById('btn').disabled = false;
+      })
+      .snapshotProcessCsvs(padraoText, armText);
+  }
+</script>
+</body>
+</html>
