@@ -347,42 +347,9 @@ function _me_carregarDadosAPI(mapaCompostos, bypassSnapshot) {
 //     via getInventoryProductsData e serve como cache horário.
 // ============================================================
 function me_atualizarSnapshotEstoque() {
-  Logger.log('[SNAPSHOT] Buscando dados via getInventoryProductsData...');
-
-  const { mapaCompostos } = _me_carregarBL();
-  // Força chamada direta à API (bypassSnapshot=true para evitar loop)
-  const stockLocDim = _me_carregarDadosAPI(mapaCompostos, true);
-
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  let   aba = ss.getSheetByName(ME.SNAPSHOT_SHEET);
-  if (!aba) aba = ss.insertSheet(ME.SNAPSHOT_SHEET);
-  aba.clearContents();
-  aba.clearFormats();
-
-  const ts   = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
-  const skus = Object.keys(stockLocDim);
-
-  aba.getRange(1, 1).setValue('Atualizado: ' + ts + '  |  SKUs: ' + skus.length);
-  aba.getRange(2, 1, 1, 9)
-     .setValues([['SKU','picking','armPad','arm','chg','locF','locG','peso','vol']])
-     .setFontWeight('bold');
-
-  if (skus.length > 0) {
-    const rows = skus.map(sku => {
-      const d = stockLocDim[sku];
-      return [sku, d.picking, d.armPad, d.arm, d.chg, d.locF, d.locG, d.peso, d.vol];
-    });
-    // Coluna SKU como texto para preservar zeros à esquerda (ex: 00118 → não vira 118)
-    aba.getRange(3, 1, rows.length, 1).setNumberFormat('@');
-    aba.getRange(3, 1, rows.length, 9).setValues(rows);
-  }
-
-  SpreadsheetApp.flush();
-  Logger.log('[SNAPSHOT] Concluído: ' + skus.length + ' SKUs');
-
-  try {
-    SpreadsheetApp.getUi().alert('✅ Snapshot atualizado!\n' + skus.length + ' SKUs  |  ' + ts);
-  } catch(e) { /* rodando via trigger — sem UI */ }
+  // Abre dialog de upload dos CSVs de Padrão e Armazenamento.
+  // O CHEGOU é buscado via API automaticamente pelo SnapshotBL.gs.
+  showSnapshotUpload();
 }
 
 // Lê SNAPSHOT_BL e reconstrói stockLocDim processado

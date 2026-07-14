@@ -22,14 +22,7 @@ const SNAPSHOT_TAB   = 'SNAPSHOT_BL';
 const BL_INVENTORY   = 39947;
 const BL_WH_CHEGOU   = 'bl_51442';
 
-// ── Menu ────────────────────────────────────────────────────
-
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('BaseLinker')
-    .addItem('📦 Atualizar SNAPSHOT_BL...', 'showSnapshotUpload')
-    .addToUi();
-}
+// ── Dialog (chamado por me_atualizarSnapshotEstoque em MovimentacaoEstoque.gs) ──
 
 function showSnapshotUpload() {
   const html = HtmlService.createHtmlOutputFromFile('SnapshotBLUpload')
