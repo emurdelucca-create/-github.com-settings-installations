@@ -511,7 +511,7 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
 
     log.info(f"[EXPORT:{warehouse_name}] Recarregando para garantir produtos completos...")
     await page.reload(wait_until="networkidle")
-    await page.wait_for_timeout(5000)  # 5s: produtos carregam via AJAX após o reload
+    await page.wait_for_timeout(15000)  # 15s: inventário populado via AJAX (usuário: 10s mínimo)
     await screenshot(page, f"{pfx}07b_list_after_reload")
 
     # Pega o ID do inventário mais recente (maior ID = recém-criado).
@@ -553,40 +553,48 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             log.info(f"[NET:{warehouse_name}] {url}")
     page.on("request", _on_req)
 
-    # Seleciona o checkbox via Playwright (isTrusted: true).
-    # JS cb.checked=true + dispatchEvent é isTrusted:false — BaseLinker ignora o evento
-    # e não atualiza o array interno de itens selecionados, então o export exporta 0 itens.
+    # Clica no checkbox via page.mouse.click (isTrusted: true).
+    # Problema anterior: Playwright locator.click(force=True) falha com "Element is
+    # outside of the viewport" quando o elemento fica ATRÁS do header sticky após o
+    # scroll padrão (scrollIntoView coloca o elemento no topo, o header cobre).
+    # Solução: JS scrollIntoView({block:'center'}) centraliza o elemento na viewport,
+    # depois page.mouse.click usa as coordenadas reais de getBoundingClientRect.
+    cb_info = await page.evaluate("""
+        (invId) => {
+            const row = invId
+                ? (document.querySelector('tr#row_' + invId) || document.querySelector('tr.stocktake_row'))
+                : document.querySelector('tr.stocktake_row');
+            if (!row) return null;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (!cb) return null;
+            cb.scrollIntoView({block: 'center', inline: 'center'});
+            const r = cb.getBoundingClientRect();
+            return {x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height};
+        }
+    """, inv_id)
+    log.info(f"[EXPORT:{warehouse_name}] Checkbox info: {json.dumps(cb_info)}")
+
     cb_clicked = False
-    if inv_id:
+    if cb_info and cb_info.get("w", 0) > 0:
         try:
-            cb_loc = page.locator(f'tr#row_{inv_id} input[type="checkbox"]')
-            if await cb_loc.count() > 0:
-                await cb_loc.first.scroll_into_view_if_needed()
-                await cb_loc.first.click(force=True)
-                cb_clicked = True
-                log.info(f"[EXPORT:{warehouse_name}] Checkbox clicado (isTrusted) row_{inv_id}")
+            await page.mouse.click(cb_info["x"], cb_info["y"])
+            cb_clicked = True
+            log.info(f"[EXPORT:{warehouse_name}] Checkbox mouse.click @ ({cb_info['x']:.0f},{cb_info['y']:.0f})")
         except Exception as e:
-            log.warning(f"[EXPORT:{warehouse_name}] Checkbox Playwright: {e}")
+            log.warning(f"[EXPORT:{warehouse_name}] Checkbox mouse.click: {e}")
+    else:
+        log.warning(f"[EXPORT:{warehouse_name}] Checkbox rect inválido: {cb_info}")
     if not cb_clicked:
-        try:
-            cb_loc = page.locator('tr.stocktake_row input[type="checkbox"]').first
-            if await cb_loc.count() > 0:
-                await cb_loc.scroll_into_view_if_needed()
-                await cb_loc.click(force=True)
-                cb_clicked = True
-                log.info(f"[EXPORT:{warehouse_name}] Checkbox clicado (fallback, isTrusted)")
-        except Exception as e:
-            log.warning(f"[EXPORT:{warehouse_name}] Checkbox fallback: {e}")
-    if not cb_clicked:
-        log.warning(f"[EXPORT:{warehouse_name}] Nenhum checkbox clicável encontrado")
+        log.warning(f"[EXPORT:{warehouse_name}] Checkbox não clicado — Imprimir pode não abrir")
     await page.wait_for_timeout(800)
 
-    # Acha coordenadas do botão Imprimir
+    # Acha coordenadas do botão Imprimir (scrollIntoView center para evitar header sticky)
     btn_pos = await page.evaluate("""
         () => {
             const btn = [...document.querySelectorAll('button')]
                 .find(b => b.textContent.trim() === 'Imprimir' && b.classList.contains('btn-reset'));
             if (!btn) return null;
+            btn.scrollIntoView({block: 'center', inline: 'center'});
             const r = btn.getBoundingClientRect();
             return {x: r.left + r.width / 2, y: r.top + r.height / 2, cls: btn.className};
         }
@@ -597,11 +605,11 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         await screenshot(page, f"ERR_{pfx}no_print_btn")
         raise RuntimeError(f"Botão Imprimir não encontrado [{warehouse_name}]")
 
-    # Clica com mouse real — o botão tem classe 'collapse-btn dropdown-toggle',
-    # então abre um painel inline (Bootstrap collapse), não um dropdown flutuante.
+    # Clica com mouse real — o botão tem classe 'collapse-btn dropdown-toggle'.
+    # O BaseLinker só abre o collapse/dropdown se ao menos 1 item estiver selecionado.
     await page.mouse.click(btn_pos["x"], btn_pos["y"])
     log.info(f"[EXPORT:{warehouse_name}] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
-    await page.wait_for_timeout(1200)
+    await page.wait_for_timeout(2000)  # aguarda animação do collapse (Bootstrap ~350ms + margem)
 
     # Força abertura de dropdown pai E de qualquer collapse associado
     await page.evaluate("""
@@ -715,9 +723,28 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
 
     try:
         async with page.expect_download(timeout=30_000) as dl_info:
-            # Obtém posição do link CSV e clica com mouse real (isTrusted: true).
-            # JS el.click() produzia isTrusted:false — BaseLinker verifica event.isTrusted
-            # e ignora eventos programáticos, resultando em export silencioso de 0 itens.
+            # Estratégia 1: chamar printSelectedItems(15,...) diretamente.
+            # Sabemos o onclick do link CSV: printSelectedItems(15, 'table_inventory_stocktakes_container', '1')
+            # Chamada direta via JS não gera evento de clique, então isTrusted não é verificado.
+            # Requer que o checkbox tenha sido clicado para que a seleção esteja no estado interno.
+            direct = await page.evaluate("""
+                () => {
+                    if (typeof printSelectedItems === 'function') {
+                        printSelectedItems(15, 'table_inventory_stocktakes_container', '1');
+                        return {called: true};
+                    }
+                    return {called: false};
+                }
+            """)
+            log.info(f"[EXPORT:{warehouse_name}] printSelectedItems direto: {json.dumps(direct)}")
+
+            # Estratégia 2 (fallback): coordenadas do link CSV + page.mouse.click
+            if not direct.get("called"):
+                # Obtém posição do link CSV e clica com mouse real (isTrusted: true).
+                pass
+
+            # Sempre tenta coordenadas + click como reforço (pode ser que printSelectedItems
+            # abra um modal em vez de disparar o download directamente)
             csv_pos = await page.evaluate("""
                 () => {
                     const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
@@ -742,25 +769,42 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     }
                     if (!foundEl) return null;
 
-                    foundEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                    foundEl.scrollIntoView({block: 'center', inline: 'center'});
                     let r = foundEl.getBoundingClientRect();
 
                     if (r.width === 0 || r.height === 0) {
-                        // Remove overflow:hidden de ancestrais temporariamente para obter rect válido
+                        // Remove display:none e overflow:hidden de ancestrais para obter rect válido.
+                        // O collapse pode ter display:none via inline style (JS da BaseLinker)
+                        // que sobrepõe as classes Bootstrap — precisamos forçar display:block também.
                         const saved = [];
                         let p = foundEl.parentElement;
                         while (p && p !== document.body) {
                             const cs = window.getComputedStyle(p);
-                            if (cs.overflow === 'hidden' || cs.overflowY === 'hidden') {
-                                saved.push({el: p, ov: p.style.overflow, ovY: p.style.overflowY});
-                                p.style.overflow = 'visible';
-                                p.style.overflowY = 'visible';
+                            const item = {el: p, display: p.style.display,
+                                          ov: p.style.overflow, ovY: p.style.overflowY};
+                            let changed = false;
+                            if (cs.display === 'none') {
+                                p.style.setProperty('display', 'block', 'important');
+                                changed = true;
                             }
+                            if (cs.overflow === 'hidden') {
+                                p.style.overflow = 'visible';
+                                changed = true;
+                            }
+                            if (cs.overflowY === 'hidden') {
+                                p.style.overflowY = 'visible';
+                                changed = true;
+                            }
+                            if (changed) saved.push(item);
                             p = p.parentElement;
                         }
-                        foundEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                        foundEl.scrollIntoView({block: 'center', inline: 'center'});
                         r = foundEl.getBoundingClientRect();
-                        saved.forEach(s => { s.el.style.overflow = s.ov; s.el.style.overflowY = s.ovY; });
+                        saved.forEach(s => {
+                            s.el.style.display = s.display;
+                            s.el.style.overflow = s.ov;
+                            s.el.style.overflowY = s.ovY;
+                        });
                     }
 
                     return {text: foundEl.textContent.trim(),
