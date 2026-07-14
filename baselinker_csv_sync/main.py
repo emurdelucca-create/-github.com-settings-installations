@@ -3,9 +3,10 @@ BaseLinker Inventory CSV → Google Sheets (SNAPSHOT_BL)
 
 Flow por armazém (Padrão + Armazenamento):
   1. Cria inventário rascunho via UI do BaseLinker (Playwright)
-  2. Exporta CSV "Exportar itens de inventário (CSV)"
-  3. Exclui o rascunho
-  4. Parseia CSV → {sku: {picking, armPad/arm, locF/locG}}
+  2. Recarrega a página (rascunho vem sem produtos; após reload lista completa)
+  3. Exporta CSV "Exportar itens de inventário (CSV)"
+  4. Exclui o rascunho
+  5. Parseia CSV → {sku: {picking, armPad/arm, locF/locG}}
 
 Dados de CHEGOU e dimensões via API BaseLinker.
 
@@ -209,7 +210,6 @@ async def bl_login(page):
             pass
 
     # ── Preenche campo LOGIN ──────────────────────────────────────────────────
-    # A página usa label "LOGIN" — get_by_label é a forma mais robusta
     login_filled = False
     for attempt in [
         lambda: page.locator("input[id='loginField']"),          # id exato da BaseLinker
@@ -289,35 +289,42 @@ async def bl_login(page):
     await screenshot(page, "03_panel")
 
 
-async def export_inventory_csv(page):
+async def export_inventory_csv(page, warehouse_name, tag=""):
     """
-    Cria um inventário rascunho (sem seleção de armazém — modal é simples),
-    exporta o CSV completo, exclui o rascunho.
-    Retorna o conteúdo CSV como string.
+    Cria inventário rascunho para o armazém indicado, recarrega a página para
+    garantir que todos os produtos/locações apareçam, exporta o CSV e exclui
+    o rascunho.
 
-    FIX: o botão "Criar inventário" existe tanto na PÁGINA (abre o modal)
-    quanto DENTRO do modal (confirma a criação). O `.last` garante que
-    clicamos no do modal, não no da página.
+    warehouse_name: nome exato do armazém como aparece no select do modal
+                    (ex: "Padrão" ou "Armazenamento")
+    tag:            prefixo curto para nomear screenshots (ex: "padrao" ou "arm")
+
+    O modal "Criar inventário" da BaseLinker possui:
+      - Primeiro select: Warehouse/depósito
+      - Segundo select: Escopo do levantamento
+
+    IMPORTANTE: após criar o rascunho, recarregar a página é necessário porque
+    na primeira carga o inventário aparece sem produtos; após reload lista completa.
     """
-    log.info("[EXPORT] Abrindo inventory_stocktakes...")
+    pfx = f"{tag}_" if tag else ""
+    log.info(f"[EXPORT:{warehouse_name}] Abrindo inventory_stocktakes...")
     await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
     await page.wait_for_timeout(2000)
-    await screenshot(page, "04_list")
+    await screenshot(page, f"{pfx}04_list")
 
-    # ── 1. Abre o modal clicando no botão da PÁGINA ──────────────────────────
-    # O botão pode ser <a> ou <button> com classe btn-success ou btn-primary
+    # ── 1. Abre modal "Criar inventário" ─────────────────────────────────────
     opened = await try_click(page, [
         page.locator("a.btn-success, button.btn-success, a.btn-primary, button.btn-primary").first,
         page.locator("[data-action='add'], [id*='add_btn'], [class*='create']").first,
         page.get_by_role("button", name=re.compile(r"criar|add|novo|new", re.I)).first,
         page.get_by_role("link",   name=re.compile(r"criar|add|novo|new", re.I)).first,
-    ], "Abrir modal 'Criar inventário'")
+    ], f"Abrir modal 'Criar inventário' [{warehouse_name}]")
 
     if not opened:
-        await screenshot(page, "ERR_no_open_modal_btn")
-        raise RuntimeError("Botão para abrir modal de criação não encontrado")
+        await screenshot(page, f"ERR_{pfx}no_open_modal_btn")
+        raise RuntimeError(f"Botão para abrir modal de criação não encontrado [{warehouse_name}]")
 
-    # Aguarda modal aparecer
+    # Aguarda modal visível aparecer
     try:
         await page.wait_for_selector(
             ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
@@ -325,75 +332,159 @@ async def export_inventory_csv(page):
         )
     except Exception:
         pass
-    await page.wait_for_timeout(2000)
-    await screenshot(page, "05_modal")
+    await page.wait_for_timeout(1500)
+    await screenshot(page, f"{pfx}05_modal")
 
-    # ── 2. Clica "Criar inventário" DENTRO do modal ──────────────────────────
-    # Loga TODOS os botões dentro do modal para diagnóstico
-    modal_buttons = await page.evaluate("""
+    # ── 2. Diagnostica modal visível ─────────────────────────────────────────
+    # document.querySelector('.modal') retorna o PRIMEIRO .modal, que pode ser
+    # um modal oculto de edição de inventário. Precisamos do modal VISÍVEL
+    # (getBoundingClientRect().width > 0).
+    modal_info = await page.evaluate("""
         () => {
-            const modal = document.querySelector('.modal');
-            if (!modal) return [];
-            return [...modal.querySelectorAll('button')].map(b => ({
-                text: b.textContent.trim(),
-                classes: b.className,
-                id: b.id,
-                dismiss: b.getAttribute('data-dismiss'),
-                rect: [b.getBoundingClientRect().width, b.getBoundingClientRect().height]
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
+                .find(m => {
+                    const r = m.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+            if (!modal) return {error: 'no visible modal'};
+            const selects = [...modal.querySelectorAll('select')].map((sel, i) => ({
+                i,
+                id: sel.id,
+                name: sel.name,
+                value: sel.value,
+                options: [...sel.options].map(o => o.text.trim()),
+                rect: (() => { const r = sel.getBoundingClientRect();
+                    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()
             }));
+            const buttons = [...modal.querySelectorAll('button, input[type="submit"]')].map(btn => ({
+                text: btn.textContent.trim(),
+                classes: btn.className,
+                dismiss: btn.getAttribute('data-dismiss'),
+                rect: (() => { const r = btn.getBoundingClientRect();
+                    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()
+            }));
+            return {selects, buttons};
         }
     """)
-    log.info(f"[DEBUG] Modal buttons: {json.dumps(modal_buttons)}")
+    log.info(f"[EXPORT:{warehouse_name}] Modal info: {json.dumps(modal_info)}")
 
-    # Clica no botão do modal que NÃO é cancelar/fechar
-    result = await page.evaluate("""
+    # ── 3. Define armazém e escopo no modal ──────────────────────────────────
+    set_result = await page.evaluate("""
+        (warehouseName) => {
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
+                .find(m => {
+                    const r = m.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+            if (!modal) return {error: 'no visible modal'};
+
+            const selects = [...modal.querySelectorAll('select')];
+            let whSet = false, escopoSet = false;
+
+            for (const sel of selects) {
+                if (!whSet) {
+                    // Procura opção cujo texto contenha o nome do armazém
+                    const whOpt = [...sel.options].find(o =>
+                        o.text.trim().toLowerCase().includes(warehouseName.toLowerCase())
+                    );
+                    if (whOpt) {
+                        sel.value = whOpt.value;
+                        sel.dispatchEvent(new Event('change', {bubbles: true}));
+                        whSet = true;
+                        continue;
+                    }
+                }
+                if (!escopoSet) {
+                    // Procura opção "Todos os produtos" no select de escopo
+                    const todosOpt = [...sel.options].find(o =>
+                        o.text.trim().toLowerCase().includes('todos')
+                    );
+                    if (todosOpt) {
+                        sel.value = todosOpt.value;
+                        sel.dispatchEvent(new Event('change', {bubbles: true}));
+                        escopoSet = true;
+                    }
+                }
+            }
+            return {whSet, escopoSet, totalSelects: selects.length};
+        }
+    """, warehouse_name)
+    log.info(f"[EXPORT:{warehouse_name}] Modal set result: {set_result}")
+
+    await page.wait_for_timeout(500)
+    await screenshot(page, f"{pfx}05b_modal_filled")
+
+    # ── 4. Clica botão "Criar inventário" no modal via coordenadas reais ─────
+    # JS .click() pode não funcionar em alguns botões Bootstrap — usamos
+    # page.mouse.click() com coordenadas reais do elemento visível.
+    submit_pos = await page.evaluate("""
         () => {
-            const modal = document.querySelector('.modal');
-            if (!modal) return 'no modal';
-            const btns = [...modal.querySelectorAll('button')];
-            for (const btn of btns) {
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
+                .find(m => {
+                    const r = m.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+            if (!modal) return null;
+
+            const candidates = [...modal.querySelectorAll('button, input[type="submit"], a.btn')];
+            for (const btn of candidates) {
+                const r = btn.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+
                 const text = btn.textContent.trim().toLowerCase();
                 const isCancel = btn.getAttribute('data-dismiss') === 'modal'
                     || text.includes('cancelar') || text.includes('cancel')
-                    || btn.classList.contains('close');
+                    || btn.classList.contains('close')
+                    || text === 'x' || text === '×';
+
                 if (!isCancel) {
-                    btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
-                    return btn.textContent.trim();
+                    return {
+                        text: btn.textContent.trim(),
+                        x: Math.round(r.left + r.width / 2),
+                        y: Math.round(r.top + r.height / 2)
+                    };
                 }
             }
             return null;
         }
     """)
-    log.info(f"[EXPORT] Modal submit via JS: {result}")
 
-    # Aguarda 5s para AJAX completar (inventário é criado em background)
+    if submit_pos:
+        log.info(f"[EXPORT:{warehouse_name}] Clicando submit '{submit_pos['text']}' em ({submit_pos['x']}, {submit_pos['y']})")
+        await page.mouse.click(submit_pos["x"], submit_pos["y"])
+    else:
+        log.warning(f"[EXPORT:{warehouse_name}] Botão submit não encontrado — tentando Enter")
+        await page.keyboard.press("Enter")
+
+    # Aguarda AJAX criar o inventário
     await page.wait_for_timeout(5000)
-    await screenshot(page, "06_after_confirm")
+    await screenshot(page, f"{pfx}06_after_confirm")
 
-    # FORÇA fechar modal (independente de auto-close) via botão X
-    closed = await page.evaluate("""
+    # Fecha modal caso ainda esteja aberto
+    await page.evaluate("""
         () => {
-            // Tenta botão X (data-dismiss ou .close)
-            const x = document.querySelector('.modal .close, .modal [data-dismiss="modal"], .modal-header button');
-            if (x) { x.click(); return 'X-btn'; }
-            // Tenta Bootstrap modal('hide')
+            const x = document.querySelector('.modal .close, .modal [data-dismiss="modal"]');
+            if (x) { x.click(); return; }
             if (window.$) {
                 const m = $('.modal:visible');
-                if (m.length) { m.modal('hide'); return 'modal-hide'; }
+                if (m.length) m.modal('hide');
             }
-            return null;
         }
     """)
-    if closed:
-        log.info(f"[EXPORT] Modal fechado: {closed}")
     await page.keyboard.press("Escape")
-    await page.wait_for_timeout(2000)
-    await screenshot(page, "06_after_create")
+    await page.wait_for_timeout(1000)
 
-    # ── 3. Vai à lista e descobre como abrir o inventário ────────────────────
+    # ── 5. Navega à lista e RECARREGA ────────────────────────────────────────
+    # O rascunho é criado primeiro sem produtos; após reload todos aparecem.
+    log.info(f"[EXPORT:{warehouse_name}] Navegando à lista de inventários...")
     await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
+    await page.wait_for_timeout(2000)
+    await screenshot(page, f"{pfx}07_list_after_create")
+
+    log.info(f"[EXPORT:{warehouse_name}] Recarregando para garantir produtos completos...")
+    await page.reload(wait_until="networkidle")
     await page.wait_for_timeout(3000)
-    await screenshot(page, "07_list_after_create")
+    await screenshot(page, f"{pfx}07b_list_after_reload")
 
     inv_id = await page.evaluate("""
         () => {
@@ -402,14 +493,9 @@ async def export_inventory_csv(page):
             return null;
         }
     """)
-    log.info(f"[EXPORT] ID do primeiro inventário: {inv_id}")
+    log.info(f"[EXPORT:{warehouse_name}] ID do inventário: {inv_id}")
 
-    await screenshot(page, "08_inv_detail")
-
-    # ── 4. Seleciona checkbox via JS; clica Imprimir com mouse real ──────────
-    # JS .click() no dropdown-toggle não abre o menu Bootstrap (falta mousedown/up).
-    # Solução: JS só para o checkbox; mouse.click() nas coordenadas reais do botão.
-
+    # ── 6. Seleciona checkbox via JS; captura URL e clica Imprimir ───────────
     # Patcha window.open para capturar URLs que abrem em nova aba
     await page.evaluate("""
         () => {
@@ -422,13 +508,12 @@ async def export_inventory_csv(page):
         }
     """)
 
-    # Captura requests relevantes desde já
     export_requests = []
     def _on_req(req):
         url = req.url
         if any(k in url.lower() for k in ["export", "csv", "stocktake", "download", "print"]):
             export_requests.append(url)
-            log.info(f"[NET] {url}")
+            log.info(f"[NET:{warehouse_name}] {url}")
     page.on("request", _on_req)
 
     # Seleciona checkbox via JS
@@ -443,7 +528,7 @@ async def export_inventory_csv(page):
             return true;
         }
     """)
-    log.info(f"[EXPORT] Checkbox JS: {cb_ok}")
+    log.info(f"[EXPORT:{warehouse_name}] Checkbox JS: {cb_ok}")
     await page.wait_for_timeout(500)
 
     # Acha coordenadas do botão Imprimir (dropdown-toggle)
@@ -456,20 +541,20 @@ async def export_inventory_csv(page):
             return {x: r.left + r.width / 2, y: r.top + r.height / 2, cls: btn.className};
         }
     """)
-    log.info(f"[EXPORT] Botão Imprimir: {btn_pos}")
+    log.info(f"[EXPORT:{warehouse_name}] Botão Imprimir: {btn_pos}")
 
     if not btn_pos:
-        await screenshot(page, "ERR_no_print_btn")
-        raise RuntimeError("Botão Imprimir não encontrado")
+        await screenshot(page, f"ERR_{pfx}no_print_btn")
+        raise RuntimeError(f"Botão Imprimir não encontrado [{warehouse_name}]")
 
     # Clica com mouse real → abre dropdown Bootstrap corretamente
     await page.mouse.click(btn_pos["x"], btn_pos["y"])
-    log.info(f"[EXPORT] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
+    log.info(f"[EXPORT:{warehouse_name}] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
 
     await page.wait_for_timeout(1500)
-    await screenshot(page, "09_dropdown_open")
+    await screenshot(page, f"{pfx}09_dropdown_open")
 
-    # Loga todos os elementos visíveis com "exportar/csv/imprimir" no texto
+    # Loga todos os elementos visíveis com "exportar/csv" no texto
     visible_items = await page.evaluate("""
         () => {
             return [...document.querySelectorAll('a, li, button, span')]
@@ -494,7 +579,7 @@ async def export_inventory_csv(page):
                 });
         }
     """)
-    log.info(f"[DEBUG] Itens visíveis export: {json.dumps(visible_items)}")
+    log.info(f"[DEBUG:{warehouse_name}] Itens visíveis export: {json.dumps(visible_items)}")
 
     # Acha item CSV no dropdown
     csv_item = None
@@ -511,10 +596,12 @@ async def export_inventory_csv(page):
                 break
 
     if not csv_item:
-        await screenshot(page, "ERR_no_csv_item")
-        raise RuntimeError(f"Item CSV não encontrado no dropdown. Itens: {visible_items}")
+        await screenshot(page, f"ERR_{pfx}no_csv_item")
+        raise RuntimeError(
+            f"Item CSV não encontrado no dropdown [{warehouse_name}]. Itens: {visible_items}"
+        )
 
-    log.info(f"[EXPORT] CSV item: '{csv_item['text']}' em ({csv_item['x']}, {csv_item['y']})")
+    log.info(f"[EXPORT:{warehouse_name}] CSV item: '{csv_item['text']}' em ({csv_item['x']}, {csv_item['y']})")
 
     csv_content = None
 
@@ -522,21 +609,20 @@ async def export_inventory_csv(page):
     try:
         async with page.expect_download(timeout=25_000) as dl_info:
             await page.mouse.click(csv_item["x"], csv_item["y"])
-            log.info(f"[EXPORT] mouse.click(CSV) em ({csv_item['x']}, {csv_item['y']})")
+            log.info(f"[EXPORT:{warehouse_name}] mouse.click(CSV)")
         dl = await dl_info.value
         tmp_path = await dl.path()
         csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
-        log.info(f"[EXPORT] CSV via download: {len(csv_content)} chars")
+        log.info(f"[EXPORT:{warehouse_name}] CSV via download: {len(csv_content)} chars")
     except Exception as e:
-        log.warning(f"[EXPORT] Download falhou ({e}) — checando window.open e requests")
-        await screenshot(page, "09b_after_csv_click")
+        log.warning(f"[EXPORT:{warehouse_name}] Download falhou ({e}) — checando window.open e requests")
+        await screenshot(page, f"{pfx}09b_after_csv_click")
         await page.wait_for_timeout(2000)
 
         opened_urls = await page.evaluate("() => window.__capturedUrls || []")
-        log.info(f"[DEBUG] window.open URLs: {opened_urls}")
-        log.info(f"[DEBUG] export_requests: {export_requests}")
+        log.info(f"[DEBUG:{warehouse_name}] window.open URLs: {opened_urls}")
+        log.info(f"[DEBUG:{warehouse_name}] export_requests: {export_requests}")
 
-        # Tenta baixar via requests + cookies de sessão
         target_url = None
         for u in list(opened_urls) + list(export_requests):
             if any(k in u.lower() for k in ["csv", "export", "download"]):
@@ -549,26 +635,25 @@ async def export_inventory_csv(page):
             resp = requests.get(target_url, cookies=jar, timeout=60)
             resp.raise_for_status()
             csv_content = resp.text
-            log.info(f"[EXPORT] CSV via requests.get({target_url}): {len(csv_content)} chars")
+            log.info(f"[EXPORT:{warehouse_name}] CSV via requests.get: {len(csv_content)} chars")
         else:
-            log.info(f"[DEBUG] URL atual: {page.url}")
-            await screenshot(page, "ERR_no_csv_option")
+            await screenshot(page, f"ERR_{pfx}no_csv_option")
             raise RuntimeError(
-                f"CSV não capturado. opened={opened_urls} requests={export_requests}"
+                f"CSV não capturado [{warehouse_name}]. opened={opened_urls} requests={export_requests}"
             )
 
     if not csv_content:
-        raise RuntimeError("Conteúdo CSV vazio")
+        raise RuntimeError(f"Conteúdo CSV vazio [{warehouse_name}]")
 
-    log.info(f"[EXPORT] CSV: {len(csv_content)} chars, {csv_content.count(chr(10))} linhas")
-    await screenshot(page, "10_downloaded")
+    log.info(f"[EXPORT:{warehouse_name}] CSV: {len(csv_content)} chars, {csv_content.count(chr(10))} linhas")
+    await screenshot(page, f"{pfx}10_downloaded")
 
-    # ── 5. Exclui o rascunho ─────────────────────────────────────────────────
+    # ── 7. Exclui o rascunho ─────────────────────────────────────────────────
     deleted = await try_click(page, [
         page.get_by_role("button", name=re.compile(r"excluir|deletar|delete|remover", re.I)),
         page.locator("button.btn-danger").first,
         page.locator("[data-action='delete']").first,
-    ], "Excluir inventário")
+    ], f"Excluir inventário [{warehouse_name}]")
 
     if deleted:
         await page.wait_for_timeout(500)
@@ -576,9 +661,12 @@ async def export_inventory_csv(page):
             page.get_by_role("button", name=re.compile(r"sim|yes|confirmar|ok", re.I)),
             page.locator(".modal-footer .btn-danger, .bootbox-accept").first,
         ], "Confirmar exclusão")
-        log.info("[EXPORT] Inventário excluído")
+        log.info(f"[EXPORT:{warehouse_name}] Inventário excluído")
     else:
-        log.warning("[EXPORT] Não conseguiu excluir — remova manualmente")
+        log.warning(f"[EXPORT:{warehouse_name}] Não conseguiu excluir — remova manualmente")
+
+    # Aguarda exclusão processar antes de criar o próximo
+    await page.wait_for_timeout(2000)
 
     return csv_content
 
@@ -600,29 +688,30 @@ def find_col(headers, *candidates):
     return None
 
 
-def parse_csv(csv_content):
+def parse_csv(csv_content, warehouse_name="Padrão"):
     """
-    Parseia o CSV único de inventário do BaseLinker.
+    Parseia CSV de inventário do BaseLinker para um armazém específico.
 
-    Lógica de zona por localização:
-      A8... → picking   (locF)
-      A9... → armPad    (locG)   [Padrão — zona de armazenagem pequena]
-      Sem A8/A9 → picking (fallback)
+    Headers reais: #;Nome do produto;EAN;SKU;Localização;Número de unidades;...
+      col 3 → SKU
+      col 4 → Localização
+      col 5 → Número de unidades (estoque atual)
 
-    Se o CSV tiver coluna de armazém, produtos do armazém "Armazenamento"
-    com A9 vão para arm em vez de armPad (detectado pelo nome da coluna).
+    Lógica de zona:
+      Padrão:        A8... → picking (locF)
+                     A9... → armPad (locG)
+                     else  → picking (fallback)
+      Armazenamento: qualquer localização → arm (locG)
 
     Retorna {sku: {picking, armPad, arm, locF: set, locG: set}}
-
-    NOTA: depois de ver o CSV real os headers serão logados —
-    ajuste as colunas se necessário.
     """
     result = {}
     delim = detect_delimiter(csv_content[:3000])
     reader = csv.reader(io.StringIO(csv_content), delimiter=delim)
 
     headers = None
-    sku_col = loc_col = qty_col = wh_col = None
+    sku_col = loc_col = qty_col = None
+    is_armazenamento = "armazenamento" in warehouse_name.lower()
 
     for row in reader:
         if not any(c.strip() for c in row):
@@ -630,18 +719,25 @@ def parse_csv(csv_content):
 
         if headers is None:
             headers = row
-            sku_col = find_col(headers, "sku", "cod", "codigo", "code", "ean", "referencia")
+            sku_col = find_col(headers, "sku", "cod", "codigo", "code", "referencia")
             loc_col = find_col(headers, "locali", "location", "posicao", "posição", "prateleira", "shelf")
-            qty_col = find_col(headers, "esperado", "expected", "quantidade", "quantity", "estoque", "qty")
-            wh_col  = find_col(headers, "armazem", "armazém", "warehouse", "deposito", "depósito")
-            log.info(f"[CSV] headers={headers}")
-            log.info(f"[CSV] cols → sku:{sku_col} loc:{loc_col} qty:{qty_col} wh:{wh_col}")
+            # "Número de unidades" → candidate "unidades" (col 5 nos CSVs reais)
+            qty_col = find_col(
+                headers,
+                "unidades",       # "Número de unidades" — CSVs reais da BaseLinker
+                "esperado", "expected", "quantidade", "quantity", "estoque", "qty",
+            )
+            log.info(f"[CSV:{warehouse_name}] headers={headers}")
+            log.info(f"[CSV:{warehouse_name}] cols → sku:{sku_col} loc:{loc_col} qty:{qty_col}")
             if sku_col is None:
-                sku_col = 0
-                log.warning("[CSV] Coluna SKU não identificada — usando col 0")
+                sku_col = 3  # col 3 no formato real (#;Nome;EAN;SKU;...)
+                log.warning(f"[CSV:{warehouse_name}] SKU col não identificada — usando col 3")
+            if loc_col is None:
+                loc_col = 4  # col 4 no formato real
+                log.warning(f"[CSV:{warehouse_name}] Loc col não identificada — usando col 4")
             if qty_col is None:
-                qty_col = len(headers) - 1
-                log.warning("[CSV] Coluna quantidade não identificada — usando última col")
+                qty_col = 5  # col 5 = "Número de unidades"
+                log.warning(f"[CSV:{warehouse_name}] Qty col não identificada — usando col 5")
             continue
 
         max_col = max(c for c in [sku_col, loc_col, qty_col] if c is not None)
@@ -649,11 +745,10 @@ def parse_csv(csv_content):
             continue
 
         sku = str(row[sku_col]).strip()
-        if not sku or sku.lower() in ("sku", "cod", "codigo", "ean", "referencia"):
+        if not sku or sku.lower() in ("#", "sku", "cod", "codigo", "ean", "referencia"):
             continue
 
         loc = str(row[loc_col]).strip() if loc_col is not None else ""
-        wh  = str(row[wh_col]).strip()  if wh_col  is not None else ""
         try:
             qty = int(float(str(row[qty_col]).replace(",", ".").strip() or "0"))
         except (ValueError, IndexError):
@@ -662,53 +757,60 @@ def parse_csv(csv_content):
         if qty <= 0:
             continue
 
-        loc_up = loc.upper()
-        is_a8 = loc_up.startswith("A8")
-        is_a9 = loc_up.startswith("A9")
-        is_arm_wh = "armazenamento" in wh.lower() if wh else False
-
         if sku not in result:
             result[sku] = {"picking": 0, "armPad": 0, "arm": 0, "locF": set(), "locG": set()}
 
         d = result[sku]
+        loc_up = loc.upper()
 
-        if is_a8:
-            d["picking"] += qty
-            if loc:
-                d["locF"].add(loc)
-        elif is_a9:
-            if is_arm_wh:
-                # A9 no armazém Armazenamento → arm
-                d["arm"] += qty
-            else:
-                # A9 no armazém Padrão (ou sem info de armazém) → armPad
-                d["armPad"] += qty
+        if is_armazenamento:
+            # Armazenamento: todas as locações → arm
+            d["arm"] += qty
             if loc:
                 d["locG"].add(loc)
         else:
-            d["picking"] += qty  # fallback
+            # Padrão: A8→picking, A9→armPad
+            if loc_up.startswith("A8"):
+                d["picking"] += qty
+                if loc:
+                    d["locF"].add(loc)
+            elif loc_up.startswith("A9"):
+                d["armPad"] += qty
+                if loc:
+                    d["locG"].add(loc)
+            else:
+                d["picking"] += qty  # fallback para locações desconhecidas
 
-    log.info(f"[CSV] {len(result)} SKUs parseados")
+    log.info(f"[CSV:{warehouse_name}] {len(result)} SKUs parseados")
     return result
 
 
 # ─── Merge + Google Sheets ────────────────────────────────────────────────────
 
-def merge_data(csv_data, api):
-    """Combina dados do CSV único (picking/armPad/arm/loc) com API (chg/peso/vol)."""
-    all_skus = sorted(set(csv_data) | set(api))
+def merge_data(padrao_data, armazenamento_data, api):
+    """
+    Combina:
+      padrao_data        → picking (A8) e armPad (A9) do armazém Padrão
+      armazenamento_data → arm de todas as locações do armazém Armazenamento
+      api                → chg (CHEGOU), peso e vol via API BaseLinker
+    """
+    all_skus = sorted(set(padrao_data) | set(armazenamento_data) | set(api))
     rows = []
     for sku in all_skus:
-        c = csv_data.get(sku, {})
+        p = padrao_data.get(sku, {})
+        a = armazenamento_data.get(sku, {})
         q = api.get(sku, {})
 
-        picking = c.get("picking", 0) or 0
-        arm_pad = c.get("armPad",  0) or 0
-        arm_qty = c.get("arm",     0) or 0
+        picking = p.get("picking", 0) or 0
+        arm_pad = p.get("armPad",  0) or 0
+        arm_qty = a.get("arm",     0) or 0
         chg     = q.get("chg",     0) or 0
 
-        locF = " / ".join(sorted(c.get("locF") or set())) or ""
-        locG = " / ".join(sorted(c.get("locG") or set())) or ""
+        # locF: locações A8 do Padrão
+        locF = " / ".join(sorted(p.get("locF") or set())) or ""
+        # locG: locações A9 do Padrão + locações do Armazenamento
+        locG_parts = (p.get("locG") or set()) | (a.get("locG") or set())
+        locG = " / ".join(sorted(locG_parts)) or ""
 
         peso = q.get("peso", 0) or 0
         vol  = q.get("vol",  0) or 0
@@ -761,7 +863,7 @@ async def run():
     # 1. Dados de CHEGOU + dimensões via API (sem browser)
     api_data = fetch_chegou_and_dimensions()
 
-    # 2. Exportar CSVs via Playwright
+    # 2. Exportar CSVs via Playwright (dois armazéns separados)
     async with async_playwright() as pw:
         # headless=False + Xvfb (no workflow) para passar pelo Cloudflare Turnstile
         browser = await pw.chromium.launch(
@@ -784,12 +886,11 @@ async def run():
             ),
         )
         page = await ctx.new_page()
-        await stealth_async(page)  # mascara sinais de automação
+        await stealth_async(page)
 
         # Tenta injetar cookie de sessão salvo (bypass do Cloudflare)
         session_injected = await bl_inject_session(ctx)
         if session_injected:
-            # Verifica se a sessão ainda é válida indo direto ao painel
             await page.goto(f"{BL_PANEL}/inventory_stocktakes", wait_until="networkidle")
             if BL_LOGIN in page.url or "login" in page.url.lower():
                 log.warning("[LOGIN] Cookie expirado — fazendo login via formulário")
@@ -800,21 +901,26 @@ async def run():
         else:
             await bl_login(page)
 
-        # Uma única exportação — o inventário cobre todos os armazéns
-        inv_csv = await export_inventory_csv(page)
+        # Exporta armazém Padrão (picking A8 + armPad A9)
+        log.info("[RUN] Exportando armazém Padrão...")
+        padrao_csv = await export_inventory_csv(page, "Padrão", tag="padrao")
+
+        # Exporta armazém Armazenamento (arm)
+        log.info("[RUN] Exportando armazém Armazenamento...")
+        armazenamento_csv = await export_inventory_csv(page, "Armazenamento", tag="arm")
 
         await browser.close()
 
-    # Salva CSV bruto para debug
-    (DEBUG_DIR / "inventory.csv").write_bytes(inv_csv.encode("utf-8"))
+    # Salva CSVs brutos para debug
+    (DEBUG_DIR / "padrao.csv").write_bytes(padrao_csv.encode("utf-8"))
+    (DEBUG_DIR / "armazenamento.csv").write_bytes(armazenamento_csv.encode("utf-8"))
 
-    # 3. Parseia: A8→picking, A9 Padrão→armPad, A9 Arm→arm
-    # parse_csv com is_padrao=True extrai picking+armPad (A8/A9)
-    # O merge_data combina com api_data (CHEGOU) para arm separado quando necessário
-    csv_data = parse_csv(inv_csv)
+    # 3. Parseia cada CSV com contexto de armazém
+    padrao_data       = parse_csv(padrao_csv,       warehouse_name="Padrão")
+    armazenamento_data = parse_csv(armazenamento_csv, warehouse_name="Armazenamento")
 
-    # 4. Merge
-    rows = merge_data(csv_data, api_data)
+    # 4. Merge: Padrão (picking/armPad) + Armazenamento (arm) + API (chg/peso/vol)
+    rows = merge_data(padrao_data, armazenamento_data, api_data)
 
     # 5. Grava no Sheets
     write_to_sheets(rows)
