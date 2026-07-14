@@ -406,87 +406,156 @@ async def export_inventory_csv(page):
 
     await screenshot(page, "08_inv_detail")
 
-    # ── 4. Seleciona checkbox do primeiro inventário via JS e clica Imprimir ──
-    # Descoberto no debug: o "Imprimir" é um button.btn-reset.list-item-mobile
-    # na toolbar da lista. Para exportar UM inventário específico, selecionar
-    # via checkbox primeiro (o checkbox tem class="px" e está fora do viewport,
-    # então usamos JS direto).
-    sel_result = await page.evaluate("""
+    # ── 4. Seleciona checkbox via JS; clica Imprimir com mouse real ──────────
+    # JS .click() no dropdown-toggle não abre o menu Bootstrap (falta mousedown/up).
+    # Solução: JS só para o checkbox; mouse.click() nas coordenadas reais do botão.
+
+    # Patcha window.open para capturar URLs que abrem em nova aba
+    await page.evaluate("""
         () => {
-            // Seleciona checkbox do primeiro row
-            const row = document.querySelector('tr.stocktake_row');
-            if (!row) return {cb: false};
-            const cb = row.querySelector('input[type="checkbox"]');
-            if (cb) {
-                cb.checked = true;
-                cb.dispatchEvent(new Event('change', {bubbles: true}));
-                cb.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-            }
-            // Clica no botão "Imprimir" da toolbar (btn-reset com texto exato)
-            const btns = [...document.querySelectorAll('button')];
-            const imprimir = btns.find(b =>
-                b.textContent.trim() === 'Imprimir' && b.classList.contains('btn-reset')
-            );
-            if (imprimir) {
-                imprimir.click();
-                return {cb: !!cb, imprimir: true, btnCls: imprimir.className};
-            }
-            // Fallback: qualquer botão visível com texto Imprimir
-            const any = btns.find(b =>
-                b.textContent.trim() === 'Imprimir' &&
-                b.getBoundingClientRect().width > 0
-            );
-            if (any) { any.click(); return {cb: !!cb, imprimir: true, fallback: true}; }
-            return {cb: !!cb, imprimir: false};
+            window.__capturedUrls = [];
+            const _open = window.open.bind(window);
+            window.open = function(url) {
+                if (url) window.__capturedUrls.push(String(url));
+                return _open.apply(window, arguments);
+            };
         }
     """)
-    log.info(f"[EXPORT] Selecionar+Imprimir via JS: {sel_result}")
 
-    if not sel_result.get("imprimir"):
+    # Captura requests relevantes desde já
+    export_requests = []
+    def _on_req(req):
+        url = req.url
+        if any(k in url.lower() for k in ["export", "csv", "stocktake", "download", "print"]):
+            export_requests.append(url)
+            log.info(f"[NET] {url}")
+    page.on("request", _on_req)
+
+    # Seleciona checkbox via JS
+    cb_ok = await page.evaluate("""
+        () => {
+            const row = document.querySelector('tr.stocktake_row');
+            if (!row) return false;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (!cb) return false;
+            cb.checked = true;
+            cb.dispatchEvent(new Event('change', {bubbles: true}));
+            return true;
+        }
+    """)
+    log.info(f"[EXPORT] Checkbox JS: {cb_ok}")
+    await page.wait_for_timeout(500)
+
+    # Acha coordenadas do botão Imprimir (dropdown-toggle)
+    btn_pos = await page.evaluate("""
+        () => {
+            const btn = [...document.querySelectorAll('button')]
+                .find(b => b.textContent.trim() === 'Imprimir' && b.classList.contains('btn-reset'));
+            if (!btn) return null;
+            const r = btn.getBoundingClientRect();
+            return {x: r.left + r.width / 2, y: r.top + r.height / 2, cls: btn.className};
+        }
+    """)
+    log.info(f"[EXPORT] Botão Imprimir: {btn_pos}")
+
+    if not btn_pos:
         await screenshot(page, "ERR_no_print_btn")
         raise RuntimeError("Botão Imprimir não encontrado")
 
-    await page.wait_for_timeout(700)
-    await screenshot(page, "09_print_menu")
+    # Clica com mouse real → abre dropdown Bootstrap corretamente
+    await page.mouse.click(btn_pos["x"], btn_pos["y"])
+    log.info(f"[EXPORT] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
 
-    # Captura requests de rede ao clicar CSV (para ver URL do export)
-    csv_requests = []
-    page.on("request", lambda r: csv_requests.append(r.url))
+    await page.wait_for_timeout(1500)
+    await screenshot(page, "09_dropdown_open")
 
-    # Tenta capturar como download OU como nova aba OU como navegação
+    # Loga todos os elementos visíveis com "exportar/csv/imprimir" no texto
+    visible_items = await page.evaluate("""
+        () => {
+            return [...document.querySelectorAll('a, li, button, span')]
+                .filter(el => {
+                    const t = el.textContent.trim().toLowerCase();
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0
+                        && (t.includes('csv') || t === 'imprimir'
+                            || (t.includes('exportar') && t.length < 80));
+                })
+                .map(el => {
+                    const r = el.getBoundingClientRect();
+                    return {
+                        tag: el.tagName,
+                        text: el.textContent.trim().substring(0, 80),
+                        href: el.getAttribute('href') || '',
+                        x: Math.round(r.left + r.width / 2),
+                        y: Math.round(r.top + r.height / 2),
+                        w: Math.round(r.width),
+                        h: Math.round(r.height)
+                    };
+                });
+        }
+    """)
+    log.info(f"[DEBUG] Itens visíveis export: {json.dumps(visible_items)}")
+
+    # Acha item CSV no dropdown
+    csv_item = None
+    for item in visible_items:
+        t = item["text"].lower()
+        if "csv" in t:
+            csv_item = item
+            break
+    if not csv_item:
+        for item in visible_items:
+            t = item["text"].lower()
+            if "exportar" in t and item["text"].lower() != "imprimir":
+                csv_item = item
+                break
+
+    if not csv_item:
+        await screenshot(page, "ERR_no_csv_item")
+        raise RuntimeError(f"Item CSV não encontrado no dropdown. Itens: {visible_items}")
+
+    log.info(f"[EXPORT] CSV item: '{csv_item['text']}' em ({csv_item['x']}, {csv_item['y']})")
+
     csv_content = None
 
+    # Tenta download direto
     try:
-        async with page.expect_download(timeout=20_000) as dl_info:
-            csv_clicked = await try_click(page, [
-                page.get_by_text(re.compile(r"exportar.*csv|itens.*inventário", re.I)),
-                page.locator("li:has-text('CSV'), a:has-text('CSV')").first,
-                page.locator("li:has-text('Exportar'), a:has-text('Exportar')").first,
-            ], "Exportar CSV (download)")
-            if not csv_clicked:
-                raise RuntimeError("nenhum clique")
+        async with page.expect_download(timeout=25_000) as dl_info:
+            await page.mouse.click(csv_item["x"], csv_item["y"])
+            log.info(f"[EXPORT] mouse.click(CSV) em ({csv_item['x']}, {csv_item['y']})")
         dl = await dl_info.value
         tmp_path = await dl.path()
         csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
         log.info(f"[EXPORT] CSV via download: {len(csv_content)} chars")
     except Exception as e:
-        log.warning(f"[EXPORT] Download direto falhou ({e}) — tentando via URL/nova aba")
-        log.info(f"[DEBUG] Requests CSV: {csv_requests[-20:]}")
+        log.warning(f"[EXPORT] Download falhou ({e}) — checando window.open e requests")
         await screenshot(page, "09b_after_csv_click")
+        await page.wait_for_timeout(2000)
 
-        # Verifica se a URL atual contém CSV ou se navegou
-        await page.wait_for_timeout(3000)
-        cur_url = page.url
-        log.info(f"[DEBUG] URL após CSV click: {cur_url}")
+        opened_urls = await page.evaluate("() => window.__capturedUrls || []")
+        log.info(f"[DEBUG] window.open URLs: {opened_urls}")
+        log.info(f"[DEBUG] export_requests: {export_requests}")
 
-        if "csv" in cur_url.lower() or "export" in cur_url.lower():
-            # Navegou para uma página CSV — lê o conteúdo como texto
-            csv_content = await page.content()
-            log.info(f"[EXPORT] CSV via navegação: {len(csv_content)} chars")
+        # Tenta baixar via requests + cookies de sessão
+        target_url = None
+        for u in list(opened_urls) + list(export_requests):
+            if any(k in u.lower() for k in ["csv", "export", "download"]):
+                target_url = u
+                break
+
+        if target_url:
+            cookies = await page.context.cookies()
+            jar = {c["name"]: c["value"] for c in cookies}
+            resp = requests.get(target_url, cookies=jar, timeout=60)
+            resp.raise_for_status()
+            csv_content = resp.text
+            log.info(f"[EXPORT] CSV via requests.get({target_url}): {len(csv_content)} chars")
         else:
-            # Tenta nova aba
+            log.info(f"[DEBUG] URL atual: {page.url}")
             await screenshot(page, "ERR_no_csv_option")
-            raise RuntimeError(f"CSV não capturado. Requests: {csv_requests[-10:]}")
+            raise RuntimeError(
+                f"CSV não capturado. opened={opened_urls} requests={export_requests}"
+            )
 
     if not csv_content:
         raise RuntimeError("Conteúdo CSV vazio")
