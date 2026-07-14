@@ -567,9 +567,48 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             if (!row) return null;
             const cb = row.querySelector('input[type="checkbox"]');
             if (!cb) return null;
-            cb.scrollIntoView({block: 'center', inline: 'center'});
-            const r = cb.getBoundingClientRect();
-            return {x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height};
+
+            // input.px é um checkbox custom posicionado off-screen (x≈-999999px).
+            // Precisamos clicar no LABEL visual, não no input hidden.
+            // Tentamos em ordem: label[for], cb.labels[], closest label,
+            // nextSibling, parent.querySelector(label/span), primeiro <td>.
+            const candidates = [];
+            if (cb.id) candidates.push(document.querySelector('label[for="' + cb.id + '"]'));
+            if (cb.labels && cb.labels.length) candidates.push(cb.labels[0]);
+            candidates.push(cb.closest('label'));
+            candidates.push(cb.nextElementSibling);
+            const par = cb.parentElement;
+            if (par) {
+                candidates.push(par.querySelector('label'));
+                candidates.push(par.querySelector('span[class*="check"], span[class*="px"], .checkbox'));
+            }
+
+            for (const el of candidates) {
+                if (!el || el === cb) continue;
+                el.scrollIntoView({block: 'center', inline: 'center'});
+                const r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0 && r.left >= 0 && r.left < 1280) {
+                    return {x: r.left + r.width / 2, y: r.top + r.height / 2,
+                            w: r.width, h: r.height,
+                            via: el.tagName + '.' + (el.className || '').substring(0, 40)};
+                }
+            }
+
+            // Fallback: clicar na primeira célula da linha (contém o checkbox visual)
+            const firstCell = row.querySelector('td:first-child, th:first-child');
+            if (firstCell) {
+                firstCell.scrollIntoView({block: 'center', inline: 'center'});
+                const r = firstCell.getBoundingClientRect();
+                if (r.width > 0 && r.left >= 0) {
+                    return {x: r.left + Math.min(r.width / 2, 20),
+                            y: r.top + r.height / 2,
+                            w: r.width, h: r.height, via: 'first-td'};
+                }
+            }
+
+            // Informa que só o input oculto foi encontrado (debug)
+            const rc = cb.getBoundingClientRect();
+            return {x: rc.x, y: rc.y, w: 0, h: 0, via: 'hidden-input-only'};
         }
     """, inv_id)
     log.info(f"[EXPORT:{warehouse_name}] Checkbox info: {json.dumps(cb_info)}")
@@ -727,24 +766,30 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             # Sabemos o onclick do link CSV: printSelectedItems(15, 'table_inventory_stocktakes_container', '1')
             # Chamada direta via JS não gera evento de clique, então isTrusted não é verificado.
             # Requer que o checkbox tenha sido clicado para que a seleção esteja no estado interno.
+            # Estratégia 1: printSelectedItems(15,...) — o onclick do link CSV.
+            # Chamada direta (sem click event) → isTrusted não é verificado.
+            # try/catch em JS necessário: se selectedItems estiver vazio, BaseLinker
+            # chama bootboxAlert que lança "bootbox is not defined" e crasharia o evaluate.
             direct = await page.evaluate("""
                 () => {
-                    if (typeof printSelectedItems === 'function') {
-                        printSelectedItems(15, 'table_inventory_stocktakes_container', '1');
-                        return {called: true};
+                    try {
+                        if (typeof printSelectedItems === 'function') {
+                            printSelectedItems(15, 'table_inventory_stocktakes_container', '1');
+                            return {called: true, error: null};
+                        }
+                        return {called: false, error: null};
+                    } catch (e) {
+                        return {called: true, error: e.message};
                     }
-                    return {called: false};
                 }
             """)
-            log.info(f"[EXPORT:{warehouse_name}] printSelectedItems direto: {json.dumps(direct)}")
+            log.info(f"[EXPORT:{warehouse_name}] printSelectedItems: {json.dumps(direct)}")
 
-            # Estratégia 2 (fallback): coordenadas do link CSV + page.mouse.click
-            if not direct.get("called"):
-                # Obtém posição do link CSV e clica com mouse real (isTrusted: true).
-                pass
+            if direct.get("error"):
+                log.warning(f"[EXPORT:{warehouse_name}] printSelectedItems erro (itens não selecionados?): {direct['error']}")
 
-            # Sempre tenta coordenadas + click como reforço (pode ser que printSelectedItems
-            # abra um modal em vez de disparar o download directamente)
+            # Estratégia 2 (reforço): coordenadas do link CSV + page.mouse.click
+            # Sempre tenta; se printSelectedItems já disparou o download, o segundo clique é redundante mas inofensivo
             csv_pos = await page.evaluate("""
                 () => {
                     const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
