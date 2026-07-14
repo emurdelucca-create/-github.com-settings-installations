@@ -237,10 +237,13 @@ async def bl_login(page):
     # ── Preenche SENHA ────────────────────────────────────────────────────────
     pwd_filled = False
     for attempt in [
+        lambda: page.locator("input[id='passwordField']"),           # id exato da BaseLinker
+        lambda: page.locator("input[name='password'][id='passwordField']"),
         lambda: page.get_by_label("SENHA", exact=True),
         lambda: page.get_by_label("Senha", exact=False),
-        lambda: page.locator("input[type='password']").first,
-        lambda: page.locator("input[name='password']").first,
+        lambda: page.locator("input[type='password']#passwordField"),
+        lambda: page.locator("input[type='password']:not([id*='change']):not([id*='pin'])").first,
+        lambda: page.locator("input[name='password']").last,
     ]:
         try:
             loc = attempt()
