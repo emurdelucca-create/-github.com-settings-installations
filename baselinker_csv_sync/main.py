@@ -627,6 +627,26 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         log.warning(f"[EXPORT:{warehouse_name}] Checkbox não clicado — Imprimir pode não abrir")
     await page.wait_for_timeout(800)
 
+    # Injeta o inv_id diretamente em selectedItems (global do BaseLinker).
+    # Clicar no label visual não atualiza selectedItems — a seleção é gerida por jQuery
+    # internamente e não é acessível facilmente via eventos isTrusted de label.
+    # printSelectedItems(15,...) verifica selectedItems.length antes de exportar.
+    sel_inject = await page.evaluate("""
+        (invId) => {
+            const id = String(invId);
+            for (const name of ['selectedItems', '_selectedItems', 'checkedItems', 'selectedRows']) {
+                const arr = window[name];
+                if (Array.isArray(arr)) {
+                    // Limpa e adiciona apenas o inv_id desejado
+                    arr.splice(0, arr.length, id);
+                    return {ok: true, var: name, length: arr.length, items: arr.slice(0,3)};
+                }
+            }
+            return {ok: false, msg: 'selectedItems global não encontrado'};
+        }
+    """, inv_id)
+    log.info(f"[EXPORT:{warehouse_name}] selectedItems inject: {json.dumps(sel_inject)}")
+
     # Acha coordenadas do botão Imprimir (scrollIntoView center para evitar header sticky)
     btn_pos = await page.evaluate("""
         () => {
@@ -766,10 +786,22 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             # Sabemos o onclick do link CSV: printSelectedItems(15, 'table_inventory_stocktakes_container', '1')
             # Chamada direta via JS não gera evento de clique, então isTrusted não é verificado.
             # Requer que o checkbox tenha sido clicado para que a seleção esteja no estado interno.
+            # Re-injeta selectedItems dentro do contexto (garante que esteja populado mesmo
+            # se o clique no Imprimir ou a abertura do collapse tiver limpo o estado)
+            await page.evaluate("""
+                (invId) => {
+                    const id = String(invId);
+                    for (const name of ['selectedItems', '_selectedItems', 'checkedItems', 'selectedRows']) {
+                        const arr = window[name];
+                        if (Array.isArray(arr)) { arr.splice(0, arr.length, id); return; }
+                    }
+                }
+            """, inv_id)
+
             # Estratégia 1: printSelectedItems(15,...) — o onclick do link CSV.
             # Chamada direta (sem click event) → isTrusted não é verificado.
-            # try/catch em JS necessário: se selectedItems estiver vazio, BaseLinker
-            # chama bootboxAlert que lança "bootbox is not defined" e crasharia o evaluate.
+            # try/catch em JS necessário: se selectedItems ainda estiver vazio,
+            # BaseLinker chama bootboxAlert que lança "bootbox is not defined".
             direct = await page.evaluate("""
                 () => {
                     try {
@@ -786,10 +818,12 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             log.info(f"[EXPORT:{warehouse_name}] printSelectedItems: {json.dumps(direct)}")
 
             if direct.get("error"):
-                log.warning(f"[EXPORT:{warehouse_name}] printSelectedItems erro (itens não selecionados?): {direct['error']}")
+                log.warning(f"[EXPORT:{warehouse_name}] printSelectedItems erro: {direct['error']}")
 
-            # Estratégia 2 (reforço): coordenadas do link CSV + page.mouse.click
-            # Sempre tenta; se printSelectedItems já disparou o download, o segundo clique é redundante mas inofensivo
+            # Estratégia 2 (reforço): coordenadas do link CSV + page.mouse.click.
+            # IMPORTANTE: quando o link está em display:none, removemos o display
+            # dos ancestrais para obter coords válidas E MANTEMOS ABERTO até o clique.
+            # Antes, o código restaurava display:none antes do clique — clicando no ar.
             csv_pos = await page.evaluate("""
                 () => {
                     const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
@@ -818,38 +852,21 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     let r = foundEl.getBoundingClientRect();
 
                     if (r.width === 0 || r.height === 0) {
-                        // Remove display:none e overflow:hidden de ancestrais para obter rect válido.
-                        // O collapse pode ter display:none via inline style (JS da BaseLinker)
-                        // que sobrepõe as classes Bootstrap — precisamos forçar display:block também.
-                        const saved = [];
+                        // Remove display:none dos ancestrais SEM restaurar — mantém visível para o clique.
+                        // (Antes restaurávamos aqui e o mouse.click acertava o elemento errado.)
                         let p = foundEl.parentElement;
                         while (p && p !== document.body) {
                             const cs = window.getComputedStyle(p);
-                            const item = {el: p, display: p.style.display,
-                                          ov: p.style.overflow, ovY: p.style.overflowY};
-                            let changed = false;
                             if (cs.display === 'none') {
                                 p.style.setProperty('display', 'block', 'important');
-                                changed = true;
                             }
-                            if (cs.overflow === 'hidden') {
-                                p.style.overflow = 'visible';
-                                changed = true;
-                            }
-                            if (cs.overflowY === 'hidden') {
-                                p.style.overflowY = 'visible';
-                                changed = true;
-                            }
-                            if (changed) saved.push(item);
+                            if (cs.overflow === 'hidden') p.style.overflow = 'visible';
+                            if (cs.overflowY === 'hidden') p.style.overflowY = 'visible';
                             p = p.parentElement;
                         }
                         foundEl.scrollIntoView({block: 'center', inline: 'center'});
                         r = foundEl.getBoundingClientRect();
-                        saved.forEach(s => {
-                            s.el.style.display = s.display;
-                            s.el.style.overflow = s.ov;
-                            s.el.style.overflowY = s.ovY;
-                        });
+                        // NÃO restaura — o elemento permanece visível para o mouse.click
                     }
 
                     return {text: foundEl.textContent.trim(),
