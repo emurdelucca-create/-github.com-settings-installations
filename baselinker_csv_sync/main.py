@@ -289,6 +289,59 @@ async def bl_login(page):
     await screenshot(page, "03_panel")
 
 
+async def _find_visible_modal(page):
+    """Retorna info do modal visível (getBoundingClientRect().width > 0)."""
+    return await page.evaluate("""
+        () => {
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                .find(m => {
+                    const r = m.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+            if (!modal) return null;
+
+            // Selects nativos
+            const selects = [...modal.querySelectorAll('select')].map((sel, i) => ({
+                i, id: sel.id, name: sel.name, value: sel.value,
+                options: [...sel.options].map(o => o.text.trim()),
+                rect: (() => { const r = sel.getBoundingClientRect();
+                    return [Math.round(r.left), Math.round(r.top),
+                            Math.round(r.width), Math.round(r.height)]; })()
+            }));
+
+            // Todos os elementos de formulário (para detectar select2/custom)
+            const formEls = [...modal.querySelectorAll(
+                'input:not([type=hidden]), select, textarea, ' +
+                '[role="combobox"], [role="listbox"], [role="option"], ' +
+                '.select2-container, .select2-choice, ' +
+                '[data-toggle="dropdown"], ' +
+                'div[class*="select"], span[class*="select"]'
+            )].map(el => ({
+                tag: el.tagName,
+                type: el.getAttribute('type') || '',
+                id: el.id || '',
+                cls: el.className.substring(0, 80),
+                role: el.getAttribute('role') || '',
+                text: el.textContent.trim().substring(0, 60),
+                rect: (() => { const r = el.getBoundingClientRect();
+                    return [Math.round(r.left), Math.round(r.top),
+                            Math.round(r.width), Math.round(r.height)]; })()
+            }));
+
+            const buttons = [...modal.querySelectorAll('button, input[type="submit"]')].map(btn => ({
+                text: btn.textContent.trim(),
+                classes: btn.className,
+                dismiss: btn.getAttribute('data-dismiss'),
+                rect: (() => { const r = btn.getBoundingClientRect();
+                    return [Math.round(r.left), Math.round(r.top),
+                            Math.round(r.width), Math.round(r.height)]; })()
+            }));
+
+            return {selects, formEls, buttons};
+        }
+    """)
+
+
 async def export_inventory_csv(page, warehouse_name, tag=""):
     """
     Cria inventário rascunho para o armazém indicado, recarrega a página para
@@ -298,10 +351,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     warehouse_name: nome exato do armazém como aparece no select do modal
                     (ex: "Padrão" ou "Armazenamento")
     tag:            prefixo curto para nomear screenshots (ex: "padrao" ou "arm")
-
-    O modal "Criar inventário" da BaseLinker possui:
-      - Primeiro select: Warehouse/depósito
-      - Segundo select: Escopo do levantamento
 
     IMPORTANTE: após criar o rascunho, recarregar a página é necessário porque
     na primeira carga o inventário aparece sem produtos; após reload lista completa.
@@ -336,42 +385,14 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     await screenshot(page, f"{pfx}05_modal")
 
     # ── 2. Diagnostica modal visível ─────────────────────────────────────────
-    # document.querySelector('.modal') retorna o PRIMEIRO .modal, que pode ser
-    # um modal oculto de edição de inventário. Precisamos do modal VISÍVEL
-    # (getBoundingClientRect().width > 0).
-    modal_info = await page.evaluate("""
-        () => {
-            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
-                .find(m => {
-                    const r = m.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                });
-            if (!modal) return {error: 'no visible modal'};
-            const selects = [...modal.querySelectorAll('select')].map((sel, i) => ({
-                i,
-                id: sel.id,
-                name: sel.name,
-                value: sel.value,
-                options: [...sel.options].map(o => o.text.trim()),
-                rect: (() => { const r = sel.getBoundingClientRect();
-                    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()
-            }));
-            const buttons = [...modal.querySelectorAll('button, input[type="submit"]')].map(btn => ({
-                text: btn.textContent.trim(),
-                classes: btn.className,
-                dismiss: btn.getAttribute('data-dismiss'),
-                rect: (() => { const r = btn.getBoundingClientRect();
-                    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()
-            }));
-            return {selects, buttons};
-        }
-    """)
+    modal_info = await _find_visible_modal(page)
     log.info(f"[EXPORT:{warehouse_name}] Modal info: {json.dumps(modal_info)}")
 
     # ── 3. Define armazém e escopo no modal ──────────────────────────────────
+    # Tenta selects nativos primeiro; caso não haja, tenta select2 / custom.
     set_result = await page.evaluate("""
         (warehouseName) => {
-            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
                 .find(m => {
                     const r = m.getBoundingClientRect();
                     return r.width > 0 && r.height > 0;
@@ -381,9 +402,9 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             const selects = [...modal.querySelectorAll('select')];
             let whSet = false, escopoSet = false;
 
+            // 1) Tenta native <select>
             for (const sel of selects) {
                 if (!whSet) {
-                    // Procura opção cujo texto contenha o nome do armazém
                     const whOpt = [...sel.options].find(o =>
                         o.text.trim().toLowerCase().includes(warehouseName.toLowerCase())
                     );
@@ -395,7 +416,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     }
                 }
                 if (!escopoSet) {
-                    // Procura opção "Todos os produtos" no select de escopo
                     const todosOpt = [...sel.options].find(o =>
                         o.text.trim().toLowerCase().includes('todos')
                     );
@@ -406,6 +426,33 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     }
                 }
             }
+
+            // 2) Tenta Select2 / custom dropdown (data-value / aria-selected)
+            if (!whSet) {
+                const allOpts = [...modal.querySelectorAll(
+                    '[role="option"], li[data-value], li[data-id], .select2-result'
+                )];
+                const whOpt = allOpts.find(el =>
+                    el.textContent.trim().toLowerCase().includes(warehouseName.toLowerCase())
+                );
+                if (whOpt) {
+                    whOpt.click();
+                    whSet = true;
+                }
+            }
+            if (!escopoSet) {
+                const allOpts = [...modal.querySelectorAll(
+                    '[role="option"], li[data-value], li[data-id], .select2-result'
+                )];
+                const todosOpt = allOpts.find(el =>
+                    el.textContent.trim().toLowerCase().includes('todos')
+                );
+                if (todosOpt) {
+                    todosOpt.click();
+                    escopoSet = true;
+                }
+            }
+
             return {whSet, escopoSet, totalSelects: selects.length};
         }
     """, warehouse_name)
@@ -415,11 +462,9 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     await screenshot(page, f"{pfx}05b_modal_filled")
 
     # ── 4. Clica botão "Criar inventário" no modal via coordenadas reais ─────
-    # JS .click() pode não funcionar em alguns botões Bootstrap — usamos
-    # page.mouse.click() com coordenadas reais do elemento visível.
     submit_pos = await page.evaluate("""
         () => {
-            const modal = [...document.querySelectorAll('.modal, [role="dialog"]')]
+            const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
                 .find(m => {
                     const r = m.getBoundingClientRect();
                     return r.width > 0 && r.height > 0;
@@ -483,20 +528,28 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
 
     log.info(f"[EXPORT:{warehouse_name}] Recarregando para garantir produtos completos...")
     await page.reload(wait_until="networkidle")
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(5000)  # 5s: produtos carregam via AJAX após o reload
     await screenshot(page, f"{pfx}07b_list_after_reload")
 
-    inv_id = await page.evaluate("""
+    # Pega o ID da linha MAS TAMBÉM anota o ID máximo para identificar o novo inventário
+    inv_info = await page.evaluate("""
         () => {
-            const row = document.querySelector('tr.stocktake_row[id^="row_"]');
-            if (row) { const m = row.id.match(/row_(\\d+)/); return m ? m[1] : null; }
-            return null;
+            const rows = [...document.querySelectorAll('tr.stocktake_row[id^="row_"]')];
+            const ids = rows.map(r => {
+                const m = r.id.match(/row_(\\d+)/);
+                return m ? parseInt(m[1]) : 0;
+            }).filter(Boolean);
+            if (!ids.length) return null;
+            const maxId = Math.max(...ids);
+            return {first: String(ids[0]), max: String(maxId), all: ids.map(String)};
         }
     """)
-    log.info(f"[EXPORT:{warehouse_name}] ID do inventário: {inv_id}")
+    log.info(f"[EXPORT:{warehouse_name}] Inventários na lista: {json.dumps(inv_info)}")
+    # Usa o mais recente (maior ID = recém-criado)
+    inv_id = inv_info["max"] if inv_info else None
+    log.info(f"[EXPORT:{warehouse_name}] Usando inventário ID: {inv_id}")
 
     # ── 6. Seleciona checkbox via JS; captura URL e clica Imprimir ───────────
-    # Patcha window.open para capturar URLs que abrem em nova aba
     await page.evaluate("""
         () => {
             window.__capturedUrls = [];
@@ -516,22 +569,24 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             log.info(f"[NET:{warehouse_name}] {url}")
     page.on("request", _on_req)
 
-    # Seleciona checkbox via JS
+    # Seleciona o checkbox do inventário com o ID mais recente
     cb_ok = await page.evaluate("""
-        () => {
-            const row = document.querySelector('tr.stocktake_row');
+        (invId) => {
+            // Tenta selecionar o checkbox do inventário específico primeiro
+            let row = invId ? document.querySelector(`tr#row_${invId}`) : null;
+            if (!row) row = document.querySelector('tr.stocktake_row');
             if (!row) return false;
             const cb = row.querySelector('input[type="checkbox"]');
             if (!cb) return false;
             cb.checked = true;
             cb.dispatchEvent(new Event('change', {bubbles: true}));
-            return true;
+            return row.id || true;
         }
-    """)
+    """, inv_id)
     log.info(f"[EXPORT:{warehouse_name}] Checkbox JS: {cb_ok}")
-    await page.wait_for_timeout(500)
+    await page.wait_for_timeout(800)
 
-    # Acha coordenadas do botão Imprimir (dropdown-toggle)
+    # Acha coordenadas do botão Imprimir
     btn_pos = await page.evaluate("""
         () => {
             const btn = [...document.querySelectorAll('button')]
@@ -547,27 +602,47 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         await screenshot(page, f"ERR_{pfx}no_print_btn")
         raise RuntimeError(f"Botão Imprimir não encontrado [{warehouse_name}]")
 
-    # Clica com mouse real → abre dropdown Bootstrap corretamente
+    # Clica com mouse real + força abertura do dropdown via classList
     await page.mouse.click(btn_pos["x"], btn_pos["y"])
     log.info(f"[EXPORT:{warehouse_name}] mouse.click(Imprimir) em ({btn_pos['x']:.0f}, {btn_pos['y']:.0f})")
+    await page.wait_for_timeout(800)
 
-    await page.wait_for_timeout(1500)
+    # Garante que o dropdown pai tem classe 'open' (Bootstrap 3)
+    forced = await page.evaluate("""
+        (pos) => {
+            const el = document.elementFromPoint(pos.x, pos.y);
+            if (!el) return 'no element';
+            const parent = el.closest('.dropdown, .btn-group');
+            if (!parent) return 'no dropdown parent';
+            const wasOpen = parent.classList.contains('open');
+            parent.classList.add('open');
+            return wasOpen ? 'was-already-open' : 'forced-open';
+        }
+    """, {"x": btn_pos["x"], "y": btn_pos["y"]})
+    log.info(f"[EXPORT:{warehouse_name}] Dropdown force-open: {forced}")
+    await page.wait_for_timeout(500)
     await screenshot(page, f"{pfx}09_dropdown_open")
 
-    # Loga todos os elementos visíveis com "exportar/csv" no texto
-    visible_items = await page.evaluate("""
+    # ── 7. Procura item CSV especificamente dentro do dropdown-menu aberto ────
+    csv_item = None
+
+    # Estratégia 1: procura dentro de .dropdown.open .dropdown-menu
+    dropdown_items = await page.evaluate("""
         () => {
-            return [...document.querySelectorAll('a, li, button, span')]
-                .filter(el => {
-                    const t = el.textContent.trim().toLowerCase();
+            const openMenus = [
+                ...document.querySelectorAll(
+                    '.dropdown.open .dropdown-menu, ' +
+                    '.btn-group.open .dropdown-menu, ' +
+                    'ul.dropdown-menu[style*="display: block"], ' +
+                    'ul.dropdown-menu[style*="display:block"]'
+                )
+            ];
+            const items = [];
+            for (const menu of openMenus) {
+                for (const el of menu.querySelectorAll('a, li, button')) {
                     const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0
-                        && (t.includes('csv') || t === 'imprimir'
-                            || (t.includes('exportar') && t.length < 80));
-                })
-                .map(el => {
-                    const r = el.getBoundingClientRect();
-                    return {
+                    if (r.width <= 0 || r.height <= 0) continue;
+                    items.push({
                         tag: el.tagName,
                         text: el.textContent.trim().substring(0, 80),
                         href: el.getAttribute('href') || '',
@@ -575,72 +650,112 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                         y: Math.round(r.top + r.height / 2),
                         w: Math.round(r.width),
                         h: Math.round(r.height)
-                    };
-                });
+                    });
+                }
+            }
+            return items;
         }
     """)
-    log.info(f"[DEBUG:{warehouse_name}] Itens visíveis export: {json.dumps(visible_items)}")
+    log.info(f"[DEBUG:{warehouse_name}] Dropdown-menu items: {json.dumps(dropdown_items)}")
 
-    # Acha item CSV no dropdown
-    csv_item = None
-    for item in visible_items:
+    for item in dropdown_items:
         t = item["text"].lower()
-        if "csv" in t:
+        if "csv" in t or "exportar" in t:
             csv_item = item
             break
+
+    # Estratégia 2: todos os elementos visíveis com csv/exportar, mas excluindo sidebar (x < 250)
     if not csv_item:
-        for item in visible_items:
-            t = item["text"].lower()
-            if "exportar" in t and item["text"].lower() != "imprimir":
-                csv_item = item
-                break
+        log.warning(f"[EXPORT:{warehouse_name}] Dropdown-menu vazio — varredura geral (excluindo sidebar)")
+        all_visible = await page.evaluate("""
+            () => {
+                return [...document.querySelectorAll('a, li, button, span')]
+                    .filter(el => {
+                        const t = el.textContent.trim().toLowerCase();
+                        const r = el.getBoundingClientRect();
+                        const cx = r.left + r.width / 2;
+                        // Exclui sidebar (x < 250) e links de importação
+                        if (cx < 250) return false;
+                        if ((el.getAttribute('href') || '').includes('inventory_import')) return false;
+                        return r.width > 0 && r.height > 0
+                            && (t.includes('csv') || (t.includes('exportar') && t.length < 80));
+                    })
+                    .map(el => {
+                        const r = el.getBoundingClientRect();
+                        return {
+                            tag: el.tagName,
+                            text: el.textContent.trim().substring(0, 80),
+                            href: el.getAttribute('href') || '',
+                            x: Math.round(r.left + r.width / 2),
+                            y: Math.round(r.top + r.height / 2),
+                            w: Math.round(r.width),
+                            h: Math.round(r.height)
+                        };
+                    });
+            }
+        """)
+        log.info(f"[DEBUG:{warehouse_name}] Itens visíveis (sem sidebar): {json.dumps(all_visible)}")
+        if all_visible:
+            csv_item = all_visible[0]
 
     if not csv_item:
         await screenshot(page, f"ERR_{pfx}no_csv_item")
         raise RuntimeError(
-            f"Item CSV não encontrado no dropdown [{warehouse_name}]. Itens: {visible_items}"
+            f"Item CSV não encontrado no dropdown [{warehouse_name}]. "
+            f"dropdown_items={dropdown_items}"
         )
 
     log.info(f"[EXPORT:{warehouse_name}] CSV item: '{csv_item['text']}' em ({csv_item['x']}, {csv_item['y']})")
 
+    # ── 8. Clica no item CSV e captura o download ─────────────────────────────
     csv_content = None
 
-    # Tenta download direto
     try:
-        async with page.expect_download(timeout=25_000) as dl_info:
+        async with page.expect_download(timeout=15_000) as dl_info:
             await page.mouse.click(csv_item["x"], csv_item["y"])
-            log.info(f"[EXPORT:{warehouse_name}] mouse.click(CSV)")
+            log.info(f"[EXPORT:{warehouse_name}] Aguardando download...")
         dl = await dl_info.value
-        tmp_path = await dl.path()
-        csv_content = Path(tmp_path).read_text(encoding="utf-8-sig", errors="replace")
-        log.info(f"[EXPORT:{warehouse_name}] CSV via download: {len(csv_content)} chars")
+        dl_path = await dl.path()
+        csv_content = Path(dl_path).read_text(encoding="utf-8-sig", errors="replace")
+        log.info(f"[EXPORT:{warehouse_name}] Download OK: {dl.suggested_filename}")
     except Exception as e:
-        log.warning(f"[EXPORT:{warehouse_name}] Download falhou ({e}) — checando window.open e requests")
-        await screenshot(page, f"{pfx}09b_after_csv_click")
-        await page.wait_for_timeout(2000)
+        log.warning(f"[EXPORT:{warehouse_name}] expect_download falhou: {e} — tentando URL capturada")
+        await page.mouse.click(csv_item["x"], csv_item["y"])
+        await page.wait_for_timeout(3000)
 
+    if not csv_content:
         opened_urls = await page.evaluate("() => window.__capturedUrls || []")
-        log.info(f"[DEBUG:{warehouse_name}] window.open URLs: {opened_urls}")
-        log.info(f"[DEBUG:{warehouse_name}] export_requests: {export_requests}")
+        page.remove_listener("request", _on_req)
 
+        # Exclui JS/CSS/imagens — apenas URLs com csv/export/stocktake/download
+        BAD_EXTS = (".js", ".css", ".png", ".ico", ".gif", ".woff", ".woff2", ".ttf", ".svg")
         target_url = None
         for u in list(opened_urls) + list(export_requests):
-            if any(k in u.lower() for k in ["csv", "export", "download"]):
+            lower_u = u.lower()
+            if (any(k in lower_u for k in ["csv", "export", "stocktake", "download"])
+                    and not any(lower_u.endswith(ext) for ext in BAD_EXTS)):
                 target_url = u
                 break
 
         if target_url:
-            cookies = await page.context.cookies()
-            jar = {c["name"]: c["value"] for c in cookies}
-            resp = requests.get(target_url, cookies=jar, timeout=60)
-            resp.raise_for_status()
-            csv_content = resp.text
-            log.info(f"[EXPORT:{warehouse_name}] CSV via requests.get: {len(csv_content)} chars")
+            log.info(f"[EXPORT:{warehouse_name}] Baixando via URL: {target_url}")
+            try:
+                cookies_js = await page.context.cookies()
+                sess = requests.Session()
+                for c in cookies_js:
+                    sess.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
+                resp = sess.get(target_url, timeout=60)
+                resp.raise_for_status()
+                csv_content = resp.text
+                log.info(f"[EXPORT:{warehouse_name}] URL download OK: {len(csv_content)} chars")
+            except Exception as e2:
+                log.error(f"[EXPORT:{warehouse_name}] Falha ao baixar URL: {e2}")
         else:
-            await screenshot(page, f"ERR_{pfx}no_csv_option")
-            raise RuntimeError(
-                f"CSV não capturado [{warehouse_name}]. opened={opened_urls} requests={export_requests}"
+            log.error(
+                f"[EXPORT:{warehouse_name}] Nenhuma URL de download capturada. "
+                f"opened={opened_urls} net={export_requests}"
             )
+            await screenshot(page, f"ERR_{pfx}no_download_url")
 
     if not csv_content:
         raise RuntimeError(f"Conteúdo CSV vazio [{warehouse_name}]")
