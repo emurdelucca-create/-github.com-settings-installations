@@ -553,12 +553,59 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             log.info(f"[NET:{warehouse_name}] {url}")
     page.on("request", _on_req)
 
+    # DIAGNÓSTICO: lê fonte de printSelectedItems — revela qual variável é checada
+    fn_src = await page.evaluate("""
+        () => {
+            if (typeof printSelectedItems !== 'function') return 'NOT FOUND';
+            return printSelectedItems.toString().substring(0, 1200);
+        }
+    """)
+    log.info(f"[EXPORT:{warehouse_name}] printSelectedItems src: {fn_src}")
+
+    # DIAGNÓSTICO: lê onclick do link CSV para saber o que exatamente é chamado
+    csv_onclick_diag = await page.evaluate("""
+        () => {
+            for (const el of document.querySelectorAll('a[onclick]')) {
+                const t = el.textContent.toLowerCase();
+                const oc = el.getAttribute('onclick') || '';
+                if (t.includes('csv') || oc.includes('15') || oc.includes('csv')) {
+                    return {text: el.textContent.trim(), onclick: oc,
+                            href: el.href || el.getAttribute('href'),
+                            cls: el.className};
+                }
+            }
+            // sem onclick — procura qualquer link com 'csv' no texto
+            for (const el of document.querySelectorAll('a')) {
+                if (el.textContent.toLowerCase().includes('csv')) {
+                    return {text: el.textContent.trim(),
+                            onclick: el.getAttribute('onclick'),
+                            href: el.href || el.getAttribute('href'),
+                            cls: el.className};
+                }
+            }
+            return null;
+        }
+    """)
+    log.info(f"[EXPORT:{warehouse_name}] CSV link diag: {json.dumps(csv_onclick_diag)}")
+
+    # DIAGNÓSTICO: lista todas as propriedades de window que são arrays
+    # (ajuda a descobrir o nome real de selectedItems se não for 'selectedItems')
+    win_arrays = await page.evaluate("""
+        () => {
+            const res = {};
+            try {
+                for (const k of Object.keys(window)) {
+                    if (Array.isArray(window[k])) {
+                        res[k] = window[k].length;
+                    }
+                }
+            } catch(e) {}
+            return res;
+        }
+    """)
+    log.info(f"[EXPORT:{warehouse_name}] window arrays: {json.dumps(win_arrays)}")
+
     # Clica no checkbox via page.mouse.click (isTrusted: true).
-    # Problema anterior: Playwright locator.click(force=True) falha com "Element is
-    # outside of the viewport" quando o elemento fica ATRÁS do header sticky após o
-    # scroll padrão (scrollIntoView coloca o elemento no topo, o header cobre).
-    # Solução: JS scrollIntoView({block:'center'}) centraliza o elemento na viewport,
-    # depois page.mouse.click usa as coordenadas reais de getBoundingClientRect.
     cb_info = await page.evaluate("""
         (invId) => {
             const row = invId
@@ -568,10 +615,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             const cb = row.querySelector('input[type="checkbox"]');
             if (!cb) return null;
 
-            // input.px é um checkbox custom posicionado off-screen (x≈-999999px).
-            // Precisamos clicar no LABEL visual, não no input hidden.
-            // Tentamos em ordem: label[for], cb.labels[], closest label,
-            // nextSibling, parent.querySelector(label/span), primeiro <td>.
             const candidates = [];
             if (cb.id) candidates.push(document.querySelector('label[for="' + cb.id + '"]'));
             if (cb.labels && cb.labels.length) candidates.push(cb.labels[0]);
@@ -594,7 +637,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                 }
             }
 
-            // Fallback: clicar na primeira célula da linha (contém o checkbox visual)
             const firstCell = row.querySelector('td:first-child, th:first-child');
             if (firstCell) {
                 firstCell.scrollIntoView({block: 'center', inline: 'center'});
@@ -606,7 +648,6 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                 }
             }
 
-            // Informa que só o input oculto foi encontrado (debug)
             const rc = cb.getBoundingClientRect();
             return {x: rc.x, y: rc.y, w: 0, h: 0, via: 'hidden-input-only'};
         }
@@ -625,24 +666,54 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
         log.warning(f"[EXPORT:{warehouse_name}] Checkbox rect inválido: {cb_info}")
     if not cb_clicked:
         log.warning(f"[EXPORT:{warehouse_name}] Checkbox não clicado — Imprimir pode não abrir")
-    await page.wait_for_timeout(800)
+    await page.wait_for_timeout(500)
 
-    # Injeta o inv_id diretamente em selectedItems (global do BaseLinker).
-    # Clicar no label visual não atualiza selectedItems — a seleção é gerida por jQuery
-    # internamente e não é acessível facilmente via eventos isTrusted de label.
-    # printSelectedItems(15,...) verifica selectedItems.length antes de exportar.
+    # Tenta jQuery trigger no checkbox (complementar ao mouse.click).
+    # jQuery .trigger('change') vai pelos mesmos event handlers que um clique real
+    # sem verificar isTrusted — cobertura para quando o LABEL click não propaga.
+    jquery_result = await page.evaluate("""
+        (invId) => {
+            if (!window.$) return {jquery: false, reason: 'no jQuery'};
+            const $row = $('#row_' + invId + ', tr.stocktake_row').first();
+            if (!$row.length) return {jquery: false, reason: 'row not found'};
+            const $cb = $row.find('input[type="checkbox"]');
+            if (!$cb.length) return {jquery: false, reason: 'cb not found'};
+            const before = $cb.prop('checked');
+            $cb.prop('checked', true).trigger('change').trigger('click');
+            return {jquery: true, before: before, after: $cb.prop('checked')};
+        }
+    """, inv_id)
+    log.info(f"[EXPORT:{warehouse_name}] jQuery trigger: {json.dumps(jquery_result)}")
+    await page.wait_for_timeout(300)
+
+    # Injeta/cria selectedItems.
+    # Antes só atualizávamos arrays existentes; se selectedItems não existe como
+    # window global (ou ainda não foi inicializado), criamos aqui.
+    # Também mocamos bootbox para evitar ReferenceError quando selectedItems estiver vazio.
     sel_inject = await page.evaluate("""
         (invId) => {
             const id = String(invId);
+
+            // Mock bootbox — evita "bootbox is not defined" se selectedItems estiver vazio
+            if (!window.bootbox) {
+                window.bootbox = { alert: function(m) { console.warn('[bootbox.alert]', m); } };
+            }
+            if (!window.bootboxAlert) {
+                window.bootboxAlert = function(m) { console.warn('[bootboxAlert]', m); };
+            }
+
+            // Tenta encontrar array existente
             for (const name of ['selectedItems', '_selectedItems', 'checkedItems', 'selectedRows']) {
                 const arr = window[name];
                 if (Array.isArray(arr)) {
-                    // Limpa e adiciona apenas o inv_id desejado
                     arr.splice(0, arr.length, id);
-                    return {ok: true, var: name, length: arr.length, items: arr.slice(0,3)};
+                    return {ok: true, var: name, created: false, length: arr.length, items: arr.slice(0,3)};
                 }
             }
-            return {ok: false, msg: 'selectedItems global não encontrado'};
+
+            // Não encontrado — cria window.selectedItems
+            window.selectedItems = [id];
+            return {ok: 'created', var: 'selectedItems', created: true, length: 1, items: [id]};
         }
     """, inv_id)
     log.info(f"[EXPORT:{warehouse_name}] selectedItems inject: {json.dumps(sel_inject)}")
@@ -786,15 +857,22 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
             # Sabemos o onclick do link CSV: printSelectedItems(15, 'table_inventory_stocktakes_container', '1')
             # Chamada direta via JS não gera evento de clique, então isTrusted não é verificado.
             # Requer que o checkbox tenha sido clicado para que a seleção esteja no estado interno.
-            # Re-injeta selectedItems dentro do contexto (garante que esteja populado mesmo
-            # se o clique no Imprimir ou a abertura do collapse tiver limpo o estado)
+            # Re-injeta/cria selectedItems e re-moca bootbox dentro do contexto.
             await page.evaluate("""
                 (invId) => {
                     const id = String(invId);
+                    if (!window.bootbox) {
+                        window.bootbox = { alert: function(m) { console.warn('[bootbox.alert]', m); } };
+                    }
+                    if (!window.bootboxAlert) {
+                        window.bootboxAlert = function(m) { console.warn('[bootboxAlert]', m); };
+                    }
                     for (const name of ['selectedItems', '_selectedItems', 'checkedItems', 'selectedRows']) {
                         const arr = window[name];
                         if (Array.isArray(arr)) { arr.splice(0, arr.length, id); return; }
                     }
+                    // Cria se não encontrado
+                    window.selectedItems = [id];
                 }
             """, inv_id)
 
