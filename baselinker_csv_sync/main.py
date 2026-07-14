@@ -370,170 +370,137 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     ], f"Abrir modal 'Criar inventário' [{warehouse_name}]")
 
     if not opened:
-        await screenshot(page, f"ERR_{pfx}no_open_modal_btn")
-        raise RuntimeError(f"Botão para abrir modal de criação não encontrado [{warehouse_name}]")
+        log.warning(f"[EXPORT:{warehouse_name}] Botão de criação não encontrado — continuando sem criar rascunho")
 
-    # Aguarda modal visível aparecer
-    try:
-        await page.wait_for_selector(
-            ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
-            state="visible", timeout=10_000
-        )
-    except Exception:
-        pass
-    await page.wait_for_timeout(1500)
-    await screenshot(page, f"{pfx}05_modal")
+    if opened:
+        # Aguarda modal visível aparecer
+        try:
+            await page.wait_for_selector(
+                ".modal.in, .modal.show, [role='dialog'][aria-modal='true']",
+                state="visible", timeout=10_000
+            )
+        except Exception:
+            pass
+        await page.wait_for_timeout(1500)
+        await screenshot(page, f"{pfx}05_modal")
 
-    # ── 2. Diagnostica modal visível ─────────────────────────────────────────
-    modal_info = await _find_visible_modal(page)
-    log.info(f"[EXPORT:{warehouse_name}] Modal info: {json.dumps(modal_info)}")
+        # ── 2. Diagnostica modal visível ──────────────────────────────────────
+        modal_info = await _find_visible_modal(page)
+        log.info(f"[EXPORT:{warehouse_name}] Modal info: {json.dumps(modal_info)}")
 
-    # ── 3. Define armazém e escopo no modal ──────────────────────────────────
-    # Tenta selects nativos primeiro; caso não haja, tenta select2 / custom.
-    set_result = await page.evaluate("""
-        (warehouseName) => {
-            const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
-                .find(m => {
-                    const r = m.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                });
-            if (!modal) return {error: 'no visible modal'};
-
-            const selects = [...modal.querySelectorAll('select')];
-            let whSet = false, escopoSet = false;
-
-            // 1) Tenta native <select>
-            for (const sel of selects) {
-                if (!whSet) {
-                    const whOpt = [...sel.options].find(o =>
-                        o.text.trim().toLowerCase().includes(warehouseName.toLowerCase())
-                    );
-                    if (whOpt) {
-                        sel.value = whOpt.value;
-                        sel.dispatchEvent(new Event('change', {bubbles: true}));
-                        whSet = true;
-                        continue;
-                    }
-                }
-                if (!escopoSet) {
-                    const todosOpt = [...sel.options].find(o =>
-                        o.text.trim().toLowerCase().includes('todos')
-                    );
-                    if (todosOpt) {
-                        sel.value = todosOpt.value;
-                        sel.dispatchEvent(new Event('change', {bubbles: true}));
-                        escopoSet = true;
-                    }
-                }
-            }
-
-            // 2) Tenta Select2 / custom dropdown (data-value / aria-selected)
-            if (!whSet) {
-                const allOpts = [...modal.querySelectorAll(
-                    '[role="option"], li[data-value], li[data-id], .select2-result'
-                )];
-                const whOpt = allOpts.find(el =>
-                    el.textContent.trim().toLowerCase().includes(warehouseName.toLowerCase())
-                );
-                if (whOpt) {
-                    whOpt.click();
-                    whSet = true;
-                }
-            }
-            if (!escopoSet) {
-                const allOpts = [...modal.querySelectorAll(
-                    '[role="option"], li[data-value], li[data-id], .select2-result'
-                )];
-                const todosOpt = allOpts.find(el =>
-                    el.textContent.trim().toLowerCase().includes('todos')
-                );
-                if (todosOpt) {
-                    todosOpt.click();
-                    escopoSet = true;
-                }
-            }
-
-            return {whSet, escopoSet, totalSelects: selects.length};
-        }
-    """, warehouse_name)
-    log.info(f"[EXPORT:{warehouse_name}] Modal set result: {set_result}")
-
-    await page.wait_for_timeout(500)
-    await screenshot(page, f"{pfx}05b_modal_filled")
-
-    # ── 4. Clica botão "Criar inventário" no modal via coordenadas reais ─────
-    submit_pos = await page.evaluate("""
-        () => {
-            const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
-                .find(m => {
-                    const r = m.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                });
-            if (!modal) return null;
-
-            const candidates = [...modal.querySelectorAll('button, input[type="submit"], a.btn')];
-            for (const btn of candidates) {
-                const r = btn.getBoundingClientRect();
-                if (r.width <= 0 || r.height <= 0) continue;
-
-                const text = btn.textContent.trim().toLowerCase();
-                const isCancel = btn.getAttribute('data-dismiss') === 'modal'
-                    || text.includes('cancelar') || text.includes('cancel')
-                    || btn.classList.contains('close')
-                    || text === 'x' || text === '×';
-
-                if (!isCancel) {
-                    return {
-                        text: btn.textContent.trim(),
-                        x: Math.round(r.left + r.width / 2),
-                        y: Math.round(r.top + r.height / 2)
-                    };
-                }
-            }
-            return null;
-        }
-    """)
-
-    if submit_pos:
-        log.info(f"[EXPORT:{warehouse_name}] Clicando submit '{submit_pos['text']}' em ({submit_pos['x']}, {submit_pos['y']})")
-        await page.mouse.click(submit_pos["x"], submit_pos["y"])
-    else:
-        log.warning(f"[EXPORT:{warehouse_name}] Botão submit não encontrado — tentando Enter")
-        await page.keyboard.press("Enter")
-
-    # Aguarda o modal FECHAR — indica que o AJAX de criação completou.
-    # 5s era insuficiente: o servidor leva até ~20s para criar o inventário.
-    log.info(f"[EXPORT:{warehouse_name}] Aguardando modal fechar (até 30s)...")
-    try:
-        await page.wait_for_function(
-            """() => {
-                return ![...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
-                    .some(m => {
+        # ── 3. Define armazém e escopo no modal (se houver selects) ───────────
+        set_result = await page.evaluate("""
+            (warehouseName) => {
+                const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                    .find(m => {
                         const r = m.getBoundingClientRect();
                         return r.width > 0 && r.height > 0;
                     });
-            }""",
-            timeout=30_000,
-        )
-        log.info(f"[EXPORT:{warehouse_name}] Modal fechou — inventário criado")
-    except Exception:
-        log.warning(f"[EXPORT:{warehouse_name}] Modal não fechou em 30s — forçando fechamento")
+                if (!modal) return {error: 'no visible modal'};
 
-    await screenshot(page, f"{pfx}06_after_confirm")
+                const selects = [...modal.querySelectorAll('select')];
+                let whSet = false, escopoSet = false;
 
-    # Fecha modal caso ainda esteja aberto
-    await page.evaluate("""
-        () => {
-            const x = document.querySelector('.modal .close, .modal [data-dismiss="modal"]');
-            if (x) { x.click(); return; }
-            if (window.$) {
-                const m = $('.modal:visible');
-                if (m.length) m.modal('hide');
+                for (const sel of selects) {
+                    if (!whSet) {
+                        const whOpt = [...sel.options].find(o =>
+                            o.text.trim().toLowerCase().includes(warehouseName.toLowerCase())
+                        );
+                        if (whOpt) {
+                            sel.value = whOpt.value;
+                            sel.dispatchEvent(new Event('change', {bubbles: true}));
+                            whSet = true;
+                            continue;
+                        }
+                    }
+                    if (!escopoSet) {
+                        const todosOpt = [...sel.options].find(o =>
+                            o.text.trim().toLowerCase().includes('todos')
+                        );
+                        if (todosOpt) {
+                            sel.value = todosOpt.value;
+                            sel.dispatchEvent(new Event('change', {bubbles: true}));
+                            escopoSet = true;
+                        }
+                    }
+                }
+                // Tenta Select2 / custom dropdown
+                if (!whSet) {
+                    const whOpt = [...modal.querySelectorAll('[role="option"], li[data-value], li[data-id], .select2-result')]
+                        .find(el => el.textContent.trim().toLowerCase().includes(warehouseName.toLowerCase()));
+                    if (whOpt) { whOpt.click(); whSet = true; }
+                }
+                return {whSet, escopoSet, totalSelects: selects.length};
             }
-        }
-    """)
-    await page.keyboard.press("Escape")
-    await page.wait_for_timeout(1000)
+        """, warehouse_name)
+        log.info(f"[EXPORT:{warehouse_name}] Modal set result: {set_result}")
+
+        await page.wait_for_timeout(500)
+        await screenshot(page, f"{pfx}05b_modal_filled")
+
+        # ── 4. Clica botão "Criar inventário" no modal ────────────────────────
+        submit_pos = await page.evaluate("""
+            () => {
+                const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                    .find(m => {
+                        const r = m.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    });
+                if (!modal) return null;
+                for (const btn of modal.querySelectorAll('button, input[type="submit"], a.btn')) {
+                    const r = btn.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) continue;
+                    const text = btn.textContent.trim().toLowerCase();
+                    const isCancel = btn.getAttribute('data-dismiss') === 'modal'
+                        || text.includes('cancelar') || text.includes('cancel')
+                        || btn.classList.contains('close') || text === 'x' || text === '×';
+                    if (!isCancel) {
+                        return {text: btn.textContent.trim(),
+                                x: Math.round(r.left + r.width / 2),
+                                y: Math.round(r.top + r.height / 2)};
+                    }
+                }
+                return null;
+            }
+        """)
+
+        if submit_pos:
+            log.info(f"[EXPORT:{warehouse_name}] Clicando submit '{submit_pos['text']}' em ({submit_pos['x']}, {submit_pos['y']})")
+            try:
+                await page.get_by_role("button", name=re.compile(r"criar invent", re.I)).click(timeout=3000)
+                log.info(f"[EXPORT:{warehouse_name}] Submit via Playwright locator OK")
+            except Exception:
+                await page.mouse.click(submit_pos["x"], submit_pos["y"])
+                log.info(f"[EXPORT:{warehouse_name}] Submit via mouse.click")
+        else:
+            log.warning(f"[EXPORT:{warehouse_name}] Botão submit não encontrado — tentando Enter")
+            await page.keyboard.press("Enter")
+
+        # Aguarda o modal fechar (criação completa) — não-fatal se demorar >30s
+        log.info(f"[EXPORT:{warehouse_name}] Aguardando modal fechar (até 30s)...")
+        try:
+            await page.wait_for_function(
+                """() => ![...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                    .some(m => { const r = m.getBoundingClientRect();
+                                 return r.width > 0 && r.height > 0; })""",
+                timeout=30_000,
+            )
+            log.info(f"[EXPORT:{warehouse_name}] Modal fechou — inventário criado")
+        except Exception:
+            log.warning(f"[EXPORT:{warehouse_name}] Modal não fechou em 30s — continuando sem novo rascunho")
+
+        await screenshot(page, f"{pfx}06_after_confirm")
+
+        # Fecha modal caso ainda esteja aberto
+        await page.evaluate("""
+            () => {
+                const x = document.querySelector('.modal .close, .modal [data-dismiss="modal"]');
+                if (x) { x.click(); return; }
+                if (window.$) { const m = $('.modal:visible'); if (m.length) m.modal('hide'); }
+            }
+        """)
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(1000)
 
     # ── 5. Navega à lista e RECARREGA ────────────────────────────────────────
     # O rascunho é criado primeiro sem produtos; após reload todos aparecem.
@@ -657,20 +624,24 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
     await page.wait_for_timeout(600)
     await screenshot(page, f"{pfx}09_dropdown_open")
 
-    # ── 7. Procura e clica no link de exportação CSV ──────────────────────────
-    # O painel é um Bootstrap collapse (clipped by table overflow), por isso
-    # getBoundingClientRect() retorna 0 para itens dentro da tabela.
-    # Usamos JS .click() diretamente no elemento, que funciona independente de overflow.
-    #
-    # Log diagnóstico: mostra TODOS os itens dentro de qualquer dropdown-menu / collapse.
+    # ── 7+8. Clica no item CSV, trata modal de configuração, captura download ──
+    # Estratégia:
+    #  a) Entra no contexto expect_download ANTES do clique
+    #  b) Clica via JS (bypass overflow-hidden da tabela)
+    #  c) Aguarda 2s — clicar "Exportar itens (CSV)" pode abrir um SEGUNDO MODAL
+    #     de configuração antes de disparar o download
+    #  d) Se modal aparecer, clica no botão primário dele
+    #  e) O download parte após confirmar o modal
+
+    # Log diagnóstico — mostra itens em collapse/dropdown (máx 50; o item CSV
+    # está além do índice 50, pois os primeiros são menus de navegação do header)
     diag = await page.evaluate("""
         () => {
             const containers = [
                 ...document.querySelectorAll(
                     '.collapse.in, .collapse.show, ' +
                     '.dropdown-menu, .open .dropdown-menu, ' +
-                    '.btn-group.open .dropdown-menu, ' +
-                    '[aria-expanded="true"] ~ *, [aria-expanded="true"] + *'
+                    '.btn-group.open .dropdown-menu'
                 )
             ];
             return containers.flatMap(c =>
@@ -679,108 +650,143 @@ async def export_inventory_csv(page, warehouse_name, tag=""):
                     text: el.textContent.trim().substring(0, 80),
                     href: el.getAttribute('href') || ''
                 }))
-            ).slice(0, 50);
+            ).slice(0, 60);
         }
     """)
     log.info(f"[DEBUG:{warehouse_name}] Itens em colapso/dropdown: {json.dumps(diag)}")
 
-    # Clique direto via JS — não depende de coordenadas nem de visibilidade CSS
-    js_click = await page.evaluate("""
-        () => {
-            const KEYWORDS = ['csv', 'exportar item', 'export item', 'exportar itens',
-                              'export itens', 'baixar', 'download'];
-            // Escopo prioritário: collapse aberto + dropdown-menu
-            const primary = [
-                ...document.querySelectorAll(
+    def _find_csv_js():
+        return """
+            () => {
+                const KW = ['csv', 'exportar item', 'export item', 'exportar itens', 'export itens'];
+                // Escopo prioritário: collapse aberto + dropdown-menu (inclui menu de ação da linha)
+                for (const el of document.querySelectorAll(
                     '.collapse.in a, .collapse.show a, ' +
-                    '.dropdown-menu a, .open .dropdown-menu a, ' +
-                    '.btn-group.open .dropdown-menu a'
-                )
-            ];
-            for (const el of primary) {
-                const t = el.textContent.toLowerCase();
-                if (KEYWORDS.some(k => t.includes(k))) {
-                    el.click();
-                    return {clicked: el.textContent.trim(), from: 'primary'};
+                    '.dropdown-menu a, .open .dropdown-menu a, .btn-group.open .dropdown-menu a'
+                )) {
+                    const t = el.textContent.toLowerCase();
+                    if (KW.some(k => t.includes(k))) {
+                        el.click();
+                        return {clicked: el.textContent.trim(), from: 'primary',
+                                href: el.getAttribute('href') || ''};
+                    }
                 }
+                // Busca ampla: qualquer <a> com CSV no texto (exceto sidebar e imports)
+                for (const el of document.querySelectorAll('a')) {
+                    const t = el.textContent.toLowerCase();
+                    if (!t.includes('csv')) continue;
+                    const href = el.getAttribute('href') || '';
+                    if (href.includes('inventory_import')) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.left > 0 && r.left < 250) continue;  // exclui sidebar
+                    el.click();
+                    return {clicked: el.textContent.trim(), from: 'broad', href};
+                }
+                const allMenuText = [...document.querySelectorAll('.dropdown-menu a, .collapse a')]
+                    .map(a => a.textContent.trim().substring(0, 60)).filter(t => t);
+                return {not_found: true, allMenuText};
             }
+        """
 
-            // Busca ampla: qualquer <a> com CSV no texto (exceto sidebar)
-            for (const el of document.querySelectorAll('a')) {
-                const t = el.textContent.toLowerCase();
-                if (!t.includes('csv')) continue;
-                const href = el.getAttribute('href') || '';
-                if (href.includes('inventory_import')) continue;
-                const r = el.getBoundingClientRect();
-                // Aceita mesmo com rect zerado (overflow clipped) se não estiver na sidebar
-                if (r.left > 0 && r.left < 250) continue;
-                el.click();
-                return {clicked: el.textContent.trim(), from: 'broad',
-                        rect: [Math.round(r.left), Math.round(r.top)]};
+    def _confirm_export_modal_js():
+        """Clica no botão primário de um modal de configuração de exportação."""
+        return """
+            () => {
+                const modal = [...document.querySelectorAll('.modal, [role="dialog"], .bootbox')]
+                    .find(m => {
+                        const r = m.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    });
+                if (!modal) return {found: false};
+
+                const allBtns = [...modal.querySelectorAll('button, a.btn, input[type="submit"]')]
+                    .map(b => ({text: b.textContent.trim(), cls: b.className,
+                                dismiss: b.getAttribute('data-dismiss')}));
+
+                // Candidato primário: btn-primary ou texto confirmatório
+                const confirmBtn = [...modal.querySelectorAll('button, a.btn, input[type="submit"]')]
+                    .find(b => {
+                        const t = b.textContent.trim().toLowerCase();
+                        const isDismiss = b.getAttribute('data-dismiss') === 'modal'
+                            || ['cancelar','cancel','fechar','close','x','×'].includes(t)
+                            || b.classList.contains('close');
+                        if (isDismiss) return false;
+                        return b.classList.contains('btn-primary')
+                            || t.includes('exportar') || t.includes('ok')
+                            || t.includes('baixar') || t.includes('gerar')
+                            || t.includes('confirmar') || t.includes('download');
+                    })
+                    // Se nenhum primário, pega qualquer botão não-cancel
+                    || [...modal.querySelectorAll('button, a.btn')]
+                        .find(b => {
+                            const t = b.textContent.trim().toLowerCase();
+                            return !['cancelar','cancel','fechar','close','x','×'].includes(t)
+                                && b.getAttribute('data-dismiss') !== 'modal'
+                                && !b.classList.contains('close');
+                        });
+
+                if (confirmBtn) {
+                    confirmBtn.click();
+                    return {found: true, clicked: confirmBtn.textContent.trim(), allBtns};
+                }
+                return {found: true, clicked: null, allBtns};
             }
+        """
 
-            // Log de todos os .dropdown-menu no DOM para diagnóstico
-            const allMenuText = [...document.querySelectorAll('.dropdown-menu a, .collapse a')]
-                .map(a => a.textContent.trim().substring(0, 60));
-            return {not_found: true, allMenuText};
-        }
-    """)
-    log.info(f"[EXPORT:{warehouse_name}] JS click result: {json.dumps(js_click)}")
-
-    if not js_click or not js_click.get("clicked"):
-        # Tenta Playwright force-click como último recurso
-        for pl_loc in [
-            page.locator('.collapse a').filter(has_text=re.compile(r'csv', re.I)),
-            page.locator('.dropdown-menu a').filter(has_text=re.compile(r'csv', re.I)),
-            page.get_by_role("menuitem", name=re.compile(r'csv', re.I)),
-            page.get_by_text(re.compile(r'exportar.*csv|csv', re.I)).first,
-        ]:
-            try:
-                cnt = await pl_loc.count()
-                if cnt > 0:
-                    await pl_loc.first.click(force=True, timeout=2000)
-                    log.info(f"[EXPORT:{warehouse_name}] CSV clicado via Playwright force ({cnt})")
-                    js_click = {"clicked": "playwright-force", "from": "playwright"}
-                    break
-            except Exception as pe:
-                log.warning(f"[EXPORT:{warehouse_name}] Playwright force: {pe}")
-
-    if not js_click or not js_click.get("clicked"):
-        await screenshot(page, f"ERR_{pfx}no_csv_item")
-        raise RuntimeError(
-            f"Item CSV não encontrado no dropdown/collapse [{warehouse_name}]. "
-            f"diag={json.dumps(diag)}"
-        )
-
-    log.info(f"[EXPORT:{warehouse_name}] CSV clicado: '{js_click.get('clicked')}' via {js_click.get('from')}")
-
-    # ── 8. Captura o download disparado pelo clique JS ────────────────────────
-    # O clique JS acima já foi executado. Agora aguardamos o download.
     csv_content = None
 
     try:
-        # O download pode já estar em andamento; expect_download com timeout curto
-        async with page.expect_download(timeout=12_000) as dl_info:
-            # Re-dispara caso o download anterior não tenha iniciado
-            await page.evaluate("""
-                () => {
-                    const KEYWORDS = ['csv', 'exportar item', 'exportar itens'];
-                    for (const scope of ['.collapse.in', '.collapse.show', '.dropdown-menu', '.open .dropdown-menu']) {
-                        for (const a of document.querySelectorAll(scope + ' a')) {
-                            const t = a.textContent.toLowerCase();
-                            if (KEYWORDS.some(k => t.includes(k))) { a.click(); return; }
-                        }
-                    }
-                }
-            """)
-            log.info(f"[EXPORT:{warehouse_name}] Aguardando download...")
+        async with page.expect_download(timeout=30_000) as dl_info:
+            # Clique 1: item "Exportar itens de inventário (CSV)"
+            js_click = await page.evaluate(_find_csv_js())
+            log.info(f"[EXPORT:{warehouse_name}] CSV item click: {json.dumps(js_click)}")
+
+            if not js_click or not js_click.get("clicked"):
+                # Fallback Playwright force
+                for pl_loc in [
+                    page.locator('.dropdown-menu a').filter(has_text=re.compile(r'csv', re.I)),
+                    page.locator('.collapse a').filter(has_text=re.compile(r'csv', re.I)),
+                ]:
+                    try:
+                        if await pl_loc.count() > 0:
+                            await pl_loc.first.click(force=True, timeout=2000)
+                            js_click = {"clicked": "playwright-force", "from": "playwright"}
+                            break
+                    except Exception as pe:
+                        log.warning(f"[EXPORT:{warehouse_name}] Playwright force: {pe}")
+
+            if not js_click or not js_click.get("clicked"):
+                await screenshot(page, f"ERR_{pfx}no_csv_item")
+                raise RuntimeError(
+                    f"Item CSV não encontrado no dropdown/collapse [{warehouse_name}]. "
+                    f"diag={json.dumps(diag)}"
+                )
+
+            log.info(f"[EXPORT:{warehouse_name}] CSV clicado: '{js_click.get('clicked')}'")
+
+            # Aguarda 2s — clicking abre modal de configuração de exportação
+            await page.wait_for_timeout(2000)
+            await screenshot(page, f"{pfx}09b_after_csv_click")
+
+            # Trata modal de configuração/confirmação de exportação (se aparecer)
+            export_modal = await page.evaluate(_confirm_export_modal_js())
+            log.info(f"[EXPORT:{warehouse_name}] Export modal: {json.dumps(export_modal)}")
+
+            if export_modal and export_modal.get("found") and not export_modal.get("clicked"):
+                # Modal encontrado mas sem botão confirmatório claro; loga e tenta Enter
+                log.warning(f"[EXPORT:{warehouse_name}] Modal sem botão primário identificado — tentando Enter")
+                await page.keyboard.press("Enter")
+
+            log.info(f"[EXPORT:{warehouse_name}] Aguardando download (até 30s)...")
+
         dl = await dl_info.value
         dl_path = await dl.path()
         csv_content = Path(dl_path).read_text(encoding="utf-8-sig", errors="replace")
         log.info(f"[EXPORT:{warehouse_name}] Download OK: {dl.suggested_filename}")
+
     except Exception as e:
-        log.warning(f"[EXPORT:{warehouse_name}] expect_download falhou: {e} — verificando URL capturada")
-        await page.wait_for_timeout(3000)
+        log.warning(f"[EXPORT:{warehouse_name}] expect_download falhou: {e}")
+        await page.wait_for_timeout(2000)
 
     if not csv_content:
         opened_urls = await page.evaluate("() => window.__capturedUrls || []")
