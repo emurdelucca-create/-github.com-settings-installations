@@ -48,6 +48,8 @@ function onOpen() {
     .addItem('📦 Maior Estoque', 'gerarMaiorEstoque')
     .addSeparator()
     .addItem('🔄 Todas as Abas', 'gerarGiroEstoque')
+    .addSeparator()
+    .addItem('🔁 Atualizar Estoque BaseLinker', 'bl_atualizarEstoqueNaPlanilha')
     .addToUi();
 }
 

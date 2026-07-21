@@ -29,6 +29,114 @@ function _bl_call(method, params) {
 }
 
 // ============================================================
+// ATUALIZAR ESTOQUE NA PLANILHA BL
+// Busca stock via API e grava nas colunas E/F/G (Padrão/Arm/Chegou)
+// da aba "estoque" em ID_BL. Chamado pelo menu do GiroEstoque.
+// ============================================================
+function bl_atualizarEstoqueNaPlanilha() {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('⏳ Buscando estoque no BaseLinker... Aguarde 1-2 minutos.');
+
+  const BL_ID  = '1wy-tJoDxGDjfnd0AXQfdQ0bw9qmTtxz7wV4UKDlQrik';
+  const BL_ABA = 'estoque';
+  const INV_ID = 39947;
+  const WH_PAD = 'bl_44285';
+  const WH_ARM = 'bl_50394';
+  const WH_CHG = 'bl_51442';
+
+  // Índices 0-based (espelha GCFG do GiroEstoque.gs)
+  const COL_SKU  = 1;  // B
+  const COL_PAD  = 4;  // E
+  const COL_ARM  = 5;  // F
+  const COL_CHG  = 6;  // G
+  const COL_TIPO = 7;  // H
+
+  // Normaliza SKU removendo zeros à esquerda para matching (00118 ↔ 118)
+  function norm(sku) { const s = String(sku).trim().replace(/^0+/, ''); return s || '0'; }
+
+  try {
+    const ss  = SpreadsheetApp.openById(BL_ID);
+    const aba = ss.getSheetByName(BL_ABA);
+    if (!aba) throw new Error('Aba "' + BL_ABA + '" não encontrada em ID_BL.');
+
+    const dados = aba.getDataRange().getValues();
+
+    // Mapa: skuExato → rowIndex e normSku → rowIndex (para leading-zeros)
+    const exactToRow = {};
+    const normToRow  = {};
+    for (let i = 1; i < dados.length; i++) {
+      const sku  = String(dados[i][COL_SKU]  || '').trim();
+      const tipo = String(dados[i][COL_TIPO] || '').trim();
+      if (!sku || tipo === 'Composto') continue;
+      exactToRow[sku]       = i;
+      normToRow[norm(sku)]  = i;
+    }
+
+    // Busca SKU → productId via API (paginada)
+    const pidToSku = {};
+    let page = 1;
+    while (true) {
+      const r = _bl_call('getInventoryProductsList', { inventory_id: INV_ID, page });
+      const entries = Object.entries(r.products || {});
+      if (!entries.length) break;
+      entries.forEach(([pid, info]) => {
+        const sku = String(info.sku || '').trim();
+        if (sku) pidToSku[pid] = sku;
+      });
+      if (entries.length < 1000) break;
+      page++;
+      Utilities.sleep(200);
+    }
+
+    // Busca stock em lotes de 1000
+    const stockBySku = {};
+    const allPids = Object.keys(pidToSku);
+    for (let i = 0; i < allPids.length; i += 1000) {
+      const batch = allPids.slice(i, i + 1000).map(Number);
+      const r = _bl_call('getInventoryProductsData', { inventory_id: INV_ID, products: batch });
+      Object.entries(r.products || {}).forEach(([pid, p]) => {
+        const sku = pidToSku[String(pid)];
+        if (!sku) return;
+        const s = p.stock || {};
+        if (!stockBySku[sku]) stockBySku[sku] = { pad: 0, arm: 0, chg: 0 };
+        stockBySku[sku].pad += Number(s[WH_PAD] || 0);
+        stockBySku[sku].arm += Number(s[WH_ARM] || 0);
+        stockBySku[sku].chg += Number(s[WH_CHG] || 0);
+      });
+      if (i + 1000 < allPids.length) Utilities.sleep(300);
+    }
+
+    // Monta novos valores para as 3 colunas de saldo, linha a linha
+    let updated = 0;
+    const newSaldos = dados.map((row, i) => {
+      if (i === 0) return [row[COL_PAD], row[COL_ARM], row[COL_CHG]]; // cabeçalho — preserva
+      const sku  = String(row[COL_SKU]  || '').trim();
+      const tipo = String(row[COL_TIPO] || '').trim();
+      if (!sku || tipo === 'Composto') return [row[COL_PAD], row[COL_ARM], row[COL_CHG]];
+
+      // Tenta match exato, depois normalizado (para SKUs com zeros à esquerda)
+      const s = stockBySku[sku] || stockBySku[
+        Object.keys(stockBySku).find(k => norm(k) === norm(sku)) || ''
+      ];
+      if (!s) return [row[COL_PAD], row[COL_ARM], row[COL_CHG]]; // sem match — mantém
+      updated++;
+      return [s.pad, s.arm, s.chg];
+    });
+
+    // Grava as 3 colunas de uma vez (1 chamada de API em vez de N)
+    aba.getRange(1, COL_PAD + 1, dados.length, 3).setValues(newSaldos);
+    SpreadsheetApp.flush();
+
+    const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    ui.alert('✅ Estoque atualizado!\n' + updated + ' SKUs  |  ' + ts +
+             '\n\nAgora execute "📦 Giro de Estoque → Todas as Abas" para regenerar.');
+
+  } catch(e) {
+    ui.alert('❌ Erro ao atualizar estoque:\n' + e.message + '\n\n' + e.stack);
+  }
+}
+
+// ============================================================
 // DIAGNÓSTICO — rode isso primeiro para mapear IDs reais
 // Execute: _bl_diagnosticarAPI()
 // ============================================================
