@@ -130,31 +130,31 @@ function _nj_fetchBL() {
 
   const pids = Object.keys(pidToSku);
 
-  // 2. Detecta o campo NCM nos extra_fields da primeira página de produtos:
-  //    NCM brasileiro sempre tem exatamente 8 dígitos (ex: "84139190").
-  //    Conta quantos produtos têm valor 8-dígitos em cada campo e usa o vencedor.
-  let ncmFieldId = null;
+  // 2. Auto-detecta a chave do NCM dentro de text_fields.
+  //    O BaseLinker armazena "Campos adicionais" em text_fields como
+  //    extra_field_1, extra_field_2, etc. (não em extra_fields).
+  //    NCM brasileiro = 8 dígitos (ex: "87141000").
+  let ncmKey = null;
   if (pids.length > 0) {
-    const sampleBatch = pids.slice(0, Math.min(50, pids.length)).map(Number);
+    const sampleBatch = pids.slice(0, Math.min(100, pids.length)).map(Number);
     const rSample = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: sampleBatch });
     const fieldHits = {};
     for (const p of Object.values(rSample.products || {})) {
-      if (!p.extra_fields) continue;
-      for (const [fid, val] of Object.entries(p.extra_fields)) {
-        // NCM brasileiro = 8 dígitos (84139190) ou HS Code com pontos (8413.91.90)
-      // Aceita 6-10 dígitos, com ou sem pontos/hífens, começando por 4 dígitos
-      if (/^\d{4}[\d.\-]{2,8}$/.test(String(val || '').trim())) {
-          fieldHits[fid] = (fieldHits[fid] || 0) + 1;
+      const tf = _nj_parseTextField(p.text_fields);
+      for (const [k, val] of Object.entries(tf)) {
+        if (!k.startsWith('extra_field_')) continue;
+        if (/^\d{4}[\d.\-]{2,8}$/.test(String(val || '').trim())) {
+          fieldHits[k] = (fieldHits[k] || 0) + 1;
         }
       }
     }
     let best = 0;
-    for (const [fid, count] of Object.entries(fieldHits)) {
-      if (count > best) { best = count; ncmFieldId = fid; }
+    for (const [k, count] of Object.entries(fieldHits)) {
+      if (count > best) { best = count; ncmKey = k; }
     }
   }
 
-  // 3. Dados detalhados: extra_fields → NCM
+  // 3. Dados detalhados: text_fields[ncmKey] → NCM
   const result = {};
   for (let i = 0; i < pids.length; i += 1000) {
     const batch = pids.slice(i, i + 1000).map(Number);
@@ -163,8 +163,9 @@ function _nj_fetchBL() {
       const sku = pidToSku[String(pid)];
       if (!sku || result[sku]) continue;
       let ncm = '';
-      if (ncmFieldId && p.extra_fields) {
-        ncm = String(p.extra_fields[ncmFieldId] || '').trim();
+      if (ncmKey) {
+        const tf = _nj_parseTextField(p.text_fields);
+        ncm = String(tf[ncmKey] || '').trim();
       }
       result[sku] = { ncm };
     }
@@ -172,6 +173,13 @@ function _nj_fetchBL() {
   }
 
   return result;
+}
+
+// text_fields pode chegar como string JSON ou como objeto
+function _nj_parseTextField(tf) {
+  if (!tf) return {};
+  if (typeof tf === 'object') return tf;
+  try { return JSON.parse(tf); } catch(_) { return {}; }
 }
 
 // ── Diagnóstico: dump completo de um produto por ID ──────────
@@ -197,15 +205,20 @@ function nj_diagnosticarCamposExtras() {
       const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
       msg += '  ' + k + ' = ' + s.substring(0, 80) + '\n';
     }
-    msg += '\nextra_fields:\n';
-    const ef = p.extra_fields || {};
-    if (!Object.keys(ef).length) {
-      msg += '  (vazio)\n';
+    msg += '\ntext_fields (campos adicionais):\n';
+    const tf = _nj_parseTextField(p.text_fields);
+    const tfKeys = Object.keys(tf).filter(k => k.startsWith('extra_field_') || k === 'name');
+    if (!tfKeys.length) {
+      msg += '  (nenhum extra_field encontrado)\n';
     } else {
-      for (const [fid, val] of Object.entries(ef)) {
-        msg += '  field_id=' + fid + ' → "' + String(val).substring(0, 60) + '"\n';
+      for (const k of tfKeys) {
+        msg += '  ' + k + ' = "' + String(tf[k] || '').substring(0, 60) + '"\n';
       }
     }
+    msg += '\nextra_fields (outro objeto):\n';
+    const ef = p.extra_fields || {};
+    msg += !Object.keys(ef).length ? '  (vazio)\n'
+      : Object.entries(ef).map(([k,v]) => '  ' + k + '="' + String(v).substring(0,40) + '"').join('\n') + '\n';
     msg += '\nstock: ' + JSON.stringify(p.stock || {}).substring(0, 200) + '\n';
 
     // Grava resultado na aba oculta para análise completa
