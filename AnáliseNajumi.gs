@@ -112,18 +112,7 @@ function _nj_bl(method, params) {
 
 // ── Busca NCM de todos os produtos via API ───────────────────
 function _nj_fetchBL() {
-  // 1. Descobre qual campo extra é o NCM
-  let ncmFieldId = null;
-  try {
-    const r = _nj_bl('getInventoryExtraFieldsList', { inventory_id: NJ.BL_INV });
-    const fields = r.extra_fields || [];
-    const f = fields.find(x => String(x.name || '').trim().toUpperCase() === 'NCM');
-    if (f) ncmFieldId = String(f.extra_field_id);
-  } catch(_) {
-    // Se o método não existir, NCM ficará vazio. Use "Listar Campos Extras BL" para diagnóstico.
-  }
-
-  // 2. Lista todos os produtos (paginado)
+  // 1. Lista todos os produtos (paginado)
   const pidToSku = {};
   let page = 1;
   while (true) {
@@ -139,9 +128,34 @@ function _nj_fetchBL() {
     Utilities.sleep(250);
   }
 
+  const pids = Object.keys(pidToSku);
+
+  // 2. Detecta o campo NCM nos extra_fields da primeira página de produtos:
+  //    NCM brasileiro sempre tem exatamente 8 dígitos (ex: "84139190").
+  //    Conta quantos produtos têm valor 8-dígitos em cada campo e usa o vencedor.
+  let ncmFieldId = null;
+  if (pids.length > 0) {
+    const sampleBatch = pids.slice(0, Math.min(50, pids.length)).map(Number);
+    const rSample = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: sampleBatch });
+    const fieldHits = {};
+    for (const p of Object.values(rSample.products || {})) {
+      if (!p.extra_fields) continue;
+      for (const [fid, val] of Object.entries(p.extra_fields)) {
+        // NCM brasileiro = 8 dígitos (84139190) ou HS Code com pontos (8413.91.90)
+      // Aceita 6-10 dígitos, com ou sem pontos/hífens, começando por 4 dígitos
+      if (/^\d{4}[\d.\-]{2,8}$/.test(String(val || '').trim())) {
+          fieldHits[fid] = (fieldHits[fid] || 0) + 1;
+        }
+      }
+    }
+    let best = 0;
+    for (const [fid, count] of Object.entries(fieldHits)) {
+      if (count > best) { best = count; ncmFieldId = fid; }
+    }
+  }
+
   // 3. Dados detalhados: extra_fields → NCM
   const result = {};
-  const pids   = Object.keys(pidToSku);
   for (let i = 0; i < pids.length; i += 1000) {
     const batch = pids.slice(i, i + 1000).map(Number);
     const r = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: batch });
@@ -160,23 +174,27 @@ function _nj_fetchBL() {
   return result;
 }
 
-// ── Diagnóstico: lista campos extras do inventário ────────────
+// ── Diagnóstico: mostra extra_fields de produtos amostra ──────
 function nj_diagnosticarCamposExtras() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const r = _nj_bl('getInventoryExtraFieldsList', { inventory_id: NJ.BL_INV });
-    const fields = r.extra_fields || [];
-    let msg = '══ CAMPOS EXTRAS DO INVENTÁRIO ══\n';
-    if (fields.length === 0) {
-      msg += '(nenhum campo extra encontrado)';
-    } else {
-      fields.forEach(f => {
-        msg += '  id=' + f.extra_field_id + ' nome="' + f.name + '"\n';
-      });
+    const rList = _nj_bl('getInventoryProductsList', { inventory_id: NJ.BL_INV, page: 1 });
+    const pids  = Object.keys(rList.products || {}).slice(0, 5).map(Number);
+    if (!pids.length) { ui.alert('Nenhum produto encontrado no inventário.'); return; }
+
+    const rData = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: pids });
+    let msg = '══ CAMPOS EXTRAS (amostra de ' + pids.length + ' produtos) ══\n';
+    for (const [pid, p] of Object.entries(rData.products || {})) {
+      msg += '\nSKU="' + p.sku + '" (id=' + pid + '):\n';
+      const ef = p.extra_fields || {};
+      if (!Object.keys(ef).length) { msg += '  (sem campos extras)\n'; continue; }
+      for (const [fid, val] of Object.entries(ef)) {
+        msg += '  field_id=' + fid + ' → "' + String(val).substring(0, 40) + '"\n';
+      }
     }
-    ui.alert(msg);
+    ui.alert(msg.substring(0, 1500) + (msg.length > 1500 ? '\n...(truncado)' : ''));
   } catch(e) {
-    ui.alert('❌ Erro ao listar campos extras:\n' + e.message);
+    ui.alert('❌ Erro:\n' + e.message);
   }
 }
 
