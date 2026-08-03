@@ -64,7 +64,7 @@ function onOpen() {
     .createMenu('📊 Análise Najumi')
     .addItem('🔄 Gerar Análise Completa', 'nj_gerarAnalise')
     .addSeparator()
-    .addItem('🔍 Listar Campos Extras BL', 'nj_diagnosticarCamposExtras')
+    .addItem('🔍 Buscar Campos Extras por SKU', 'nj_diagnosticarCamposExtras')
     .addToUi();
 }
 
@@ -174,22 +174,40 @@ function _nj_fetchBL() {
   return result;
 }
 
-// ── Diagnóstico: mostra extra_fields de produtos amostra ──────
+// ── Diagnóstico: busca extra_fields de um SKU específico ──────
 function nj_diagnosticarCamposExtras() {
-  const ui = SpreadsheetApp.getUi();
-  try {
-    const rList = _nj_bl('getInventoryProductsList', { inventory_id: NJ.BL_INV, page: 1 });
-    const pids  = Object.keys(rList.products || {}).slice(0, 5).map(Number);
-    if (!pids.length) { ui.alert('Nenhum produto encontrado no inventário.'); return; }
+  const ui  = SpreadsheetApp.getUi();
+  const res = ui.prompt('🔍 Busca Inversa de Campos Extras',
+    'Digite o SKU exato de um produto que tenha NCM preenchido:', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const skuBusca = res.getResponseText().trim();
+  if (!skuBusca) { ui.alert('SKU não informado.'); return; }
 
+  try {
+    // Busca o produto pelo SKU (filter_sku retorna apenas o produto exato)
+    const rList = _nj_bl('getInventoryProductsList', {
+      inventory_id: NJ.BL_INV,
+      filter_sku:   skuBusca,
+    });
+    const entries = Object.entries(rList.products || {});
+    if (!entries.length) {
+      ui.alert('Produto com SKU "' + skuBusca + '" não encontrado.');
+      return;
+    }
+
+    const pids  = entries.map(([pid]) => Number(pid));
     const rData = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: pids });
-    let msg = '══ CAMPOS EXTRAS (amostra de ' + pids.length + ' produtos) ══\n';
+
+    let msg = '══ CAMPOS EXTRAS — SKU "' + skuBusca + '" ══\n';
     for (const [pid, p] of Object.entries(rData.products || {})) {
-      msg += '\nSKU="' + p.sku + '" (id=' + pid + '):\n';
+      msg += '\nSKU="' + p.sku + '" (product_id=' + pid + '):\n';
       const ef = p.extra_fields || {};
-      if (!Object.keys(ef).length) { msg += '  (sem campos extras)\n'; continue; }
+      if (!Object.keys(ef).length) {
+        msg += '  (sem campos extras preenchidos)\n';
+        continue;
+      }
       for (const [fid, val] of Object.entries(ef)) {
-        msg += '  field_id=' + fid + ' → "' + String(val).substring(0, 40) + '"\n';
+        msg += '  field_id=' + fid + ' → "' + String(val).substring(0, 60) + '"\n';
       }
     }
     ui.alert(msg.substring(0, 1500) + (msg.length > 1500 ? '\n...(truncado)' : ''));
