@@ -24,7 +24,8 @@ const NJ = {
 
   ID_FORN: '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
 
-  BL_INV:  39947,
+  BL_INV:   39947,
+  BL_NCM:   'extra_field_73312',  // NCM em text_fields (identificado via diagnóstico)
 
   GE_SKU:   1,
   GE_QTD:   2,
@@ -130,29 +131,8 @@ function _nj_fetchBL() {
 
   const pids = Object.keys(pidToSku);
 
-  // 2. Auto-detecta a chave do NCM dentro de text_fields.
-  //    O BaseLinker armazena "Campos adicionais" em text_fields como
-  //    extra_field_1, extra_field_2, etc. (não em extra_fields).
-  //    NCM brasileiro = 8 dígitos (ex: "87141000").
-  let ncmKey = null;
-  if (pids.length > 0) {
-    const sampleBatch = pids.slice(0, Math.min(100, pids.length)).map(Number);
-    const rSample = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: sampleBatch });
-    const fieldHits = {};
-    for (const p of Object.values(rSample.products || {})) {
-      const tf = _nj_parseTextField(p.text_fields);
-      for (const [k, val] of Object.entries(tf)) {
-        if (!k.startsWith('extra_field_')) continue;
-        if (/^\d{4}[\d.\-]{2,8}$/.test(String(val || '').trim())) {
-          fieldHits[k] = (fieldHits[k] || 0) + 1;
-        }
-      }
-    }
-    let best = 0;
-    for (const [k, count] of Object.entries(fieldHits)) {
-      if (count > best) { best = count; ncmKey = k; }
-    }
-  }
+  // 2. Chave do NCM em text_fields (hardcoded; identificado via diagnóstico)
+  const ncmKey = NJ.BL_NCM;
 
   // 3. Dados detalhados: text_fields[ncmKey] → NCM
   const result = {};
