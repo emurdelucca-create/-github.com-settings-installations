@@ -174,43 +174,50 @@ function _nj_fetchBL() {
   return result;
 }
 
-// ── Diagnóstico: busca extra_fields de um SKU específico ──────
+// ── Diagnóstico: dump completo de um produto por ID ──────────
+// Usa product_id diretamente para ver TODOS os campos retornados pela API.
 function nj_diagnosticarCamposExtras() {
   const ui  = SpreadsheetApp.getUi();
-  const res = ui.prompt('🔍 Busca Inversa de Campos Extras',
-    'Digite o SKU exato de um produto que tenha NCM preenchido:', ui.ButtonSet.OK_CANCEL);
+  const res = ui.prompt('🔍 Dump Completo do Produto',
+    'Digite o product_id (número) do produto com NCM preenchido.\n\nEx: 83984421', ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
-  const skuBusca = res.getResponseText().trim();
-  if (!skuBusca) { ui.alert('SKU não informado.'); return; }
+  const pid = parseInt(res.getResponseText().trim(), 10);
+  if (!pid) { ui.alert('ID inválido.'); return; }
 
   try {
-    // Busca o produto pelo SKU (filter_sku retorna apenas o produto exato)
-    const rList = _nj_bl('getInventoryProductsList', {
-      inventory_id: NJ.BL_INV,
-      filter_sku:   skuBusca,
-    });
-    const entries = Object.entries(rList.products || {});
-    if (!entries.length) {
-      ui.alert('Produto com SKU "' + skuBusca + '" não encontrado.');
-      return;
+    const r = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: [pid] });
+    const p = (r.products || {})[String(pid)];
+    if (!p) { ui.alert('Produto ' + pid + ' não encontrado.'); return; }
+
+    // Mostra todos os campos de topo e o extra_fields
+    let msg = '══ PRODUTO id=' + pid + ' sku="' + p.sku + '" ══\n\n';
+    msg += 'Campos de topo:\n';
+    for (const [k, v] of Object.entries(p)) {
+      if (k === 'extra_fields' || k === 'stock' || k === 'locations' || k === 'images') continue;
+      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      msg += '  ' + k + ' = ' + s.substring(0, 80) + '\n';
     }
-
-    const pids  = entries.map(([pid]) => Number(pid));
-    const rData = _nj_bl('getInventoryProductsData', { inventory_id: NJ.BL_INV, products: pids });
-
-    let msg = '══ CAMPOS EXTRAS — SKU "' + skuBusca + '" ══\n';
-    for (const [pid, p] of Object.entries(rData.products || {})) {
-      msg += '\nSKU="' + p.sku + '" (product_id=' + pid + '):\n';
-      const ef = p.extra_fields || {};
-      if (!Object.keys(ef).length) {
-        msg += '  (sem campos extras preenchidos)\n';
-        continue;
-      }
+    msg += '\nextra_fields:\n';
+    const ef = p.extra_fields || {};
+    if (!Object.keys(ef).length) {
+      msg += '  (vazio)\n';
+    } else {
       for (const [fid, val] of Object.entries(ef)) {
         msg += '  field_id=' + fid + ' → "' + String(val).substring(0, 60) + '"\n';
       }
     }
-    ui.alert(msg.substring(0, 1500) + (msg.length > 1500 ? '\n...(truncado)' : ''));
+    msg += '\nstock: ' + JSON.stringify(p.stock || {}).substring(0, 200) + '\n';
+
+    // Grava resultado na aba oculta para análise completa
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let ws = ss.getSheetByName('_nj_debug');
+    if (!ws) { ws = ss.insertSheet('_nj_debug'); ws.hideSheet(); }
+    ws.clearContents();
+    ws.getRange(1, 1).setValue(JSON.stringify(p, null, 2));
+
+    ui.alert(msg.substring(0, 1500) +
+      (msg.length > 1500 ? '\n...(ver aba "_nj_debug" para JSON completo)' : '') +
+      '\n\nJSON completo gravado em aba "_nj_debug".');
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);
   }
