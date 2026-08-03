@@ -336,14 +336,32 @@ const NJ_HDR_SKU = [
   'NJ All Qtd 0-30', 'NJ All Fat 0-30', 'NJ All Qtd 30-60', 'NJ All Fat 30-60', 'NJ All Qtd 60-90', 'NJ All Fat 60-90',
 ];
 
+// Ordena por Fat total 0-90 decrescente
+function _nj_fatTotal(v) {
+  return v.todos.f030 + v.todos.f3060 + v.todos.f6090;
+}
+
+// Normaliza NCM para formato XXXX.XX.XX
+// "87141000" → "8714.10.00" | "8714.10.00" mantém | outros mantém
+function _nj_normNcm(ncm) {
+  const s = String(ncm || '').trim();
+  if (!s) return 'Sem NCM';
+  if (s.includes('.')) return s;
+  if (/^\d{8}$/.test(s)) return s.slice(0,4) + '.' + s.slice(4,6) + '.' + s.slice(6,8);
+  return s;
+}
+
 function _nj_writeSkuTab(vendas, blData, fornMap) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let ws = ss.getSheetByName(NJ.ABA_SKU);
   if (!ws) ws = ss.insertSheet(NJ.ABA_SKU);
   ws.clearContents();
 
-  const rows = Object.keys(vendas).sort().map(sku => {
-    const ncm  = (blData[sku] && blData[sku].ncm) || '';
+  // Ordena por Fat total 0-90 decrescente
+  const skus = Object.keys(vendas).sort((a, b) => _nj_fatTotal(vendas[b]) - _nj_fatTotal(vendas[a]));
+
+  const rows = skus.map(sku => {
+    const ncm  = _nj_normNcm((blData[sku] && blData[sku].ncm) || '');
     const forn = _nj_lookupForn(fornMap, sku);
     return _nj_buildRow([sku, ncm, forn], vendas[sku]);
   });
@@ -356,13 +374,16 @@ function _nj_writeSkuTab(vendas, blData, fornMap) {
 
 // ── Abas NCM e Fornecedor ─────────────────────────────────────
 function _nj_writeGroupTab(abaName, vendas, blData, fornMap, groupBy) {
-  // Agrega por grupo
+  // Agrega por grupo (NCM normalizado para evitar duplicatas por formato)
   const groups = {};
   for (const sku of Object.keys(vendas)) {
     const v   = vendas[sku];
-    const key = groupBy === 'ncm'
-      ? ((blData[sku] && blData[sku].ncm) || 'Sem NCM')
-      : _nj_lookupForn(fornMap, sku);
+    let key;
+    if (groupBy === 'ncm') {
+      key = _nj_normNcm((blData[sku] && blData[sku].ncm) || '');
+    } else {
+      key = _nj_lookupForn(fornMap, sku);
+    }
 
     if (!groups[key]) groups[key] = _nj_novaSku();
     const g = groups[key];
@@ -385,7 +406,9 @@ function _nj_writeGroupTab(abaName, vendas, blData, fornMap, groupBy) {
     'NJ All Qtd 0-30', 'NJ All Fat 0-30', 'NJ All Qtd 30-60', 'NJ All Fat 30-60', 'NJ All Qtd 60-90', 'NJ All Fat 60-90',
   ];
 
-  const rows = Object.keys(groups).sort().map(key => _nj_buildRow([key], groups[key]));
+  // Ordena por Fat total 0-90 decrescente
+  const keys = Object.keys(groups).sort((a, b) => _nj_fatTotal(groups[b]) - _nj_fatTotal(groups[a]));
+  const rows = keys.map(key => _nj_buildRow([key], groups[key]));
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let ws = ss.getSheetByName(abaName);
