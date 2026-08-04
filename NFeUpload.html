@@ -170,6 +170,10 @@ async function processarZips() {
   var allRows  = [];
   var xmlCount = 0;
   var errXml   = 0;
+  parseNFe._semCanalLog = 0;
+
+  log('🗺 canalMap: ' + Object.keys(canalMap).length + ' entradas' +
+      (Object.keys(canalMap).length ? ' | ex: ' + Object.keys(canalMap).slice(0,3).join(', ') : ''));
 
   for (var f = 0; f < files.length; f++) {
     log('📦 Extraindo: ' + files[f].name + ' (' + mb(files[f].size) + ')');
@@ -205,6 +209,16 @@ async function processarZips() {
   }
 
   log('📊 Total: ' + xmlCount + ' NFs | ' + allRows.length + ' linhas de produto');
+
+  // Diagnóstico canal
+  var semCanal = allRows.filter(function(r){ return !r[12]; }).length;
+  if (semCanal > 0) {
+    log('⚠ ' + semCanal + ' linhas sem canal (de ' + allRows.length + ')');
+    log('  canalMap tem ' + Object.keys(canalMap).length + ' entradas');
+    if (Object.keys(canalMap).length > 0) {
+      log('  Ex. chaves: ' + Object.keys(canalMap).slice(0,5).join(', '));
+    }
+  }
 
   // Envia em lotes de 2000 linhas
   var BATCH   = 2000;
@@ -278,6 +292,13 @@ function parseNFe(xmlText) {
   var canal = canalMap[nNF + '/' + serie]  ||
               canalMap[serie + '/' + nNF]  ||
               canalMap[nNF] || '';
+
+  // Log de diagnóstico para as primeiras 3 NFs sem canal
+  if (!canal && parseNFe._semCanalLog < 3) {
+    parseNFe._semCanalLog = (parseNFe._semCanalLog || 0) + 1;
+    log('  🔍 NF sem canal: nNF=' + nNF + ' serie=' + serie +
+        ' | tentou: "' + nNF + '/' + serie + '" / "' + serie + '/' + nNF + '" / "' + nNF + '"');
+  }
 
   // ── Produtos ──────────────────────────────────────────────
   var rows = [];
