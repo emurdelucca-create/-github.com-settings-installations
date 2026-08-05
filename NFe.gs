@@ -138,7 +138,9 @@ function _nfe_buildCanalMap() {
       get_unconfirmed: true,
       page:            page,
     });
-    const orders = r.orders || [];
+    // A API pode retornar orders como array ou como objeto {id: {...}}
+    const raw    = r.orders || [];
+    const orders = Array.isArray(raw) ? raw : Object.values(raw);
     if (!orders.length) break;
 
     orders.forEach(function(o) {
