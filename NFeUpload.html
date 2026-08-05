@@ -119,18 +119,6 @@
   <div class="log" id="logTexto"></div>
 </div>
 
-<!-- Etapa 4: buscar canal (aparece após gravar os XMLs) -->
-<div class="card" id="secCanal" style="display:none">
-  <div style="font-weight:600; margin-bottom:8px;">🔍 Buscar Canal de Venda</div>
-  <div class="muted" style="margin-bottom:12px;">
-    Consulta a BaseLinker pelo número da NF e preenche a coluna Canal.<br>
-    Pode levar 30–90 s dependendo do volume de pedidos.
-  </div>
-  <button class="btn btn-secondary" id="btnCanal" onclick="buscarCanal()">
-    🔍 Buscar Canal agora
-  </button>
-  <div class="status" id="msgCanal" style="margin-top:10px"></div>
-</div>
 
 <!-- JSZip via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -240,8 +228,6 @@ async function processarZips() {
     allRows.length + ' linhas' +
     (errXml ? ' &nbsp;|&nbsp; ⚠ ' + errXml + ' XMLs com erro' : '');
 
-  // Mostra seção de busca de canal
-  document.getElementById('secCanal').style.display = 'block';
 }
 
 // ── Envia lote ao Apps Script ─────────────────────────────────
@@ -252,35 +238,6 @@ function enviarLote(rows, isFirst) {
       .withFailureHandler(function(e) { reject(e); })
       .nfe_processarLote(rows, isFirst);
   });
-}
-
-// ── Etapa 3: busca canal na BaseLinker ────────────────────────
-function buscarCanal() {
-  var btn = document.getElementById('btnCanal');
-  var msg = document.getElementById('msgCanal');
-  btn.disabled = true;
-  msg.innerHTML = '<span class="spinner"></span> Consultando BaseLinker… aguarde 30–90 s.';
-
-  google.script.run
-    .withSuccessHandler(function(json) {
-      var r = JSON.parse(json);
-      btn.disabled = false;
-      if (!r.ok) {
-        msg.innerHTML = '<span class="err">❌ ' + r.error + '</span>';
-        return;
-      }
-      msg.innerHTML =
-        '<span class="ok">✅ Canal preenchido: ' + r.filled + ' de ' + r.total + ' linhas.</span>' +
-        (r.filled < r.total
-          ? '<br><span class="muted">⚠ ' + (r.total - r.filled) +
-            ' linhas sem correspondência na BaseLinker (NFs sem pedido vinculado).</span>'
-          : '');
-    })
-    .withFailureHandler(function(e) {
-      btn.disabled = false;
-      msg.innerHTML = '<span class="err">❌ ' + e.message + '</span>';
-    })
-    .nfe_buscarCanal();
 }
 
 // ── Parser NF-e (roda no browser) ────────────────────────────

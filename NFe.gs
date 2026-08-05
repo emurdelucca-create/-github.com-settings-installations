@@ -44,7 +44,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📄 NF-e')
     .addItem('📤 Importar XMLs de ZIPs',      'nfe_abrirDialog')
-    .addItem('🔍 Buscar Canal de Venda',       'nfe_abrirDialogCanal')
+    .addItem('🔍 Buscar Canal de Venda',       'nfe_buscarCanal')
     .addSeparator()
     .addItem('🔬 Diagnóstico BL — ver pedido', 'nfe_diagnosticarPedido')
     .addToUi();
@@ -55,13 +55,6 @@ function nfe_abrirDialog() {
     .setWidth(620)
     .setHeight(520);
   SpreadsheetApp.getUi().showModalDialog(html, '📄 Importar NF-e de ZIPs');
-}
-
-function nfe_abrirDialogCanal() {
-  const html = HtmlService.createHtmlOutputFromFile('NFeUpload')
-    .setWidth(620)
-    .setHeight(300);
-  SpreadsheetApp.getUi().showModalDialog(html, '🔍 Buscar Canal de Venda');
 }
 
 // ── Pré-carrega apenas fornecedores (rápido) ──────────────────
@@ -75,40 +68,60 @@ function nfe_precarregar() {
 }
 
 // ── Busca canal para todas as NFs já gravadas na planilha ─────
-// Lê coluna O (Num NF), consulta BaseLinker, preenche coluna M.
+// Menu → "🔍 Buscar Canal de Venda"
+// Lê coluna O (Num NF), consulta BaseLinker por todos os pedidos,
+// cruza pelo número da NF e preenche coluna M (Canal).
 function nfe_buscarCanal() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ws = ss.getSheetByName(NFE_CFG.ABA_DADOS);
+
+  if (!ws) {
+    ui.alert('❌ Aba "' + NFE_CFG.ABA_DADOS + '" não encontrada.\nImporte os XMLs primeiro.');
+    return;
+  }
+
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) { ui.alert('Nenhuma linha encontrada na aba "' + NFE_CFG.ABA_DADOS + '".'); return; }
+
+  ss.toast('Consultando BaseLinker… pode levar 30–90 s.', '🔍 Buscar Canal', 120);
+
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ws = ss.getSheetByName(NFE_CFG.ABA_DADOS);
-    if (!ws) return JSON.stringify({ ok: false, error: 'Aba "' + NFE_CFG.ABA_DADOS + '" não encontrada.' });
-
-    const lastRow = ws.getLastRow();
-    if (lastRow < 2) return JSON.stringify({ ok: true, filled: 0, total: 0 });
-
-    // Coluna O (índice 15, base-1) = Num NF
+    // Coluna O (15, base-1) = Num NF
     const numNFs = ws.getRange(2, 15, lastRow - 1, 1).getValues();
 
     const canalMap = _nfe_buildCanalMap();
+    const total    = Object.keys(canalMap).length;
 
     var filled = 0;
     var novosCanais = numNFs.map(function(row) {
       const numNf = String(row[0] || '').trim();
       if (!numNf) return [''];
-      const parts  = numNf.split('/');
-      const canal  = canalMap[numNf] ||
-                     (parts.length === 2
-                       ? (canalMap[parts[1] + '/' + parts[0]] || canalMap[parts[0]])
-                       : '') || '';
+      const parts = numNf.split('/');
+      const canal = canalMap[numNf] ||
+                    (parts.length === 2
+                      ? (canalMap[parts[1] + '/' + parts[0]] || canalMap[parts[0]])
+                      : '') || '';
       if (canal) filled++;
       return [canal];
     });
 
-    // Coluna M (índice 13, base-1) = Canal
+    // Coluna M (13, base-1) = Canal
     ws.getRange(2, 13, novosCanais.length, 1).setValues(novosCanais);
     SpreadsheetApp.flush();
-    return JSON.stringify({ ok: true, filled: filled, total: lastRow - 1 });
+
+    ui.alert(
+      '✅ Canal preenchido!\n\n' +
+      'NFs encontradas na BaseLinker: ' + total + '\n' +
+      'Linhas preenchidas: ' + filled + ' de ' + (lastRow - 1) + '\n' +
+      (filled < lastRow - 1
+        ? '\n⚠ ' + (lastRow - 1 - filled) + ' linhas sem correspondência.\n' +
+          'Use "Diagnóstico BL" para verificar se o nº da NF está armazenado\n' +
+          'em extra_field_1 ou extra_field_2 do pedido.'
+        : '')
+    );
   } catch(e) {
-    return JSON.stringify({ ok: false, error: e.message });
+    ui.alert('❌ Erro:\n' + e.message);
   }
 }
 
@@ -129,19 +142,29 @@ function _nfe_buildCanalMap() {
     if (!orders.length) break;
 
     orders.forEach(function(o) {
-      const inv   = String(o.invoice_fullnumber || o.invoice_number || '').trim();
       const login = String(o.order_source_login || '').trim().toLowerCase();
-      if (!inv || !login) return;
-
+      if (!login) return;
       const canal = _nfe_detectCanal(login);
       if (!canal) return;
 
-      map[inv] = canal;
-      const parts = inv.split('/');
-      if (parts.length === 2) {
-        map[parts[1] + '/' + parts[0]] = canal;
-        map[parts[0]] = canal;
-      }
+      // Tenta todos os campos candidatos que podem conter o nº da NF
+      const candidatos = [
+        o.invoice_fullnumber,
+        o.invoice_number,
+        o.extra_field_1,
+        o.extra_field_2,
+      ];
+
+      candidatos.forEach(function(raw) {
+        const inv = String(raw || '').trim();
+        if (!inv) return;
+        map[inv] = canal;
+        const parts = inv.split('/');
+        if (parts.length === 2) {
+          map[parts[1] + '/' + parts[0]] = canal;
+          map[parts[0]] = canal;
+        }
+      });
     });
 
     if (orders.length < 1000) break;
