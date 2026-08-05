@@ -3,11 +3,12 @@
 // Importa XMLs de NF-e a partir de ZIPs via diálogo HTML.
 //
 // Fluxo:
-//   1. Menu → "📄 Importar XMLs de ZIPs"
-//   2. Diálogo busca pedidos na BaseLinker (mapa NF→canal)
-//   3. Usuário sobe ZIPs → browser extrai XMLs com JSZip
-//   4. Browser parseia XMLs, envia lotes ao Apps Script
-//   5. Apps Script grava na aba "Dados NF"
+//   1. Menu → "📤 Importar XMLs de ZIPs"
+//   2. Diálogo carrega apenas fornecedores (rápido, ~2s)
+//   3. Usuário sobe ZIPs → browser extrai e parseia XMLs
+//   4. Apps Script grava na aba "Dados NF" (col O = Num NF)
+//   5. Menu → "🔍 Buscar Canal de Venda"  (ou botão no diálogo)
+//      → consulta BaseLinker por número de NF, preenche col M
 //
 // Pré-requisito: BASELINKER_API_KEY em Extensões → Apps Script
 //                → ⚙️ Propriedades do script
@@ -20,9 +21,6 @@ const NFE_CFG = {
 
 const NFE_BL_URL = 'https://api.baselinker.com/connector.php';
 
-// Mapeamento order_source_login (lowercase) → nome do canal de saída.
-// O login exato que a API retorna pode ter variações; usamos startsWith
-// para cobrir nomes truncados (ex: "sky motoparts ltd...").
 const NFE_CANAL_MAP = {
   'humble':                 'Shopee Humble',
   'humble shopee':          'Shopee Humble',
@@ -45,9 +43,10 @@ const NFE_CANAL_MAP = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📄 NF-e')
-    .addItem('📤 Importar XMLs de ZIPs', 'nfe_abrirDialog')
+    .addItem('📤 Importar XMLs de ZIPs',      'nfe_abrirDialog')
+    .addItem('🔍 Buscar Canal de Venda',       'nfe_abrirDialogCanal')
     .addSeparator()
-    .addItem('🔍 Diagnóstico BL — ver pedido por ID', 'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — ver pedido', 'nfe_diagnosticarPedido')
     .addToUi();
 }
 
@@ -58,24 +57,65 @@ function nfe_abrirDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, '📄 Importar NF-e de ZIPs');
 }
 
-// ── Pré-carrega mapas e retorna JSON para o browser ───────────
-// Chamado pelo dialog ao abrir; pode levar 30-90s dependendo do
-// volume de pedidos na BaseLinker.
+function nfe_abrirDialogCanal() {
+  const html = HtmlService.createHtmlOutputFromFile('NFeUpload')
+    .setWidth(620)
+    .setHeight(300);
+  SpreadsheetApp.getUi().showModalDialog(html, '🔍 Buscar Canal de Venda');
+}
+
+// ── Pré-carrega apenas fornecedores (rápido) ──────────────────
 function nfe_precarregar() {
   try {
-    const canalMap = _nfe_buildCanalMap();
-    const fornMap  = _nfe_loadForn();
-    return JSON.stringify({ ok: true, canalMap: canalMap, fornMap: fornMap });
+    const fornMap = _nfe_loadForn();
+    return JSON.stringify({ ok: true, fornMap: fornMap });
   } catch(e) {
     return JSON.stringify({ ok: false, error: e.message });
   }
 }
 
-// ── Constrói mapa: invoice_number → canal ─────────────────────
-// Busca pedidos desde 1/Mai/2026 em páginas de 1000.
+// ── Busca canal para todas as NFs já gravadas na planilha ─────
+// Lê coluna O (Num NF), consulta BaseLinker, preenche coluna M.
+function nfe_buscarCanal() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName(NFE_CFG.ABA_DADOS);
+    if (!ws) return JSON.stringify({ ok: false, error: 'Aba "' + NFE_CFG.ABA_DADOS + '" não encontrada.' });
+
+    const lastRow = ws.getLastRow();
+    if (lastRow < 2) return JSON.stringify({ ok: true, filled: 0, total: 0 });
+
+    // Coluna O (índice 15, base-1) = Num NF
+    const numNFs = ws.getRange(2, 15, lastRow - 1, 1).getValues();
+
+    const canalMap = _nfe_buildCanalMap();
+
+    var filled = 0;
+    var novosCanais = numNFs.map(function(row) {
+      const numNf = String(row[0] || '').trim();
+      if (!numNf) return [''];
+      const parts  = numNf.split('/');
+      const canal  = canalMap[numNf] ||
+                     (parts.length === 2
+                       ? (canalMap[parts[1] + '/' + parts[0]] || canalMap[parts[0]])
+                       : '') || '';
+      if (canal) filled++;
+      return [canal];
+    });
+
+    // Coluna M (índice 13, base-1) = Canal
+    ws.getRange(2, 13, novosCanais.length, 1).setValues(novosCanais);
+    SpreadsheetApp.flush();
+    return JSON.stringify({ ok: true, filled: filled, total: lastRow - 1 });
+  } catch(e) {
+    return JSON.stringify({ ok: false, error: e.message });
+  }
+}
+
+// ── Constrói mapa: invoice_number → canal (via getOrders) ─────
 function _nfe_buildCanalMap() {
   const map = {};
-  // 2026-05-01T00:00:00Z em Unix timestamp
+  // 2026-05-01T00:00:00Z
   const dateFrom = 1746057600;
 
   let page = 1;
@@ -89,7 +129,6 @@ function _nfe_buildCanalMap() {
     if (!orders.length) break;
 
     orders.forEach(function(o) {
-      // Tenta campos candidatos para o número da NF
       const inv   = String(o.invoice_fullnumber || o.invoice_number || '').trim();
       const login = String(o.order_source_login || '').trim().toLowerCase();
       if (!inv || !login) return;
@@ -97,12 +136,11 @@ function _nfe_buildCanalMap() {
       const canal = _nfe_detectCanal(login);
       if (!canal) return;
 
-      // Grava em múltiplos formatos para cobrir variações
       map[inv] = canal;
       const parts = inv.split('/');
       if (parts.length === 2) {
-        map[parts[1] + '/' + parts[0]] = canal;  // formato invertido
-        map[parts[0]] = canal;                    // só o número
+        map[parts[1] + '/' + parts[0]] = canal;
+        map[parts[0]] = canal;
       }
     });
 
@@ -114,9 +152,7 @@ function _nfe_buildCanalMap() {
 }
 
 function _nfe_detectCanal(login) {
-  // Primeiro tenta match exato (lowercase)
   if (NFE_CANAL_MAP[login]) return NFE_CANAL_MAP[login];
-  // Depois tenta startsWith para nomes truncados
   for (var k in NFE_CANAL_MAP) {
     if (login.startsWith(k) || k.startsWith(login)) return NFE_CANAL_MAP[k];
   }
@@ -141,6 +177,7 @@ function _nfe_loadForn() {
 }
 
 // ── Recebe lote de linhas do browser e grava na planilha ──────
+// rows: 15 colunas (A-O); O = Num NF; M = Canal (vazio aqui)
 function nfe_processarLote(rows, isFirst) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -153,7 +190,7 @@ function nfe_processarLote(rows, isFirst) {
         'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
         'CFOP', 'NCM', 'Descrição', 'Origem',
         'Qtd', 'Vlr Unit', 'Vlr Total',
-        'Canal', 'Fornecedor',
+        'Canal', 'Fornecedor', 'Num NF',
       ];
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
@@ -176,7 +213,7 @@ function nfe_processarLote(rows, isFirst) {
 // ── Diagnóstico: mostra campos de um pedido por order_id ──────
 function nfe_diagnosticarPedido() {
   const ui  = SpreadsheetApp.getUi();
-  const res = ui.prompt('🔍 Diagnóstico Pedido BL',
+  const res = ui.prompt('🔬 Diagnóstico Pedido BL',
     'Digite o order_id do pedido:', ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
   const oid = parseInt(res.getResponseText().trim(), 10);
@@ -188,13 +225,11 @@ function nfe_diagnosticarPedido() {
     if (!o) { ui.alert('Pedido não encontrado.'); return; }
 
     let msg = '══ Pedido ' + oid + ' ══\n';
-    msg += 'order_source      = ' + o.order_source + '\n';
     msg += 'order_source_login= ' + o.order_source_login + '\n';
     msg += 'invoice_fullnumber= ' + o.invoice_fullnumber + '\n';
     msg += 'invoice_number    = ' + o.invoice_number + '\n';
     msg += 'date_add          = ' + o.date_add + '\n';
-    msg += '\nTodos os campos:\n';
-    msg += Object.keys(o).join(', ');
+    msg += '\nTodos os campos:\n' + Object.keys(o).join(', ');
     ui.alert(msg.substring(0, 1500));
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);

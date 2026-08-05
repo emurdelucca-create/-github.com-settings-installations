@@ -54,10 +54,14 @@
     font-size: 14px;
     cursor: pointer;
     font-weight: 500;
+    margin-right: 8px;
   }
-  .btn-primary { background: #1a73e8; color: #fff; }
-  .btn-primary:hover { background: #1557b0; }
-  .btn-primary:disabled { background: #9aa0a6; cursor: not-allowed; }
+  .btn-primary  { background: #1a73e8; color: #fff; }
+  .btn-primary:hover  { background: #1557b0; }
+  .btn-primary:disabled  { background: #9aa0a6; cursor: not-allowed; }
+  .btn-secondary { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
+  .btn-secondary:hover { background: #f0f6ff; }
+  .btn-secondary:disabled { color: #9aa0a6; border-color: #9aa0a6; cursor: not-allowed; }
 
   progress {
     width: 100%;
@@ -74,7 +78,7 @@
     background: #f1f3f4;
     border-radius: 4px;
     padding: 8px;
-    max-height: 140px;
+    max-height: 160px;
     overflow-y: auto;
     margin-top: 8px;
     color: #3c4043;
@@ -83,19 +87,18 @@
 </style>
 </head>
 <body>
-<h2>📄 Importar NF-e de ZIPs</h2>
 
-<!-- Etapa 1: carregamento dos mapas -->
+<!-- Etapa 1: carregamento de fornecedores -->
 <div class="card" id="secCarregar">
   <div class="status" id="msgCarregar">
     <span class="spinner"></span>
-    Buscando pedidos na BaseLinker e fornecedores… aguarde 30-90 s.
+    Carregando fornecedores… aguarde.
   </div>
 </div>
 
-<!-- Etapa 2: upload (oculto até carregar) -->
+<!-- Etapa 2: seleção de ZIPs -->
 <div class="card" id="secUpload" style="display:none">
-  <div class="status ok" id="msgMapa"></div>
+  <div class="status ok" id="msgForn"></div>
   <br>
   <label class="file-label" for="zipFiles">
     📂 Clique para selecionar os ZIPs<br>
@@ -109,37 +112,45 @@
   </button>
 </div>
 
-<!-- Etapa 3: progresso -->
+<!-- Etapa 3: progresso dos XMLs -->
 <div class="card" id="secProgresso" style="display:none">
   <div class="status" id="msgProgresso"></div>
   <progress id="barraProgresso" max="100" value="0"></progress>
   <div class="log" id="logTexto"></div>
 </div>
 
-<!-- JSZip via CDN (roda no browser do usuário) -->
+<!-- Etapa 4: buscar canal (aparece após gravar os XMLs) -->
+<div class="card" id="secCanal" style="display:none">
+  <div style="font-weight:600; margin-bottom:8px;">🔍 Buscar Canal de Venda</div>
+  <div class="muted" style="margin-bottom:12px;">
+    Consulta a BaseLinker pelo número da NF e preenche a coluna Canal.<br>
+    Pode levar 30–90 s dependendo do volume de pedidos.
+  </div>
+  <button class="btn btn-secondary" id="btnCanal" onclick="buscarCanal()">
+    🔍 Buscar Canal agora
+  </button>
+  <div class="status" id="msgCanal" style="margin-top:10px"></div>
+</div>
+
+<!-- JSZip via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-var canalMap = {};
-var fornMap  = {};
+var fornMap = {};
 
-// ── Etapa 1: pré-carregar mapas via Apps Script ───────────────
+// ── Etapa 1: carrega apenas fornecedores (rápido) ─────────────
 google.script.run
   .withSuccessHandler(function(json) {
     var r = JSON.parse(json);
     if (!r.ok) {
       document.getElementById('msgCarregar').innerHTML =
-        '<span class="err">❌ Erro ao carregar: ' + r.error + '</span>';
+        '<span class="err">❌ Erro: ' + r.error + '</span>';
       return;
     }
-    canalMap = r.canalMap;
-    fornMap  = r.fornMap;
-
-    var nPedidos = Object.keys(canalMap).length;
-    var nForn    = Object.keys(fornMap).length;
-
+    fornMap = r.fornMap;
+    var nForn = Object.keys(fornMap).length;
     document.getElementById('secCarregar').style.display = 'none';
-    document.getElementById('msgMapa').textContent =
-      '✅ ' + nPedidos + ' NFs mapeadas na BaseLinker  |  ' + nForn + ' fornecedores carregados';
+    document.getElementById('msgForn').textContent =
+      '✅ ' + nForn + ' fornecedores carregados';
     document.getElementById('secUpload').style.display = 'block';
   })
   .withFailureHandler(function(e) {
@@ -159,7 +170,7 @@ document.getElementById('zipFiles').addEventListener('change', function() {
   document.getElementById('btnProcessar').disabled = false;
 });
 
-// ── Etapa 2: processar ZIPs ───────────────────────────────────
+// ── Etapa 2: processar ZIPs e gravar (sem consultar BL) ───────
 async function processarZips() {
   var files = document.getElementById('zipFiles').files;
   if (!files.length) { alert('Selecione ao menos um ZIP.'); return; }
@@ -170,10 +181,6 @@ async function processarZips() {
   var allRows  = [];
   var xmlCount = 0;
   var errXml   = 0;
-  parseNFe._semCanalLog = 0;
-
-  log('🗺 canalMap: ' + Object.keys(canalMap).length + ' entradas' +
-      (Object.keys(canalMap).length ? ' | ex: ' + Object.keys(canalMap).slice(0,3).join(', ') : ''));
 
   for (var f = 0; f < files.length; f++) {
     log('📦 Extraindo: ' + files[f].name + ' (' + mb(files[f].size) + ')');
@@ -210,16 +217,6 @@ async function processarZips() {
 
   log('📊 Total: ' + xmlCount + ' NFs | ' + allRows.length + ' linhas de produto');
 
-  // Diagnóstico canal
-  var semCanal = allRows.filter(function(r){ return !r[12]; }).length;
-  if (semCanal > 0) {
-    log('⚠ ' + semCanal + ' linhas sem canal (de ' + allRows.length + ')');
-    log('  canalMap tem ' + Object.keys(canalMap).length + ' entradas');
-    if (Object.keys(canalMap).length > 0) {
-      log('  Ex. chaves: ' + Object.keys(canalMap).slice(0,5).join(', '));
-    }
-  }
-
   // Envia em lotes de 2000 linhas
   var BATCH   = 2000;
   var isFirst = true;
@@ -238,10 +235,13 @@ async function processarZips() {
 
   setProgresso(100, '');
   document.getElementById('msgProgresso').innerHTML =
-    '<span class="ok">✅ Concluído!</span><br>' +
+    '<span class="ok">✅ Dados gravados!</span><br>' +
     xmlCount + ' NFs processadas &nbsp;|&nbsp; ' +
-    allRows.length + ' linhas gravadas' +
+    allRows.length + ' linhas' +
     (errXml ? ' &nbsp;|&nbsp; ⚠ ' + errXml + ' XMLs com erro' : '');
+
+  // Mostra seção de busca de canal
+  document.getElementById('secCanal').style.display = 'block';
 }
 
 // ── Envia lote ao Apps Script ─────────────────────────────────
@@ -252,6 +252,35 @@ function enviarLote(rows, isFirst) {
       .withFailureHandler(function(e) { reject(e); })
       .nfe_processarLote(rows, isFirst);
   });
+}
+
+// ── Etapa 3: busca canal na BaseLinker ────────────────────────
+function buscarCanal() {
+  var btn = document.getElementById('btnCanal');
+  var msg = document.getElementById('msgCanal');
+  btn.disabled = true;
+  msg.innerHTML = '<span class="spinner"></span> Consultando BaseLinker… aguarde 30–90 s.';
+
+  google.script.run
+    .withSuccessHandler(function(json) {
+      var r = JSON.parse(json);
+      btn.disabled = false;
+      if (!r.ok) {
+        msg.innerHTML = '<span class="err">❌ ' + r.error + '</span>';
+        return;
+      }
+      msg.innerHTML =
+        '<span class="ok">✅ Canal preenchido: ' + r.filled + ' de ' + r.total + ' linhas.</span>' +
+        (r.filled < r.total
+          ? '<br><span class="muted">⚠ ' + (r.total - r.filled) +
+            ' linhas sem correspondência na BaseLinker (NFs sem pedido vinculado).</span>'
+          : '');
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false;
+      msg.innerHTML = '<span class="err">❌ ' + e.message + '</span>';
+    })
+    .nfe_buscarCanal();
 }
 
 // ── Parser NF-e (roda no browser) ────────────────────────────
@@ -269,38 +298,25 @@ function parseNFe(xmlText) {
     return els.length ? els[0].textContent.trim() : '';
   }
 
-  // ── Cabeçalho da NF ──────────────────────────────────────
-  var ide  = infNFe.getElementsByTagName('ide')[0];
-  var nNF  = get(ide, 'nNF');
+  var ide   = infNFe.getElementsByTagName('ide')[0];
+  var nNF   = get(ide, 'nNF');
   var serie = get(ide, 'serie');
   var dhEmi = get(ide, 'dhEmi');
 
-  // Formata data para DD/MM/YYYY
   var data = '';
   if (dhEmi && dhEmi.length >= 10) {
     data = dhEmi.substring(8,10) + '/' + dhEmi.substring(5,7) + '/' + dhEmi.substring(0,4);
   }
 
-  // ── Destinatário ─────────────────────────────────────────
-  var dest      = infNFe.getElementsByTagName('dest')[0];
-  var cnpjCpf   = dest ? (get(dest, 'CNPJ') || get(dest, 'CPF')) : '';
+  var dest        = infNFe.getElementsByTagName('dest')[0];
+  var cnpjCpf     = dest ? (get(dest, 'CNPJ') || get(dest, 'CPF')) : '';
   var nomeCliente = dest ? get(dest, 'xNome') : '';
-  var ender     = dest ? dest.getElementsByTagName('enderDest')[0] : null;
-  var uf        = ender ? get(ender, 'UF') : '';
+  var ender       = dest ? dest.getElementsByTagName('enderDest')[0] : null;
+  var uf          = ender ? get(ender, 'UF') : '';
 
-  // ── Canal: busca NF no mapa (múltiplos formatos) ─────────
-  var canal = canalMap[nNF + '/' + serie]  ||
-              canalMap[serie + '/' + nNF]  ||
-              canalMap[nNF] || '';
+  // Num NF para lookup posterior (col O)
+  var numNF = nNF + (serie ? '/' + serie : '');
 
-  // Log de diagnóstico para as primeiras 3 NFs sem canal
-  if (!canal && parseNFe._semCanalLog < 3) {
-    parseNFe._semCanalLog = (parseNFe._semCanalLog || 0) + 1;
-    log('  🔍 NF sem canal: nNF=' + nNF + ' serie=' + serie +
-        ' | tentou: "' + nNF + '/' + serie + '" / "' + serie + '/' + nNF + '" / "' + nNF + '"');
-  }
-
-  // ── Produtos ──────────────────────────────────────────────
   var rows = [];
   var dets = infNFe.getElementsByTagName('det');
 
@@ -309,28 +325,25 @@ function parseNFe(xmlText) {
     var prod = det.getElementsByTagName('prod')[0];
     if (!prod) continue;
 
-    var cfop     = get(prod, 'CFOP');
-    var ncmRaw   = get(prod, 'NCM');
+    var cfop      = get(prod, 'CFOP');
+    var ncmRaw    = get(prod, 'NCM');
     var descricao = get(prod, 'xProd');
-    var cProd    = get(prod, 'cProd');
-    var qtd      = parseFloat(get(prod, 'qCom')   || '0') || 0;
-    var vUnCom   = parseFloat(get(prod, 'vUnCom') || '0') || 0;
-    var vProd    = parseFloat(get(prod, 'vProd')  || '0') || 0;
+    var cProd     = get(prod, 'cProd');
+    var qtd       = parseFloat(get(prod, 'qCom')   || '0') || 0;
+    var vUnCom    = parseFloat(get(prod, 'vUnCom') || '0') || 0;
+    var vProd     = parseFloat(get(prod, 'vProd')  || '0') || 0;
 
-    // Origem: primeiro filho do elemento <ICMS>
     var icmsEl = det.getElementsByTagName('ICMS')[0];
     var orig = '';
     if (icmsEl && icmsEl.firstElementChild) {
       orig = get(icmsEl.firstElementChild, 'orig');
     }
 
-    // NCM no formato XXXX.XX.XX
     var ncm = ncmRaw;
     if (/^\d{8}$/.test(ncmRaw)) {
       ncm = ncmRaw.slice(0,4) + '.' + ncmRaw.slice(4,6) + '.' + ncmRaw.slice(6,8);
     }
 
-    // Fornecedor
     var forn = fornMap[cProd] ||
                fornMap[cProd.replace(/^0+/, '')] ||
                'Sem Fornecedor';
@@ -348,8 +361,9 @@ function parseNFe(xmlText) {
       qtd,          // J: Qtd
       vUnCom,       // K: Vlr Unit
       vProd,        // L: Vlr Total
-      canal,        // M: Canal
+      '',           // M: Canal (preenchido depois pelo botão Buscar Canal)
       forn,         // N: Fornecedor
+      numNF,        // O: Num NF
     ]);
   }
   return rows;
