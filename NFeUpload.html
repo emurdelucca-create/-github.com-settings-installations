@@ -88,7 +88,7 @@
 </head>
 <body>
 
-<!-- Etapa 1: carregamento de fornecedores -->
+<!-- Etapa 1: carregamento -->
 <div class="card" id="secCarregar">
   <div class="status" id="msgCarregar">
     <span class="spinner"></span>
@@ -99,6 +99,10 @@
 <!-- Etapa 2: seleção de ZIPs -->
 <div class="card" id="secUpload" style="display:none">
   <div class="status ok" id="msgForn"></div>
+  <div class="status muted" id="msgOrig" style="margin-top:4px">
+    <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
+    Carregando origens da BaseLinker… (pode levar 30-60 s)
+  </div>
 
   <!-- Vendas Regulares -->
   <div style="margin-top:12px; font-weight:600; margin-bottom:8px;">📦 Vendas Regulares</div>
@@ -151,14 +155,28 @@ google.script.run
       return;
     }
     fornMap = r.fornMap;
-    origMap = r.origMap || {};
     var nForn = Object.keys(fornMap).length;
-    var nOrig = Object.keys(origMap).length;
     document.getElementById('secCarregar').style.display = 'none';
-    document.getElementById('msgForn').textContent =
-      '✅ ' + nForn + ' fornecedores' +
-      (nOrig ? ' | ' + nOrig + ' origens carregadas' : ' carregados (origem virá do XML)');
+    document.getElementById('msgForn').textContent = '✅ ' + nForn + ' fornecedores carregados';
     document.getElementById('secUpload').style.display = 'block';
+
+    // ── Etapa 1b: carrega origens da BaseLinker em paralelo ───
+    google.script.run
+      .withSuccessHandler(function(json2) {
+        var r2 = JSON.parse(json2);
+        var msgOrig = document.getElementById('msgOrig');
+        if (!r2.ok) {
+          msgOrig.innerHTML = '<span class="err">⚠ Origem virá do XML: ' + r2.error + '</span>';
+          return;
+        }
+        origMap = r2.origMap || {};
+        msgOrig.innerHTML = '<span class="ok">✅ ' + r2.total + ' origens carregadas da BaseLinker</span>';
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('msgOrig').innerHTML =
+          '<span class="err">⚠ Origem virá do XML (' + e.message + ')</span>';
+      })
+      .nfe_precarregarOrigem();
   })
   .withFailureHandler(function(e) {
     document.getElementById('msgCarregar').innerHTML =

@@ -65,8 +65,17 @@ function nfe_abrirDialog() {
 function nfe_precarregar() {
   try {
     const fornMap = _nfe_loadForn();
+    return JSON.stringify({ ok: true, fornMap: fornMap });
+  } catch(e) {
+    return JSON.stringify({ ok: false, error: e.message });
+  }
+}
+
+// ── Carrega mapa de origem separadamente (chamado pelo dialog) ─
+function nfe_precarregarOrigem() {
+  try {
     const origMap = NFE_CFG.BL_ORIG ? _nfe_loadOrigMap() : {};
-    return JSON.stringify({ ok: true, fornMap: fornMap, origMap: origMap });
+    return JSON.stringify({ ok: true, origMap: origMap, total: Object.keys(origMap).length });
   } catch(e) {
     return JSON.stringify({ ok: false, error: e.message });
   }
