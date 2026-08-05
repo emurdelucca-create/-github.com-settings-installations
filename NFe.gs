@@ -17,6 +17,9 @@
 const NFE_CFG = {
   ABA_DADOS: 'Dados NF',
   ID_FORN:   '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
+  BL_INV:    39947,        // ID do inventário BaseLinker
+  BL_ORIG:   '',           // ID do campo "Código da Origem" (ex: 'extra_field_73315')
+                           // Deixe vazio até rodar o diagnóstico abaixo.
 };
 
 const NFE_BL_URL = 'https://api.baselinker.com/connector.php';
@@ -46,7 +49,8 @@ function onOpen() {
     .addItem('📤 Importar XMLs de ZIPs',         'nfe_abrirDialog')
     .addItem('🔍 Buscar Canal de Venda',          'nfe_buscarCanal')
     .addSeparator()
-    .addItem('🔬 Diagnóstico BL — ver pedido',   'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — ver pedido',    'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — campo Origem',  'nfe_diagnosticarOrigem')
     .addItem('🔬 Diagnóstico BL — primeiros pedidos', 'nfe_debugOrders')
     .addToUi();
 }
@@ -58,13 +62,96 @@ function nfe_abrirDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, '📄 Importar NF-e de ZIPs');
 }
 
-// ── Pré-carrega apenas fornecedores (rápido) ──────────────────
+// ── Pré-carrega fornecedores + mapa de origem ─────────────────
 function nfe_precarregar() {
   try {
     const fornMap = _nfe_loadForn();
-    return JSON.stringify({ ok: true, fornMap: fornMap });
+    const origMap = NFE_CFG.BL_ORIG ? _nfe_loadOrigMap() : {};
+    return JSON.stringify({ ok: true, fornMap: fornMap, origMap: origMap });
   } catch(e) {
     return JSON.stringify({ ok: false, error: e.message });
+  }
+}
+
+// ── Carrega mapa SKU → Código de Origem (via BL) ──────────────
+function _nfe_loadOrigMap() {
+  const map  = {};
+  const inv  = NFE_CFG.BL_INV;
+  const fOrig = NFE_CFG.BL_ORIG;
+
+  function parseTextField(tf) {
+    if (!tf) return {};
+    if (typeof tf === 'object') return tf;
+    try { return JSON.parse(tf); } catch(e) { return {}; }
+  }
+
+  let page = 1;
+  while (true) {
+    const r1 = _nfe_bl('getInventoryProductsList', {
+      inventory_id: inv, page: page, filter_limit: 1000,
+    });
+    const prods = r1.products || {};
+    const ids   = Object.keys(prods);
+    if (!ids.length) break;
+
+    // busca em lotes de 1000
+    for (var i = 0; i < ids.length; i += 1000) {
+      const batch = ids.slice(i, i + 1000);
+      const r2 = _nfe_bl('getInventoryProductsData', {
+        inventory_id: inv, products: batch,
+      });
+      Object.values(r2.products || {}).forEach(function(p) {
+        const tf   = parseTextField(p.text_fields);
+        const orig = String(tf[fOrig] || '').trim();
+        const sku  = String(p.sku || '').trim();
+        if (!sku || orig === '') return;
+        map[sku] = orig;
+        const norm = sku.replace(/^0+/, '') || '0';
+        if (norm !== sku) map[norm] = orig;
+      });
+    }
+
+    if (ids.length < 1000) break;
+    page++;
+    Utilities.sleep(200);
+  }
+  return map;
+}
+
+// ── Diagnóstico: descobre o campo de Origem num produto por SKU ─
+function nfe_diagnosticarOrigem() {
+  const ui  = SpreadsheetApp.getUi();
+  const res = ui.prompt('🔬 Diagnóstico Origem BL',
+    'Digite o SKU do produto (ex: 04426-S):', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const sku = res.getResponseText().trim();
+  if (!sku) return;
+
+  try {
+    const r1 = _nfe_bl('getInventoryProductsList', {
+      inventory_id: NFE_CFG.BL_INV, filter_sku: sku,
+    });
+    const ids = Object.keys(r1.products || {});
+    if (!ids.length) { ui.alert('Produto não encontrado.'); return; }
+
+    const r2 = _nfe_bl('getInventoryProductsData', {
+      inventory_id: NFE_CFG.BL_INV, products: [ids[0]],
+    });
+    const p  = Object.values(r2.products || {})[0];
+    if (!p) { ui.alert('Dados não encontrados.'); return; }
+
+    let tf;
+    try { tf = typeof p.text_fields === 'string' ? JSON.parse(p.text_fields) : (p.text_fields || {}); }
+    catch(e) { tf = {}; }
+
+    let msg = '══ ' + sku + ' (id=' + ids[0] + ') ══\n';
+    msg += 'sku = ' + p.sku + '\n\ntext_fields:\n';
+    Object.keys(tf).forEach(function(k) {
+      if (tf[k]) msg += '  ' + k + ' = ' + tf[k] + '\n';
+    });
+    ui.alert(msg.substring(0, 1500));
+  } catch(e) {
+    ui.alert('❌ Erro:\n' + e.message);
   }
 }
 
@@ -228,12 +315,15 @@ function nfe_processarLote(rows, isFirst) {
       ws.clearContents();
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
+      // Coluna R (18) = SKU: força formato texto para preservar zeros à esquerda
+      ws.getRange(1, 18, ws.getMaxRows(), 1).setNumberFormat('@');
     } else {
       // Full (append): cria aba com header se não existir ainda
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
         ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
+        ws.getRange(1, 18, ws.getMaxRows(), 1).setNumberFormat('@');
       }
     }
 

@@ -139,6 +139,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 var fornMap = {};
+var origMap = {};
 
 // ── Etapa 1: carrega apenas fornecedores (rápido) ─────────────
 google.script.run
@@ -150,10 +151,13 @@ google.script.run
       return;
     }
     fornMap = r.fornMap;
+    origMap = r.origMap || {};
     var nForn = Object.keys(fornMap).length;
+    var nOrig = Object.keys(origMap).length;
     document.getElementById('secCarregar').style.display = 'none';
     document.getElementById('msgForn').textContent =
-      '✅ ' + nForn + ' fornecedores carregados';
+      '✅ ' + nForn + ' fornecedores' +
+      (nOrig ? ' | ' + nOrig + ' origens carregadas' : ' carregados (origem virá do XML)');
     document.getElementById('secUpload').style.display = 'block';
   })
   .withFailureHandler(function(e) {
@@ -349,11 +353,14 @@ function parseNFe(xmlText) {
     var vUnCom    = parseFloat(get(prod, 'vUnCom') || '0') || 0;
     var vProd     = parseFloat(get(prod, 'vProd')  || '0') || 0;
 
-    var icmsEl = det.getElementsByTagName('ICMS')[0];
-    var orig = '';
-    if (icmsEl && icmsEl.firstElementChild) {
-      orig = get(icmsEl.firstElementChild, 'orig');
-    }
+    // Origem: prefere o valor cadastrado na BaseLinker; cai no XML se não encontrar
+    var orig = origMap[cProd] ||
+               origMap[cProd.replace(/^0+/, '')] ||
+               (function() {
+                 var icmsEl = det.getElementsByTagName('ICMS')[0];
+                 return icmsEl && icmsEl.firstElementChild
+                   ? get(icmsEl.firstElementChild, 'orig') : '';
+               })();
 
     var ncm = ncmRaw;
     if (/^\d{8}$/.test(ncmRaw)) {
