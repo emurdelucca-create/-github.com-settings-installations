@@ -43,10 +43,11 @@ const NFE_CANAL_MAP = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📄 NF-e')
-    .addItem('📤 Importar XMLs de ZIPs',      'nfe_abrirDialog')
-    .addItem('🔍 Buscar Canal de Venda',       'nfe_buscarCanal')
+    .addItem('📤 Importar XMLs de ZIPs',         'nfe_abrirDialog')
+    .addItem('🔍 Buscar Canal de Venda',          'nfe_buscarCanal')
     .addSeparator()
-    .addItem('🔬 Diagnóstico BL — ver pedido', 'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — ver pedido',   'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — primeiros pedidos', 'nfe_debugOrders')
     .addToUi();
 }
 
@@ -255,6 +256,36 @@ function nfe_diagnosticarPedido() {
     msg += 'invoice_number    = ' + o.invoice_number + '\n';
     msg += 'date_add          = ' + o.date_add + '\n';
     msg += '\nTodos os campos:\n' + Object.keys(o).join(', ');
+    ui.alert(msg.substring(0, 1500));
+  } catch(e) {
+    ui.alert('❌ Erro:\n' + e.message);
+  }
+}
+
+// ── Diagnóstico: mostra estrutura dos primeiros pedidos ───────
+// Ajuda a descobrir onde está o nº da NF e o order_source_login.
+function nfe_debugOrders() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const dateFrom = 1746057600; // 2026-05-01
+    const r   = _nfe_bl('getOrders', { date_from: dateFrom, get_unconfirmed: true, page: 1 });
+    const raw = r.orders || {};
+    const arr = Array.isArray(raw) ? raw : Object.values(raw);
+
+    let msg = 'Total pedidos 1ª pág: ' + arr.length + '\n';
+    msg += 'Tipo de r.orders: ' + (Array.isArray(raw) ? 'array' : typeof raw) + '\n\n';
+
+    const amostra = arr.slice(0, 3);
+    amostra.forEach(function(o, i) {
+      msg += '── Pedido ' + (i+1) + ' (id=' + o.order_id + ') ──\n';
+      msg += 'order_source_login = ' + o.order_source_login + '\n';
+      msg += 'invoice_fullnumber = ' + o.invoice_fullnumber + '\n';
+      msg += 'invoice_number     = ' + o.invoice_number + '\n';
+      msg += 'extra_field_1      = ' + o.extra_field_1 + '\n';
+      msg += 'extra_field_2      = ' + o.extra_field_2 + '\n';
+      msg += 'date_add           = ' + o.date_add + '\n\n';
+    });
+
     ui.alert(msg.substring(0, 1500));
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);
