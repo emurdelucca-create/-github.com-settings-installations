@@ -219,7 +219,7 @@ function nfe_processarLote(rows, isFirst) {
       'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
       'CFOP', 'NCM', 'Descrição', 'Origem',
       'Qtd', 'Vlr Unit', 'Vlr Total',
-      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente',
+      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU',
     ];
 
     if (isFirst) {
