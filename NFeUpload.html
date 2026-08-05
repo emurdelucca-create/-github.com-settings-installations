@@ -103,6 +103,10 @@
     <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
     Carregando origens da BaseLinker… (pode levar 30-60 s)
   </div>
+  <div class="status muted" id="msgPedidos" style="margin-top:4px">
+    <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
+    Carregando métodos de envio da BaseLinker…
+  </div>
 
   <!-- Vendas Regulares -->
   <div style="margin-top:12px; font-weight:600; margin-bottom:8px;">📦 Vendas Regulares</div>
@@ -142,8 +146,9 @@
 <!-- JSZip via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-var fornMap = {};
-var origMap = {};
+var fornMap    = {};
+var origMap    = {};
+var pedidoMap  = {};
 
 // ── Etapa 1: carrega apenas fornecedores (rápido) ─────────────
 google.script.run
@@ -160,7 +165,7 @@ google.script.run
     document.getElementById('msgForn').textContent = '✅ ' + nForn + ' fornecedores carregados';
     document.getElementById('secUpload').style.display = 'block';
 
-    // ── Etapa 1b: carrega origens da BaseLinker em paralelo ───
+    // ── Etapa 1b: origens da BaseLinker ───────────────────────
     google.script.run
       .withSuccessHandler(function(json2) {
         var r2 = JSON.parse(json2);
@@ -177,6 +182,24 @@ google.script.run
           '<span class="err">⚠ Origem virá do XML (' + e.message + ')</span>';
       })
       .nfe_precarregarOrigem();
+
+    // ── Etapa 1c: métodos de envio da BaseLinker ───────────────
+    google.script.run
+      .withSuccessHandler(function(json3) {
+        var r3 = JSON.parse(json3);
+        var msgPed = document.getElementById('msgPedidos');
+        if (!r3.ok) {
+          msgPed.innerHTML = '<span class="err">⚠ Envio indisponível: ' + r3.error + '</span>';
+          return;
+        }
+        pedidoMap = r3.pedidoMap || {};
+        msgPed.innerHTML = '<span class="ok">✅ ' + r3.total + ' pedidos carregados (envio)</span>';
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('msgPedidos').innerHTML =
+          '<span class="err">⚠ Envio indisponível (' + e.message + ')</span>';
+      })
+      .nfe_precarregarPedidos();
   })
   .withFailureHandler(function(e) {
     document.getElementById('msgCarregar').innerHTML =
@@ -289,6 +312,22 @@ function enviarLote(rows, isFirst) {
   });
 }
 
+// ── Extrai ID do pedido do marketplace a partir de <infCpl> ──
+// Tenta capturar: IDs Shopee (14-20 dígitos), ML (MLB…), ou após "pedido"/"order"
+function extractOrderId(infCpl) {
+  if (!infCpl) return '';
+  // ML: MLBxxxxxxxx
+  var ml = infCpl.match(/\bML[A-Z]?\d{9,}\b/i);
+  if (ml) return ml[0].toUpperCase().replace(/-/g, '');
+  // Shopee: sequência de 14–20 dígitos (número do pedido)
+  var sh = infCpl.match(/\b(\d{14,20})\b/);
+  if (sh) return sh[1];
+  // Genérico: primeiro token após "pedido", "order" ou "nº"
+  var gen = infCpl.match(/(?:pedido|order|n[oº°])[:\s#-]*([A-Z0-9]{6,})/i);
+  if (gen) return gen[1].replace(/-/g, '');
+  return '';
+}
+
 // ── Detecta empresa pelo xNome do emitente ───────────────────
 function detectEmpresa(xNome) {
   var n = (xNome || '').toLowerCase();
@@ -322,10 +361,16 @@ function parseNFe(xmlText) {
     return els.length ? els[0].textContent.trim() : '';
   }
 
-  var ide   = infNFe.getElementsByTagName('ide')[0];
-  var nNF   = get(ide, 'nNF');
-  var serie = get(ide, 'serie');
-  var dhEmi = get(ide, 'dhEmi');
+  var ide    = infNFe.getElementsByTagName('ide')[0];
+  var nNF    = get(ide, 'nNF');
+  var serie  = get(ide, 'serie');
+  var dhEmi  = get(ide, 'dhEmi');
+
+  // Informações complementares → extrai ID do pedido do marketplace
+  var infAdic    = infNFe.getElementsByTagName('infAdic')[0];
+  var infCpl     = infAdic ? get(infAdic, 'infCpl') : '';
+  var orderId    = extractOrderId(infCpl);
+  var ordIdNorm  = orderId.replace(/^0+/, '').replace(/-/g, '');
 
   var data = '';
   if (dhEmi && dhEmi.length >= 10) {
@@ -389,6 +434,9 @@ function parseNFe(xmlText) {
                fornMap[cProd.replace(/^0+/, '')] ||
                'Sem Fornecedor';
 
+    // Método de envio: cruza orderId (extraído de infCpl) com pedidoMap (BL)
+    var envio = pedidoMap[orderId] || pedidoMap[ordIdNorm] || '';
+
     rows.push([
       data,         // A: Data
       cnpjCpf,      // B: CNPJ/CPF
@@ -408,6 +456,7 @@ function parseNFe(xmlText) {
       idCadIntTran, // P: ID Canal
       empresa,      // Q: Emitente
       cProd,        // R: SKU
+      envio,        // S: Envio (delivery_method BaseLinker)
     ]);
   }
   return rows;

@@ -81,6 +81,37 @@ function nfe_precarregarOrigem() {
   }
 }
 
+// ── Carrega mapa order_source_id → delivery_method (via BL) ──
+function nfe_precarregarPedidos() {
+  try {
+    const map      = {};
+    const dateFrom = 1746057600; // 2026-05-01T00:00:00Z
+    let page = 1;
+    while (true) {
+      const r      = _nfe_bl('getOrders', { date_from: dateFrom, get_unconfirmed: true, page: page });
+      const raw    = r.orders || [];
+      const orders = Array.isArray(raw) ? raw : Object.values(raw);
+      if (!orders.length) break;
+      orders.forEach(function(o) {
+        const srcId = String(o.order_source_id || '').trim();
+        const deliv = String(o.delivery_method  || '').trim();
+        if (srcId && deliv) {
+          map[srcId] = deliv;
+          // normaliza: remove zeros à esquerda e hifens, para ampliar o match
+          const norm = srcId.replace(/^0+/, '').replace(/-/g, '');
+          if (norm && norm !== srcId) map[norm] = deliv;
+        }
+      });
+      if (orders.length < 1000) break;
+      page++;
+      Utilities.sleep(300);
+    }
+    return JSON.stringify({ ok: true, pedidoMap: map, total: Object.keys(map).length });
+  } catch(e) {
+    return JSON.stringify({ ok: false, error: e.message });
+  }
+}
+
 // ── Carrega mapa SKU → Código de Origem (via BL) ──────────────
 function _nfe_loadOrigMap() {
   const map  = {};
@@ -302,9 +333,10 @@ function _nfe_loadForn() {
 }
 
 // ── Recebe lote de linhas do browser e grava na planilha ──────
-// rows: 17 colunas (A-Q)
+// rows: 19 colunas (A-S)
 //   M = Canal (Shopee Humble, ML Najumi…)
 //   O = Num NF  |  P = ID Canal (idCadIntTran)  |  Q = Emitente
+//   R = SKU     |  S = Envio (delivery_method BL)
 function nfe_processarLote(rows, isFirst) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -314,7 +346,7 @@ function nfe_processarLote(rows, isFirst) {
       'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
       'CFOP', 'NCM', 'Descrição', 'Origem',
       'Qtd', 'Vlr Unit', 'Vlr Total',
-      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU',
+      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU', 'Envio',
     ];
 
     if (isFirst) {
