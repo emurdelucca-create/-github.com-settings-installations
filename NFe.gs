@@ -207,7 +207,9 @@ function _nfe_loadForn() {
 }
 
 // ── Recebe lote de linhas do browser e grava na planilha ──────
-// rows: 15 colunas (A-O); O = Num NF; M = Canal (vazio aqui)
+// rows: 17 colunas (A-Q)
+//   M = Canal (Shopee Humble, ML Najumi…)
+//   O = Num NF  |  P = ID Canal (idCadIntTran)  |  Q = Emitente
 function nfe_processarLote(rows, isFirst) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -220,7 +222,7 @@ function nfe_processarLote(rows, isFirst) {
         'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
         'CFOP', 'NCM', 'Descrição', 'Origem',
         'Qtd', 'Vlr Unit', 'Vlr Total',
-        'Canal', 'Fornecedor', 'Num NF',
+        'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente',
       ];
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');

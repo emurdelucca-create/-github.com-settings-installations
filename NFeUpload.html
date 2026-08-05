@@ -240,17 +240,22 @@ function enviarLote(rows, isFirst) {
   });
 }
 
-// ── Detecta canal pelo nome do emitente da NF ────────────────
-// Humble/Najumi/Sky usam mesmo CNPJ para Shopee e ML → só empresa.
-// Edmotos e Moto Vibe só têm ML → canal exato.
-function detectCanalEmitente(xNome) {
+// ── Detecta empresa pelo xNome do emitente ───────────────────
+function detectEmpresa(xNome) {
   var n = (xNome || '').toLowerCase();
   if (n.indexOf('humble')    >= 0) return 'Humble';
   if (n.indexOf('najumi')    >= 0) return 'Najumi';
   if (n.indexOf('sky')       >= 0) return 'Sky';
-  if (n.indexOf('edmotos')   >= 0) return 'ML Edmotos';
-  if (n.indexOf('moto vibe') >= 0 || n.indexOf('motovibe') >= 0) return 'ML Moto Vibe';
+  if (n.indexOf('edmotos')   >= 0) return 'Edmotos';
+  if (n.indexOf('moto vibe') >= 0 || n.indexOf('motovibe') >= 0) return 'Moto Vibe';
   return xNome || '';
+}
+
+// ── Detecta plataforma pelo idCadIntTran ─────────────────────
+// Contém letras → Shopee; só números → ML
+function detectPlataforma(idCadIntTran) {
+  if (!idCadIntTran) return '';
+  return /[a-zA-Z]/.test(idCadIntTran) ? 'Shopee' : 'ML';
 }
 
 // ── Parser NF-e (roda no browser) ────────────────────────────
@@ -278,10 +283,19 @@ function parseNFe(xmlText) {
     data = dhEmi.substring(8,10) + '/' + dhEmi.substring(5,7) + '/' + dhEmi.substring(0,4);
   }
 
-  // ── Emitente → Canal ─────────────────────────────────────────
+  // ── Emitente → empresa ───────────────────────────────────────
   var emit     = infNFe.getElementsByTagName('emit')[0];
   var emitNome = emit ? get(emit, 'xNome') : '';
-  var canal    = detectCanalEmitente(emitNome);
+  var empresa  = detectEmpresa(emitNome);
+
+  // ── infIntermed → plataforma ─────────────────────────────────
+  var intermed     = infNFe.getElementsByTagName('infIntermed')[0];
+  var idCadIntTran = intermed ? get(intermed, 'idCadIntTran') : '';
+  var plataforma   = detectPlataforma(idCadIntTran);
+
+  // Canal = plataforma + empresa (ex: "Shopee Humble", "ML Najumi")
+  var canal = plataforma && empresa ? plataforma + ' ' + empresa
+            : empresa || plataforma || '';
 
   var dest        = infNFe.getElementsByTagName('dest')[0];
   var cnpjCpf     = dest ? (get(dest, 'CNPJ') || get(dest, 'CPF')) : '';
@@ -336,9 +350,11 @@ function parseNFe(xmlText) {
       qtd,          // J: Qtd
       vUnCom,       // K: Vlr Unit
       vProd,        // L: Vlr Total
-      canal,        // M: Canal (detectado pelo emitente da NF)
+      canal,        // M: Canal (Shopee Humble, ML Najumi, etc.)
       forn,         // N: Fornecedor
       numNF,        // O: Num NF
+      idCadIntTran, // P: ID Canal
+      empresa,      // Q: Emitente
     ]);
   }
   return rows;
