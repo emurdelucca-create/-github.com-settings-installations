@@ -99,16 +99,31 @@
 <!-- Etapa 2: seleção de ZIPs -->
 <div class="card" id="secUpload" style="display:none">
   <div class="status ok" id="msgForn"></div>
-  <br>
+
+  <!-- Vendas Regulares -->
+  <div style="margin-top:12px; font-weight:600; margin-bottom:8px;">📦 Vendas Regulares</div>
   <label class="file-label" for="zipFiles">
-    📂 Clique para selecionar os ZIPs<br>
-    <span class="muted">(pode selecionar múltiplos de uma vez)</span>
+    📂 Selecionar ZIPs — Vendas Regulares<br>
+    <span class="muted">Limpa a planilha e grava do zero</span>
   </label>
   <input type="file" id="zipFiles" multiple accept=".zip">
-  <div id="arquivosSel" class="muted" style="margin-top:6px"></div>
-  <br>
-  <button class="btn btn-primary" id="btnProcessar" onclick="processarZips()" disabled>
-    ▶ Processar e Gravar na Planilha
+  <div id="arquivosSel" class="muted" style="margin-top:4px"></div>
+  <button class="btn btn-primary" id="btnProcessar" onclick="processarZips(false)" disabled style="margin-top:8px">
+    ▶ Processar Vendas Regulares
+  </button>
+
+  <hr style="margin:16px 0; border:none; border-top:1px solid #e0e0e0">
+
+  <!-- Vendas Full -->
+  <div style="font-weight:600; margin-bottom:8px;">🏭 Vendas Full (Fulfillment)</div>
+  <label class="file-label" for="zipFilesFull" style="border-color:#34a853; color:#188038; background:#f0fff4">
+    📂 Selecionar ZIPs — Vendas Full<br>
+    <span class="muted">Adiciona à planilha existente (não apaga)</span>
+  </label>
+  <input type="file" id="zipFilesFull" multiple accept=".zip">
+  <div id="arquivosSelFull" class="muted" style="margin-top:4px"></div>
+  <button class="btn btn-secondary" id="btnProcessarFull" onclick="processarZips(true)" disabled style="margin-top:8px; border-color:#34a853; color:#188038">
+    ▶ Upload ZIPs Vendas Full
   </button>
 </div>
 
@@ -149,29 +164,40 @@ google.script.run
 
 // ── Seleção de arquivos ───────────────────────────────────────
 document.getElementById('zipFiles').addEventListener('change', function() {
-  var files = this.files;
-  if (!files.length) return;
   var nomes = [];
-  for (var i = 0; i < files.length; i++) nomes.push(files[i].name);
+  for (var i = 0; i < this.files.length; i++) nomes.push(this.files[i].name);
   document.getElementById('arquivosSel').textContent =
-    files.length + ' arquivo(s): ' + nomes.join(', ');
-  document.getElementById('btnProcessar').disabled = false;
+    this.files.length + ' arquivo(s): ' + nomes.join(', ');
+  document.getElementById('btnProcessar').disabled = !this.files.length;
 });
 
-// ── Etapa 2: processar ZIPs e gravar (sem consultar BL) ───────
-async function processarZips() {
-  var files = document.getElementById('zipFiles').files;
+document.getElementById('zipFilesFull').addEventListener('change', function() {
+  var nomes = [];
+  for (var i = 0; i < this.files.length; i++) nomes.push(this.files[i].name);
+  document.getElementById('arquivosSelFull').textContent =
+    this.files.length + ' arquivo(s): ' + nomes.join(', ');
+  document.getElementById('btnProcessarFull').disabled = !this.files.length;
+});
+
+// ── Processa ZIPs ─────────────────────────────────────────────
+// isAppend=false → limpa planilha (Regulares)
+// isAppend=true  → adiciona ao final (Full)
+async function processarZips(isAppend) {
+  var inputId = isAppend ? 'zipFilesFull' : 'zipFiles';
+  var btnId   = isAppend ? 'btnProcessarFull' : 'btnProcessar';
+  var files   = document.getElementById(inputId).files;
   if (!files.length) { alert('Selecione ao menos um ZIP.'); return; }
 
-  document.getElementById('btnProcessar').disabled = true;
+  document.getElementById(btnId).disabled = true;
   document.getElementById('secProgresso').style.display = 'block';
+  var label = isAppend ? '🏭 Full' : '📦 Regular';
 
   var allRows  = [];
   var xmlCount = 0;
   var errXml   = 0;
 
   for (var f = 0; f < files.length; f++) {
-    log('📦 Extraindo: ' + files[f].name + ' (' + mb(files[f].size) + ')');
+    log(label + ' — Extraindo: ' + files[f].name + ' (' + mb(files[f].size) + ')');
     setProgresso(0, 'Extraindo ZIP ' + (f+1) + '/' + files.length + '…');
     try {
       var zip      = await JSZip.loadAsync(files[f]);
@@ -206,8 +232,9 @@ async function processarZips() {
   log('📊 Total: ' + xmlCount + ' NFs | ' + allRows.length + ' linhas de produto');
 
   // Envia em lotes de 2000 linhas
+  // isAppend → nunca envia isFirst=true (não apaga a planilha)
   var BATCH   = 2000;
-  var isFirst = true;
+  var isFirst = !isAppend; // apenas o 1º lote de Regulares limpa a aba
   for (var i = 0; i < allRows.length; i += BATCH) {
     var lote = allRows.slice(i, i + BATCH);
     var pct  = 40 + Math.round(((i + lote.length) / allRows.length) * 60);

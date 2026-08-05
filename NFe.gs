@@ -215,19 +215,26 @@ function nfe_processarLote(rows, isFirst) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws   = ss.getSheetByName(NFE_CFG.ABA_DADOS);
 
+    const hdr = [
+      'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
+      'CFOP', 'NCM', 'Descrição', 'Origem',
+      'Qtd', 'Vlr Unit', 'Vlr Total',
+      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente',
+    ];
+
     if (isFirst) {
+      // Regulares: recria a aba do zero
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
       ws.clearContents();
-      const hdr = [
-        'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
-        'CFOP', 'NCM', 'Descrição', 'Origem',
-        'Qtd', 'Vlr Unit', 'Vlr Total',
-        'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente',
-      ];
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
-      if (!ws) throw new Error('Aba "' + NFE_CFG.ABA_DADOS + '" não encontrada.');
+      // Full (append): cria aba com header se não existir ainda
+      if (!ws) {
+        ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
+        ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
+        ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
+      }
     }
 
     if (rows.length > 0) {
