@@ -145,7 +145,11 @@ function _nfe_buildCanalMap() {
     if (!orders.length) break;
 
     orders.forEach(function(o) {
-      const login = String(o.order_source_login || '').trim().toLowerCase();
+      // Tenta order_source_login e order_source_info como fonte do canal
+      const login = (
+        String(o.order_source_login || '').trim() ||
+        String(o.order_source_info  || '').trim()
+      ).toLowerCase();
       if (!login) return;
       const canal = _nfe_detectCanal(login);
       if (!canal) return;
