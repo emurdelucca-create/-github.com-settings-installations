@@ -18,8 +18,7 @@ const NFE_CFG = {
   ABA_DADOS: 'Dados NF',
   ID_FORN:   '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
   BL_INV:    39947,        // ID do inventário BaseLinker
-  BL_ORIG:   '',           // ID do campo "Código da Origem" (ex: 'extra_field_73315')
-                           // Deixe vazio até rodar o diagnóstico abaixo.
+  BL_ORIG:   'extra_field_73314', // Código da Origem (text_fields)
 };
 
 const NFE_BL_URL = 'https://api.baselinker.com/connector.php';
