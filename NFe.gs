@@ -48,9 +48,10 @@ function onOpen() {
     .addItem('📤 Importar XMLs de ZIPs',         'nfe_abrirDialog')
     .addItem('🔍 Buscar Canal de Venda',          'nfe_buscarCanal')
     .addSeparator()
-    .addItem('🔬 Diagnóstico BL — ver pedido',    'nfe_diagnosticarPedido')
-    .addItem('🔬 Diagnóstico BL — campo Origem',  'nfe_diagnosticarOrigem')
-    .addItem('🔬 Diagnóstico BL — primeiros pedidos', 'nfe_debugOrders')
+    .addItem('🔬 Diagnóstico BL — ver pedido',       'nfe_diagnosticarPedido')
+    .addItem('🔬 Diagnóstico BL — campo Origem',     'nfe_diagnosticarOrigem')
+    .addItem('🔬 Diagnóstico BL — primeiros pedidos','nfe_debugOrders')
+    .addItem('🔬 Diagnóstico BL — buscar por ID canal','nfe_diagnosticarIdCanal')
     .addToUi();
 }
 
@@ -449,6 +450,63 @@ function nfe_debugOrders() {
     });
 
     ui.alert(msg.substring(0, 1500));
+  } catch(e) {
+    ui.alert('❌ Erro:\n' + e.message);
+  }
+}
+
+// ── Diagnóstico: busca pedido BL pelo ID do canal (idCadIntTran) ─
+// Confirma se external_order_id na BL bate com o valor do XML.
+function nfe_diagnosticarIdCanal() {
+  const ui  = SpreadsheetApp.getUi();
+  const res = ui.prompt('🔬 Diagnóstico — ID Canal',
+    'Cole um valor da coluna P (ID Canal) da planilha\n' +
+    'ex: 2605018TCQ5FI', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const alvo = res.getResponseText().trim();
+  if (!alvo) return;
+
+  try {
+    const dateFrom = 1746057600;
+    let encontrado = null;
+    let paginasVistas = 0;
+    let page = 1;
+
+    while (!encontrado) {
+      const r      = _nfe_bl('getOrders', { date_from: dateFrom, get_unconfirmed: true, page: page });
+      const raw    = r.orders || [];
+      const orders = Array.isArray(raw) ? raw : Object.values(raw);
+      if (!orders.length) break;
+      paginasVistas++;
+
+      orders.forEach(function(o) {
+        if (encontrado) return;
+        if (String(o.external_order_id || '') === alvo) encontrado = o;
+      });
+
+      if (orders.length < 1000) break;
+      page++;
+      Utilities.sleep(300);
+    }
+
+    if (!encontrado) {
+      ui.alert(
+        '❌ Não encontrado: "' + alvo + '"\n\n' +
+        'Páginas varridas: ' + paginasVistas + '\n\n' +
+        'Possíveis causas:\n' +
+        '• Pedido anterior a 2026-05-01\n' +
+        '• external_order_id tem formato diferente do idCadIntTran\n' +
+        '• Pedido de outra conta BL'
+      );
+      return;
+    }
+
+    let msg = '✅ Encontrado! external_order_id = "' + encontrado.external_order_id + '"\n\n';
+    msg += 'order_id        = ' + encontrado.order_id + '\n';
+    msg += 'order_source    = ' + encontrado.order_source + '\n';
+    msg += 'delivery_method = ' + encontrado.delivery_method + '\n';
+    msg += 'date_add        = ' + encontrado.date_add + '\n';
+    ui.alert(msg);
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);
   }
