@@ -103,11 +103,6 @@
     <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
     Carregando origens da BaseLinker… (pode levar 30-60 s)
   </div>
-  <div class="status muted" id="msgPedidos" style="margin-top:4px">
-    <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
-    Carregando totais de pedidos…
-  </div>
-
   <!-- Vendas Regulares -->
   <div style="margin-top:12px; font-weight:600; margin-bottom:8px;">📦 Vendas Regulares</div>
   <label class="file-label" for="zipFiles">
@@ -146,9 +141,8 @@
 <!-- JSZip via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-var fornMap    = {};
-var origMap    = {};
-var pedidoMap  = {};
+var fornMap = {};
+var origMap = {};
 
 // ── Etapa 1: carrega apenas fornecedores (rápido) ─────────────
 google.script.run
@@ -183,23 +177,6 @@ google.script.run
       })
       .nfe_precarregarOrigem();
 
-    // ── Etapa 1c: métodos de envio da BaseLinker ───────────────
-    google.script.run
-      .withSuccessHandler(function(json3) {
-        var r3 = JSON.parse(json3);
-        var msgPed = document.getElementById('msgPedidos');
-        if (!r3.ok) {
-          msgPed.innerHTML = '<span class="err">⚠ Envio indisponível: ' + r3.error + '</span>';
-          return;
-        }
-        pedidoMap = r3.pedidoMap || {};
-        msgPed.innerHTML = '<span class="ok">✅ ' + r3.total + ' pedidos carregados (total)</span>';
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById('msgPedidos').innerHTML =
-          '<span class="err">⚠ Envio indisponível (' + e.message + ')</span>';
-      })
-      .nfe_precarregarPedidos();
   })
   .withFailureHandler(function(e) {
     document.getElementById('msgCarregar').innerHTML =
@@ -412,8 +389,6 @@ function parseNFe(xmlText) {
                fornMap[cProd.replace(/^0+/, '')] ||
                'Sem Fornecedor';
 
-    // Total do pedido: cruza idCadIntTran (ID do pedido no marketplace) com pedidoMap
-    var totalPedido = pedidoMap[idCadIntTran] !== undefined ? pedidoMap[idCadIntTran] : '';
 
     rows.push([
       data,         // A: Data
@@ -434,7 +409,6 @@ function parseNFe(xmlText) {
       idCadIntTran, // P: ID Canal
       empresa,      // Q: Emitente
       cProd,        // R: SKU
-      totalPedido,  // S: Total Pedido
     ]);
   }
   return rows;

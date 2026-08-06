@@ -49,6 +49,7 @@ function onOpen() {
     .createMenu('📄 NF-e')
     .addItem('📤 Importar XMLs de ZIPs',         'nfe_abrirDialog')
     .addItem('🔍 Buscar Canal de Venda',          'nfe_buscarCanal')
+    .addItem('💰 Buscar Total do Pedido',         'nfe_buscarTotalPedido')
     .addSeparator()
     .addItem('🔬 Diagnóstico BL — ver pedido',       'nfe_diagnosticarPedido')
     .addItem('🔬 Diagnóstico BL — campo Origem',     'nfe_diagnosticarOrigem')
@@ -257,6 +258,80 @@ function nfe_buscarCanal() {
         ? '\n⚠ ' + (lastRow - 1 - filled) + ' linhas sem correspondência.\n' +
           'Use "Diagnóstico BL" para verificar se o nº da NF está armazenado\n' +
           'em extra_field_1 ou extra_field_2 do pedido.'
+        : '')
+    );
+  } catch(e) {
+    ui.alert('❌ Erro:\n' + e.message);
+  }
+}
+
+// ── Busca Total do Pedido para todas as linhas da planilha ────
+// Menu → "💰 Buscar Total do Pedido"
+// Lê col P (ID Canal = idCadIntTran), cruza com as planilhas de
+// referência e preenche col S (Total Pedido).
+function nfe_buscarTotalPedido() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ws = ss.getSheetByName(NFE_CFG.ABA_DADOS);
+
+  if (!ws) { ui.alert('❌ Aba "' + NFE_CFG.ABA_DADOS + '" não encontrada.'); return; }
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) { ui.alert('Nenhuma linha de dados encontrada.'); return; }
+
+  ss.toast('Carregando planilhas de referência…', '💰 Total Pedido', 120);
+
+  try {
+    // ── Constrói mapa ID_marketplace → total ─────────────────
+    const pedidoMap = {};
+
+    function lerAba(aba) {
+      if (!aba) return 0;
+      const rows = aba.getDataRange().getValues();
+      var n = 0;
+      for (var i = 1; i < rows.length; i++) {
+        const id    = String(rows[i][5]  || '').trim(); // col F
+        const total = rows[i][21];                       // col V
+        if (id && !(id in pedidoMap) && total !== '' && total !== null && total !== undefined) {
+          pedidoMap[id] = total;
+          n++;
+        }
+      }
+      return n;
+    }
+
+    const ss90  = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_90D);
+    var n90 = lerAba(ss90.getSheets()[0]);
+
+    const ssMai = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_MAI);
+    var abaMai  = null;
+    ssMai.getSheets().forEach(function(s) { if (s.getSheetId() === 1162425463) abaMai = s; });
+    var nMai = lerAba(abaMai || ssMai.getSheets()[0]);
+
+    const totalRefs = Object.keys(pedidoMap).length;
+    ss.toast('Cruzando ' + totalRefs + ' referências…', '💰 Total Pedido', 60);
+
+    // ── Lê col P (ID Canal) e preenche col S ─────────────────
+    const colP = ws.getRange(2, 16, lastRow - 1, 1).getValues(); // col P = índice 16
+    var filled = 0;
+    var novosTotais = colP.map(function(row) {
+      const id = String(row[0] || '').trim();
+      if (!id) return [''];
+      const val = pedidoMap[id];
+      if (val !== undefined) { filled++; return [val]; }
+      return [''];
+    });
+
+    ws.getRange(2, 19, novosTotais.length, 1).setValues(novosTotais); // col S = índice 19
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      '✅ Total do Pedido preenchido!\n\n' +
+      'Referências carregadas: ' + totalRefs +
+      ' (90d: ' + n90 + ' | mês5: ' + nMai + ')\n' +
+      'Linhas preenchidas: ' + filled + ' de ' + (lastRow - 1) + '\n' +
+      (filled < lastRow - 1
+        ? '\n⚠ ' + (lastRow - 1 - filled) + ' linhas sem correspondência.\n' +
+          'Verifique se o período está coberto pelas planilhas de referência.'
         : '')
     );
   } catch(e) {
