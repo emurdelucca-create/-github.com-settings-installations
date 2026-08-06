@@ -81,7 +81,11 @@ function nfe_precarregarOrigem() {
   }
 }
 
-// ── Carrega mapa order_source_id → delivery_method (via BL) ──
+// ── Carrega mapa invoice_fullnumber → delivery_method (via BL) ─
+// Usado somente para Vendas Regulares (NFs emitidas pela BL).
+// Chaves indexadas:
+//   "119181/F"  (invoice_fullnumber — formato padrão BL)
+//   "119181"    (só o número, sem série — fallback)
 function nfe_precarregarPedidos() {
   try {
     const map      = {};
@@ -93,14 +97,18 @@ function nfe_precarregarPedidos() {
       const orders = Array.isArray(raw) ? raw : Object.values(raw);
       if (!orders.length) break;
       orders.forEach(function(o) {
-        const srcId = String(o.order_source_id || '').trim();
-        const deliv = String(o.delivery_method  || '').trim();
-        if (srcId && deliv) {
-          map[srcId] = deliv;
-          // normaliza: remove zeros à esquerda e hifens, para ampliar o match
-          const norm = srcId.replace(/^0+/, '').replace(/-/g, '');
-          if (norm && norm !== srcId) map[norm] = deliv;
+        const deliv = String(o.delivery_method || '').trim();
+        if (!deliv) return;
+        // invoice_fullnumber: ex "119181/F"
+        const full = String(o.invoice_fullnumber || '').trim();
+        if (full) {
+          map[full] = deliv;
+          const numPart = full.split('/')[0];
+          if (numPart && numPart !== full) map[numPart] = deliv;
         }
+        // invoice_number como fallback
+        const num = String(o.invoice_number || '').trim();
+        if (num && !map[num]) map[num] = deliv;
       });
       if (orders.length < 1000) break;
       page++;
