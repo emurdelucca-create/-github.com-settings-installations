@@ -105,7 +105,7 @@
   </div>
   <div class="status muted" id="msgPedidos" style="margin-top:4px">
     <span class="spinner" style="width:13px;height:13px;border-width:2px"></span>
-    Carregando métodos de envio da BaseLinker…
+    Carregando totais de pedidos…
   </div>
 
   <!-- Vendas Regulares -->
@@ -193,7 +193,7 @@ google.script.run
           return;
         }
         pedidoMap = r3.pedidoMap || {};
-        msgPed.innerHTML = '<span class="ok">✅ ' + r3.total + ' pedidos carregados (envio)</span>';
+        msgPed.innerHTML = '<span class="ok">✅ ' + r3.total + ' pedidos carregados (total)</span>';
       })
       .withFailureHandler(function(e) {
         document.getElementById('msgPedidos').innerHTML =
@@ -255,7 +255,7 @@ async function processarZips(isAppend) {
       for (var x = 0; x < xmlFiles.length; x++) {
         try {
           var text = await xmlFiles[x].async('string');
-          var rows = parseNFe(text, isAppend);
+          var rows = parseNFe(text);
           allRows  = allRows.concat(rows);
           xmlCount++;
         } catch(e) {
@@ -331,9 +331,7 @@ function detectPlataforma(idCadIntTran) {
 }
 
 // ── Parser NF-e (roda no browser) ────────────────────────────
-// isFull=true  → Vendas Full: envio fixo "Fulfillment"
-// isFull=false → Vendas Regulares: cruza numNF com pedidoMap (BL)
-function parseNFe(xmlText, isFull) {
+function parseNFe(xmlText) {
   var parser = new DOMParser();
   var doc    = parser.parseFromString(xmlText, 'application/xml');
   if (doc.querySelector('parsererror')) return [];
@@ -414,12 +412,8 @@ function parseNFe(xmlText, isFull) {
                fornMap[cProd.replace(/^0+/, '')] ||
                'Sem Fornecedor';
 
-    // Método de envio:
-    //   Full      → fixo "Fulfillment"
-    //   Regulares → cruza idCadIntTran (= external_order_id da BL) com pedidoMap
-    var envio = isFull
-      ? 'Fulfillment'
-      : (pedidoMap[idCadIntTran] || '');
+    // Total do pedido: cruza idCadIntTran (ID do pedido no marketplace) com pedidoMap
+    var totalPedido = pedidoMap[idCadIntTran] !== undefined ? pedidoMap[idCadIntTran] : '';
 
     rows.push([
       data,         // A: Data
@@ -440,7 +434,7 @@ function parseNFe(xmlText, isFull) {
       idCadIntTran, // P: ID Canal
       empresa,      // Q: Emitente
       cProd,        // R: SKU
-      envio,        // S: Envio (delivery_method BaseLinker)
+      totalPedido,  // S: Total Pedido
     ]);
   }
   return rows;

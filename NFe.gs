@@ -15,10 +15,12 @@
 // ============================================================
 
 const NFE_CFG = {
-  ABA_DADOS: 'Dados NF',
-  ID_FORN:   '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
-  BL_INV:    39947,        // ID do inventário BaseLinker
-  BL_ORIG:   'extra_field_73314', // Código da Origem (text_fields)
+  ABA_DADOS:       'Dados NF',
+  ID_FORN:         '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
+  BL_INV:          39947,
+  BL_ORIG:         'extra_field_73314',
+  ID_PEDIDOS_90D:  '1OedjVQcNUoqmoPzeRs9TKsoC4LiDtemYs3cZ0--OTUo', // últimos 90 dias
+  ID_PEDIDOS_MAI:  '1h8ziZX6wE0nbrkjD0TE4H83AP4hgXGBJq85ahCWx6k8', // mês 5 completo (gid=1162425463)
 };
 
 const NFE_BL_URL = 'https://api.baselinker.com/connector.php';
@@ -82,28 +84,39 @@ function nfe_precarregarOrigem() {
   }
 }
 
-// ── Carrega mapa external_order_id → delivery_method (via BL) ─
-// Chave = ID do pedido no marketplace (campo external_order_id da BL),
-// que é o mesmo valor que aparece em <infIntermed><idCadIntTran> no XML.
+// ── Carrega mapa ID_marketplace → Total do Pedido (via planilhas) ─
+// Fonte 1: planilha 90 dias (prioridade)
+// Fonte 2: planilha mês 5 completo (fallback para datas mais antigas)
+// Col F (índice 5) = ID do pedido no marketplace
+// Col V (índice 21) = valor total do pedido
 function nfe_precarregarPedidos() {
   try {
-    const map      = {};
-    const dateFrom = 1746057600; // 2026-05-01T00:00:00Z
-    let page = 1;
-    while (true) {
-      const r      = _nfe_bl('getOrders', { date_from: dateFrom, get_unconfirmed: true, page: page });
-      const raw    = r.orders || [];
-      const orders = Array.isArray(raw) ? raw : Object.values(raw);
-      if (!orders.length) break;
-      orders.forEach(function(o) {
-        const extId = String(o.external_order_id || '').trim();
-        const deliv = String(o.delivery_method   || '').trim();
-        if (extId && deliv) map[extId] = deliv;
-      });
-      if (orders.length < 1000) break;
-      page++;
-      Utilities.sleep(300);
+    const map = {};
+
+    function lerAba(aba) {
+      if (!aba) return;
+      const rows = aba.getDataRange().getValues();
+      for (var i = 1; i < rows.length; i++) {
+        const mktId = String(rows[i][5]  || '').trim(); // col F
+        const total  = rows[i][21];                      // col V
+        if (mktId && !(mktId in map) && total !== '' && total !== null && total !== undefined) {
+          map[mktId] = total;
+        }
+      }
     }
+
+    // Planilha 1: 90 dias — primeira aba
+    const ss90 = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_90D);
+    lerAba(ss90.getSheets()[0]);
+
+    // Planilha 2: mês 5 — aba com gid=1162425463 (fallback)
+    const ssMai = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_MAI);
+    var abaMai = null;
+    ssMai.getSheets().forEach(function(s) {
+      if (s.getSheetId() === 1162425463) abaMai = s;
+    });
+    lerAba(abaMai || ssMai.getSheets()[0]);
+
     return JSON.stringify({ ok: true, pedidoMap: map, total: Object.keys(map).length });
   } catch(e) {
     return JSON.stringify({ ok: false, error: e.message });
@@ -332,9 +345,8 @@ function _nfe_loadForn() {
 
 // ── Recebe lote de linhas do browser e grava na planilha ──────
 // rows: 19 colunas (A-S)
-//   M = Canal (Shopee Humble, ML Najumi…)
-//   O = Num NF  |  P = ID Canal (idCadIntTran)  |  Q = Emitente
-//   R = SKU     |  S = Envio (delivery_method BL)
+//   M = Canal  |  O = Num NF  |  P = ID Canal  |  Q = Emitente
+//   R = SKU    |  S = Total Pedido
 function nfe_processarLote(rows, isFirst) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -344,7 +356,7 @@ function nfe_processarLote(rows, isFirst) {
       'Data', 'CNPJ/CPF', 'Cliente', 'Cons. Final', 'UF',
       'CFOP', 'NCM', 'Descrição', 'Origem',
       'Qtd', 'Vlr Unit', 'Vlr Total',
-      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU', 'Envio',
+      'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU', 'Total Pedido',
     ];
 
     if (isFirst) {
