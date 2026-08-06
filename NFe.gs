@@ -387,27 +387,49 @@ function nfe_processarLote(rows, isFirst) {
   }
 }
 
-// ── Diagnóstico: mostra campos de um pedido por order_id ──────
+// ── Diagnóstico: mostra todos os campos relevantes de um pedido ─
 function nfe_diagnosticarPedido() {
   const ui  = SpreadsheetApp.getUi();
   const res = ui.prompt('🔬 Diagnóstico Pedido BL',
-    'Digite o order_id do pedido:', ui.ButtonSet.OK_CANCEL);
+    'Digite o order_id do pedido (ex: 44967275):', ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
   const oid = parseInt(res.getResponseText().trim(), 10);
   if (!oid) { ui.alert('ID inválido.'); return; }
 
   try {
     const r = _nfe_bl('getOrders', { order_id: oid });
-    const o = (r.orders || [])[0];
+    const raw = r.orders || {};
+    const arr = Array.isArray(raw) ? raw : Object.values(raw);
+    const o   = arr[0];
     if (!o) { ui.alert('Pedido não encontrado.'); return; }
 
-    let msg = '══ Pedido ' + oid + ' ══\n';
-    msg += 'order_source_login= ' + o.order_source_login + '\n';
-    msg += 'invoice_fullnumber= ' + o.invoice_fullnumber + '\n';
-    msg += 'invoice_number    = ' + o.invoice_number + '\n';
-    msg += 'date_add          = ' + o.date_add + '\n';
-    msg += '\nTodos os campos:\n' + Object.keys(o).join(', ');
-    ui.alert(msg.substring(0, 1500));
+    // Campos fixos de interesse
+    const campos = [
+      'order_id', 'date_add',
+      'order_source', 'order_source_id', 'order_source_login',
+      'invoice_fullnumber', 'invoice_number',
+      'delivery_method', 'delivery_package_module', 'delivery_package_nr',
+      'extra_field_1', 'extra_field_2',
+    ];
+
+    let msg = '══ Pedido ' + oid + ' ══\n\n';
+    campos.forEach(function(k) {
+      msg += k.padEnd(28) + '= ' + JSON.stringify(o[k]) + '\n';
+    });
+
+    // Campos extras com valor não-nulo que não estão na lista acima
+    msg += '\n── Outros campos com valor ──\n';
+    Object.keys(o).forEach(function(k) {
+      if (campos.indexOf(k) >= 0) return;
+      const v = o[k];
+      if (v === null || v === '' || v === 0 || v === false ||
+          (Array.isArray(v) && !v.length)) return;
+      const repr = JSON.stringify(v);
+      if (repr.length > 80) return; // pula objetos grandes
+      msg += k.padEnd(28) + '= ' + repr + '\n';
+    });
+
+    ui.alert(msg.substring(0, 2000));
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);
   }
