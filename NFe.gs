@@ -81,11 +81,9 @@ function nfe_precarregarOrigem() {
   }
 }
 
-// ── Carrega mapa invoice_fullnumber → delivery_method (via BL) ─
-// Usado somente para Vendas Regulares (NFs emitidas pela BL).
-// Chaves indexadas:
-//   "119181/F"  (invoice_fullnumber — formato padrão BL)
-//   "119181"    (só o número, sem série — fallback)
+// ── Carrega mapa external_order_id → delivery_method (via BL) ─
+// Chave = ID do pedido no marketplace (campo external_order_id da BL),
+// que é o mesmo valor que aparece em <infIntermed><idCadIntTran> no XML.
 function nfe_precarregarPedidos() {
   try {
     const map      = {};
@@ -97,18 +95,9 @@ function nfe_precarregarPedidos() {
       const orders = Array.isArray(raw) ? raw : Object.values(raw);
       if (!orders.length) break;
       orders.forEach(function(o) {
-        const deliv = String(o.delivery_method || '').trim();
-        if (!deliv) return;
-        // invoice_fullnumber: ex "119181/F"
-        const full = String(o.invoice_fullnumber || '').trim();
-        if (full) {
-          map[full] = deliv;
-          const numPart = full.split('/')[0];
-          if (numPart && numPart !== full) map[numPart] = deliv;
-        }
-        // invoice_number como fallback
-        const num = String(o.invoice_number || '').trim();
-        if (num && !map[num]) map[num] = deliv;
+        const extId = String(o.external_order_id || '').trim();
+        const deliv = String(o.delivery_method   || '').trim();
+        if (extId && deliv) map[extId] = deliv;
       });
       if (orders.length < 1000) break;
       page++;

@@ -416,10 +416,10 @@ function parseNFe(xmlText, isFull) {
 
     // Método de envio:
     //   Full      → fixo "Fulfillment"
-    //   Regulares → cruza numNF ("119181/F" ou "119181") com pedidoMap BL
+    //   Regulares → cruza idCadIntTran (= external_order_id da BL) com pedidoMap
     var envio = isFull
       ? 'Fulfillment'
-      : (pedidoMap[numNF] || pedidoMap[nNF] || '');
+      : (pedidoMap[idCadIntTran] || '');
 
     rows.push([
       data,         // A: Data
