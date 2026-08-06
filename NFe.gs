@@ -54,6 +54,7 @@ function onOpen() {
     .addItem('🔬 Diagnóstico BL — campo Origem',     'nfe_diagnosticarOrigem')
     .addItem('🔬 Diagnóstico BL — primeiros pedidos','nfe_debugOrders')
     .addItem('🔬 Diagnóstico BL — buscar por ID canal','nfe_diagnosticarIdCanal')
+    .addItem('🔬 Diagnóstico — planilhas de pedidos', 'nfe_diagnosticarPlanilhasPedidos')
     .addToUi();
 }
 
@@ -519,6 +520,51 @@ function nfe_diagnosticarIdCanal() {
     msg += 'delivery_method = ' + encontrado.delivery_method + '\n';
     msg += 'date_add        = ' + encontrado.date_add + '\n';
     ui.alert(msg);
+  } catch(e) {
+    ui.alert('❌ Erro:\n' + e.message);
+  }
+}
+
+// ── Diagnóstico: verifica planilhas de pedidos e compara IDs ──
+function nfe_diagnosticarPlanilhasPedidos() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    var msg = '';
+
+    // Lê primeiras 5 linhas de dados de cada planilha (col F e V)
+    function amostrarPlanilha(label, ssId, gidAlvo) {
+      var ss  = SpreadsheetApp.openById(ssId);
+      var aba = null;
+      if (gidAlvo) {
+        ss.getSheets().forEach(function(s) { if (s.getSheetId() === gidAlvo) aba = s; });
+      }
+      aba = aba || ss.getSheets()[0];
+      var rows   = aba.getDataRange().getValues();
+      var linhas = Math.min(rows.length - 1, 5);
+      msg += '── ' + label + ' (' + aba.getName() + ') — ' + (rows.length - 1) + ' linhas ──\n';
+      for (var i = 1; i <= linhas; i++) {
+        msg += '  F=' + JSON.stringify(rows[i][5]) + '  V=' + JSON.stringify(rows[i][21]) + '\n';
+      }
+      msg += '\n';
+    }
+
+    amostrarPlanilha('Planilha 90d', NFE_CFG.ID_PEDIDOS_90D, null);
+    amostrarPlanilha('Planilha Mês5', NFE_CFG.ID_PEDIDOS_MAI, 1162425463);
+
+    // Primeiros 5 valores distintos da col P (ID Canal) da aba Dados NF
+    var ws = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NFE_CFG.ABA_DADOS);
+    if (ws && ws.getLastRow() > 1) {
+      var colP = ws.getRange(2, 16, Math.min(ws.getLastRow() - 1, 100), 1).getValues();
+      var vistos = {}, exemplos = [];
+      colP.forEach(function(r) {
+        var v = String(r[0] || '').trim();
+        if (v && !vistos[v]) { vistos[v] = true; exemplos.push(v); }
+      });
+      msg += '── Col P (ID Canal) — primeiros valores distintos ──\n';
+      exemplos.slice(0, 5).forEach(function(v) { msg += '  "' + v + '"\n'; });
+    }
+
+    ui.alert(msg.substring(0, 2000));
   } catch(e) {
     ui.alert('❌ Erro:\n' + e.message);
   }
