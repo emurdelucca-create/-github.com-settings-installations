@@ -184,14 +184,18 @@ function nfe_processarLoteCompras(rows, isFirst) {
       'Nacional/Importado', 'Quantidade', 'Valor Unitário', 'Valor Total',
     ];
 
+    const PRE_EXPAND = 60000;
+
     if (isFirst) {
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
       ws.clearContents();
+      if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
+        if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
         ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
       }
@@ -483,21 +487,23 @@ function nfe_processarLote(rows, isFirst) {
       'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU', 'Total Pedido',
     ];
 
+    const PRE_EXPAND = 210000; // reserva linhas para até ~200k linhas de dados
+
     if (isFirst) {
       // Regulares: recria a aba do zero
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
       ws.clearContents();
+      // pré-expande para evitar insertRowsAfter por lote
+      if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
-      // Coluna R (18) = SKU: força formato texto para preservar zeros à esquerda
-      ws.getRange(1, 18, ws.getMaxRows(), 1).setNumberFormat('@');
     } else {
       // Full (append): cria aba com header se não existir ainda
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
+        if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
         ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
-        ws.getRange(1, 18, ws.getMaxRows(), 1).setNumberFormat('@');
       }
     }
 
@@ -505,6 +511,8 @@ function nfe_processarLote(rows, isFirst) {
       const lastRow = ws.getLastRow();
       const needed  = lastRow + rows.length;
       if (needed > ws.getMaxRows()) ws.insertRowsAfter(ws.getMaxRows(), needed - ws.getMaxRows());
+      // Col R (18) = SKU: força formato texto apenas nas linhas sendo gravadas
+      ws.getRange(lastRow + 1, 18, rows.length, 1).setNumberFormat('@');
       ws.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
     }
 
