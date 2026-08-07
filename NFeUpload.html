@@ -128,6 +128,21 @@
   <button class="btn btn-secondary" id="btnProcessarFull" onclick="processarZips(true)" disabled style="margin-top:8px; border-color:#34a853; color:#188038">
     ▶ Upload ZIPs Vendas Full
   </button>
+
+  <hr style="margin:16px 0; border:none; border-top:1px solid #e0e0e0">
+
+  <!-- Compras -->
+  <div style="font-weight:600; margin-bottom:8px;">📋 Notas de Compra</div>
+  <label class="file-label" for="zipFilesCompras" style="border-color:#9c27b0; color:#7b1fa2; background:#fdf4ff">
+    📂 Selecionar ZIPs — Compras<br>
+    <span class="muted">Limpa a aba Compras e grava do zero</span>
+  </label>
+  <input type="file" id="zipFilesCompras" multiple accept=".zip">
+  <div id="arquivosSelCompras" class="muted" style="margin-top:4px"></div>
+  <button class="btn" id="btnProcessarCompras" onclick="processarZipsCompras()" disabled
+          style="margin-top:8px; background:#9c27b0; color:#fff;">
+    ▶ Upload ZIPs Compras
+  </button>
 </div>
 
 <!-- Etapa 3: progresso dos XMLs -->
@@ -199,6 +214,14 @@ document.getElementById('zipFilesFull').addEventListener('change', function() {
   document.getElementById('arquivosSelFull').textContent =
     this.files.length + ' arquivo(s): ' + nomes.join(', ');
   document.getElementById('btnProcessarFull').disabled = !this.files.length;
+});
+
+document.getElementById('zipFilesCompras').addEventListener('change', function() {
+  var nomes = [];
+  for (var i = 0; i < this.files.length; i++) nomes.push(this.files[i].name);
+  document.getElementById('arquivosSelCompras').textContent =
+    this.files.length + ' arquivo(s): ' + nomes.join(', ');
+  document.getElementById('btnProcessarCompras').disabled = !this.files.length;
 });
 
 // ── Processa ZIPs ─────────────────────────────────────────────
@@ -412,6 +435,160 @@ function parseNFe(xmlText) {
     ]);
   }
   return rows;
+}
+
+// ── Parser NF-e de COMPRA ─────────────────────────────────────
+function parseNFeCompras(xmlText) {
+  var parser = new DOMParser();
+  var doc    = parser.parseFromString(xmlText, 'application/xml');
+  if (doc.querySelector('parsererror')) return [];
+
+  var infNFe = doc.getElementsByTagName('infNFe')[0];
+  if (!infNFe) return [];
+
+  function get(el, tag) {
+    if (!el) return '';
+    var els = el.getElementsByTagName(tag);
+    return els.length ? els[0].textContent.trim() : '';
+  }
+
+  var ide   = infNFe.getElementsByTagName('ide')[0];
+  var dhEmi = get(ide, 'dhEmi');
+  var data  = '';
+  if (dhEmi && dhEmi.length >= 10) {
+    data = dhEmi.substring(8,10) + '/' + dhEmi.substring(5,7) + '/' + dhEmi.substring(0,4);
+  }
+
+  var emit     = infNFe.getElementsByTagName('emit')[0];
+  var cnpjEmit = emit ? get(emit, 'CNPJ') : '';
+  var nomeEmit = emit ? get(emit, 'xNome') : '';
+  var crt      = emit ? get(emit, 'CRT') : '';
+  var simples  = crt === '1' ? 'Sim' : 'Não';
+  var enderEmit = emit ? emit.getElementsByTagName('enderEmit')[0] : null;
+  var uf        = enderEmit ? get(enderEmit, 'UF') : '';
+
+  var rows = [];
+  var dets = infNFe.getElementsByTagName('det');
+
+  for (var i = 0; i < dets.length; i++) {
+    var det  = dets[i];
+    var prod = det.getElementsByTagName('prod')[0];
+    if (!prod) continue;
+
+    var cfop      = get(prod, 'CFOP');
+    var ncmRaw    = get(prod, 'NCM');
+    var descricao = get(prod, 'xProd');
+    var qtd       = parseFloat(get(prod, 'qCom')   || '0') || 0;
+    var vUnCom    = parseFloat(get(prod, 'vUnCom') || '0') || 0;
+    var vProd     = parseFloat(get(prod, 'vProd')  || '0') || 0;
+
+    var origCode = '';
+    var icmsEl = det.getElementsByTagName('ICMS')[0];
+    if (icmsEl && icmsEl.firstElementChild) {
+      origCode = get(icmsEl.firstElementChild, 'orig');
+    }
+    var origem = origCode === '0' ? 'Nacional' : (origCode !== '' ? 'Importado' : '');
+
+    var ncm = ncmRaw;
+    if (/^\d{8}$/.test(ncmRaw)) {
+      ncm = ncmRaw.slice(0,4) + '.' + ncmRaw.slice(4,6) + '.' + ncmRaw.slice(6,8);
+    }
+
+    rows.push([
+      data,      // A: Data
+      cnpjEmit,  // B: CNPJ Emissor
+      nomeEmit,  // C: Razão Social
+      simples,   // D: Optante S.N.
+      uf,        // E: Estado
+      cfop,      // F: CFOP
+      ncm,       // G: NCM
+      descricao, // H: Descrição
+      origem,    // I: Nacional/Importado
+      qtd,       // J: Quantidade
+      vUnCom,    // K: Valor Unitário
+      vProd,     // L: Valor Total
+    ]);
+  }
+  return rows;
+}
+
+// ── Processa ZIPs de Compras ──────────────────────────────────
+async function processarZipsCompras() {
+  var files = document.getElementById('zipFilesCompras').files;
+  if (!files.length) { alert('Selecione ao menos um ZIP.'); return; }
+
+  document.getElementById('btnProcessarCompras').disabled = true;
+  document.getElementById('secProgresso').style.display   = 'block';
+
+  var allRows  = [];
+  var xmlCount = 0;
+  var errXml   = 0;
+
+  for (var f = 0; f < files.length; f++) {
+    log('📋 Compras — Extraindo: ' + files[f].name + ' (' + mb(files[f].size) + ')');
+    setProgresso(0, 'Extraindo ZIP ' + (f+1) + '/' + files.length + '…');
+    try {
+      var zip      = await JSZip.loadAsync(files[f]);
+      var xmlFiles = [];
+      zip.forEach(function(path, entry) {
+        if (!entry.dir && path.toLowerCase().endsWith('.xml')) xmlFiles.push(entry);
+      });
+      log('  → ' + xmlFiles.length + ' XMLs encontrados');
+
+      for (var x = 0; x < xmlFiles.length; x++) {
+        try {
+          var text = await xmlFiles[x].async('string');
+          var rows = parseNFeCompras(text);
+          allRows  = allRows.concat(rows);
+          xmlCount++;
+        } catch(e) {
+          errXml++;
+          log('  ⚠ Erro XML: ' + xmlFiles[x].name + ' — ' + e.message);
+        }
+        if (x % 200 === 0) {
+          setProgresso(
+            Math.round(((f / files.length) + (x / xmlFiles.length / files.length)) * 40),
+            'Processando XMLs: ' + x + '/' + xmlFiles.length
+          );
+        }
+      }
+    } catch(e) {
+      log('❌ Erro no ZIP: ' + e.message);
+    }
+  }
+
+  log('📊 Total: ' + xmlCount + ' NFs | ' + allRows.length + ' linhas de produto');
+
+  var BATCH   = 2000;
+  var isFirst = true;
+  for (var i = 0; i < allRows.length; i += BATCH) {
+    var lote = allRows.slice(i, i + BATCH);
+    var pct  = 40 + Math.round(((i + lote.length) / allRows.length) * 60);
+    setProgresso(pct, 'Gravando compras: ' + Math.min(i + BATCH, allRows.length) + '/' + allRows.length);
+    try {
+      await enviarLoteCompras(lote, isFirst);
+      isFirst = false;
+    } catch(e) {
+      log('❌ Erro ao gravar lote: ' + e.message);
+      break;
+    }
+  }
+
+  setProgresso(100, '');
+  document.getElementById('msgProgresso').innerHTML =
+    '<span class="ok">✅ Compras gravadas!</span><br>' +
+    xmlCount + ' NFs processadas &nbsp;|&nbsp; ' +
+    allRows.length + ' linhas' +
+    (errXml ? ' &nbsp;|&nbsp; ⚠ ' + errXml + ' XMLs com erro' : '');
+}
+
+function enviarLoteCompras(rows, isFirst) {
+  return new Promise(function(resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function(r) { r.ok ? resolve() : reject(new Error(r.error)); })
+      .withFailureHandler(function(e) { reject(e); })
+      .nfe_processarLoteCompras(rows, isFirst);
+  });
 }
 
 // ── Helpers UI ────────────────────────────────────────────────

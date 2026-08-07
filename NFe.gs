@@ -16,6 +16,7 @@
 
 const NFE_CFG = {
   ABA_DADOS:       'Dados NF',
+  ABA_COMPRAS:     'Compras',
   ID_FORN:         '1VSraBQz0pnXwcCV0QjQmU8vtcIy9UFbDUh4H3ZNYc68',
   BL_INV:          39947,
   BL_ORIG:         'extra_field_73314',
@@ -168,6 +169,44 @@ function _nfe_loadOrigMap() {
     Utilities.sleep(200);
   }
   return map;
+}
+
+// ── Recebe lote de Compras e grava na aba "Compras" ──────────
+// rows: 12 colunas (A-L)
+function nfe_processarLoteCompras(rows, isFirst) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws   = ss.getSheetByName(NFE_CFG.ABA_COMPRAS);
+
+    const hdr = [
+      'Data', 'CNPJ Emissor', 'Razão Social', 'Optante S.N.',
+      'Estado', 'CFOP', 'NCM', 'Descrição',
+      'Nacional/Importado', 'Quantidade', 'Valor Unitário', 'Valor Total',
+    ];
+
+    if (isFirst) {
+      if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
+      ws.clearContents();
+      ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
+      ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
+    } else {
+      if (!ws) {
+        ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
+        ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
+        ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
+      }
+    }
+
+    if (rows.length > 0) {
+      const lastRow = ws.getLastRow();
+      ws.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
+    }
+
+    SpreadsheetApp.flush();
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ── Diagnóstico: descobre o campo de Origem num produto por SKU ─
