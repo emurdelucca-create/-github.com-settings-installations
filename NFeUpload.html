@@ -279,7 +279,7 @@ async function processarZips(isAppend) {
   // Envia em lotes de 5000 linhas com retry automático (até 3 tentativas)
   // No 1º lote envia totalRows para o servidor pré-expandir a aba de uma vez,
   // evitando insertRowsAfter nos lotes seguintes (causa recálculo pesado).
-  var BATCH    = 5000;
+  var BATCH    = 3000;
   var isFirst  = !isAppend;
   var gravadas = 0;
   var errLote  = false;
@@ -287,7 +287,7 @@ async function processarZips(isAppend) {
   for (var i = 0; i < allRows.length; i += BATCH) {
     var lote      = allRows.slice(i, i + BATCH);
     var loteNum   = Math.floor(i / BATCH) + 1;
-    var totalPass = isFirst ? allRows.length : 0; // só no 1º lote
+    var totalPass = isFirst ? allRows.length : 0;
     var pct       = 40 + Math.round(((i + lote.length) / allRows.length) * 60);
     setProgresso(pct, 'Gravando lote ' + loteNum + '/' + nLotes + ': ' +
       Math.min(i + BATCH, allRows.length) + '/' + allRows.length + ' linhas…');
@@ -302,8 +302,9 @@ async function processarZips(isAppend) {
         ok        = true;
         break;
       } catch(e) {
-        log('⚠ Lote ' + loteNum + ', tentativa ' + tentativa + '/3: ' + e.message);
-        if (tentativa < 3) await new Promise(function(r) { setTimeout(r, 10000 * tentativa); });
+        var delaySeg = tentativa === 1 ? 30 : 60; // 30s na 1ª, 60s na 2ª
+        log('⚠ Lote ' + loteNum + ', tentativa ' + tentativa + '/3 — aguardando ' + delaySeg + 's: ' + e.message);
+        if (tentativa < 3) await new Promise(function(r) { setTimeout(r, delaySeg * 1000); });
       }
     }
     if (!ok) {
@@ -313,9 +314,9 @@ async function processarZips(isAppend) {
       errLote = true;
       break;
     }
-    // Pausa entre lotes para evitar sobrecarga da API do Sheets
+    // Pausa entre lotes para permitir recálculo das fórmulas no Sheets
     if (i + BATCH < allRows.length) {
-      await new Promise(function(r) { setTimeout(r, 3000); });
+      await new Promise(function(r) { setTimeout(r, 15000); });
     }
   }
 
@@ -589,7 +590,7 @@ async function processarZipsCompras() {
 
   log('📊 Total: ' + xmlCount + ' NFs | ' + allRows.length + ' linhas de produto');
 
-  var BATCH    = 5000;
+  var BATCH    = 3000;
   var isFirst  = true;
   var gravadas = 0;
   var errLote  = false;
@@ -612,8 +613,9 @@ async function processarZipsCompras() {
         ok        = true;
         break;
       } catch(e) {
-        log('⚠ Lote ' + loteNum + ', tentativa ' + tentativa + '/3: ' + e.message);
-        if (tentativa < 3) await new Promise(function(r) { setTimeout(r, 10000 * tentativa); });
+        var delaySeg = tentativa === 1 ? 30 : 60;
+        log('⚠ Lote ' + loteNum + ', tentativa ' + tentativa + '/3 — aguardando ' + delaySeg + 's: ' + e.message);
+        if (tentativa < 3) await new Promise(function(r) { setTimeout(r, delaySeg * 1000); });
       }
     }
     if (!ok) {
@@ -624,7 +626,7 @@ async function processarZipsCompras() {
       break;
     }
     if (i + BATCH < allRows.length) {
-      await new Promise(function(r) { setTimeout(r, 3000); });
+      await new Promise(function(r) { setTimeout(r, 15000); });
     }
   }
 
