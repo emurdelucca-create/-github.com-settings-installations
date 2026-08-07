@@ -184,18 +184,14 @@ function nfe_processarLoteCompras(rows, isFirst) {
       'Nacional/Importado', 'Quantidade', 'Valor Unitário', 'Valor Total',
     ];
 
-    const PRE_EXPAND = 60000;
-
     if (isFirst) {
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
       ws.clearContents();
-      if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
-        if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
         ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
       }
@@ -487,21 +483,16 @@ function nfe_processarLote(rows, isFirst) {
       'Canal', 'Fornecedor', 'Num NF', 'ID Canal', 'Emitente', 'SKU', 'Total Pedido',
     ];
 
-    const PRE_EXPAND = 210000; // reserva linhas para até ~200k linhas de dados
-
     if (isFirst) {
       // Regulares: recria a aba do zero
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
       ws.clearContents();
-      // pré-expande para evitar insertRowsAfter por lote
-      if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
       // Full (append): cria aba com header se não existir ainda
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
-        if (ws.getMaxRows() < PRE_EXPAND) ws.insertRowsAfter(ws.getMaxRows(), PRE_EXPAND - ws.getMaxRows());
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
         ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
       }
