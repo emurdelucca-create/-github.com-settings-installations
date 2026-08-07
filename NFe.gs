@@ -199,11 +199,13 @@ function nfe_processarLoteCompras(rows, isFirst) {
 
     if (rows.length > 0) {
       const lastRow = ws.getLastRow();
+      const needed  = lastRow + rows.length;
+      if (needed > ws.getMaxRows()) ws.insertRowsAfter(ws.getMaxRows(), needed - ws.getMaxRows());
       ws.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
     }
 
     SpreadsheetApp.flush();
-    return { ok: true };
+    return { ok: true, written: rows.length };
   } catch(e) {
     return { ok: false, error: e.message };
   }
@@ -501,11 +503,13 @@ function nfe_processarLote(rows, isFirst) {
 
     if (rows.length > 0) {
       const lastRow = ws.getLastRow();
+      const needed  = lastRow + rows.length;
+      if (needed > ws.getMaxRows()) ws.insertRowsAfter(ws.getMaxRows(), needed - ws.getMaxRows());
       ws.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
     }
 
     SpreadsheetApp.flush();
-    return { ok: true };
+    return { ok: true, written: rows.length };
   } catch(e) {
     return { ok: false, error: e.message };
   }
