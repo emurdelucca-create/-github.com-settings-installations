@@ -320,31 +320,38 @@ function nfe_buscarTotalPedido() {
   ss.toast('Carregando planilhas de referência…', '💰 Total Pedido', 120);
 
   try {
-    // ── Constrói mapa ID_marketplace → total ─────────────────
+    // ── Constrói mapa ID_marketplace → total (somando itens) ──
+    // Cada pedido pode ter N linhas (uma por item); somamos col V
+    // por ID. Prioridade: se o ID já está na planilha 90d, a mês5
+    // é ignorada para esse ID (evita dupla contagem).
     const pedidoMap = {};
+    const vistos    = {}; // IDs já contabilizados na planilha primária
 
-    function lerAba(aba) {
+    function lerAbaSomando(aba, isPrimaria) {
       if (!aba) return 0;
       const rows = aba.getDataRange().getValues();
-      var n = 0;
+      var ids = 0;
       for (var i = 1; i < rows.length; i++) {
-        const id    = String(rows[i][5]  || '').trim(); // col F
-        const total = rows[i][21];                       // col V
-        if (id && !(id in pedidoMap) && total !== '' && total !== null && total !== undefined) {
-          pedidoMap[id] = total;
-          n++;
-        }
+        const id  = String(rows[i][5] || '').trim(); // col F
+        const val = rows[i][21];                      // col V
+        if (!id) continue;
+        // Fallback: pula IDs que já vieram da planilha primária
+        if (!isPrimaria && vistos[id]) continue;
+        const num = (typeof val === 'number') ? val : (parseFloat(String(val)) || 0);
+        if (!(id in pedidoMap)) { pedidoMap[id] = 0; ids++; }
+        pedidoMap[id] += num;
+        if (isPrimaria) vistos[id] = true;
       }
-      return n;
+      return ids;
     }
 
     const ss90  = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_90D);
-    var n90 = lerAba(ss90.getSheets()[0]);
+    var n90 = lerAbaSomando(ss90.getSheets()[0], true);
 
     const ssMai = SpreadsheetApp.openById(NFE_CFG.ID_PEDIDOS_MAI);
     var abaMai  = null;
     ssMai.getSheets().forEach(function(s) { if (s.getSheetId() === 1162425463) abaMai = s; });
-    var nMai = lerAba(abaMai || ssMai.getSheets()[0]);
+    var nMai = lerAbaSomando(abaMai || ssMai.getSheets()[0], false);
 
     const totalRefs = Object.keys(pedidoMap).length;
     ss.toast('Cruzando ' + totalRefs + ' referências…', '💰 Total Pedido', 60);
