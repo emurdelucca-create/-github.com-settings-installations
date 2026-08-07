@@ -337,9 +337,11 @@ function detectEmpresa(xNome) {
   var n = (xNome || '').toLowerCase();
   if (n.indexOf('humble')    >= 0) return 'Humble';
   if (n.indexOf('najumi')    >= 0) return 'Najumi';
-  if (n.indexOf('sky')       >= 0) return 'Sky';
   if (n.indexOf('edmotos')   >= 0) return 'Edmotos';
   if (n.indexOf('moto vibe') >= 0 || n.indexOf('motovibe') >= 0) return 'Moto Vibe';
+  if (n.indexOf('sky')       >= 0) return 'Sky';
+  if (n.indexOf('edmur')     >= 0) return 'Humble'; // ML Humble pessoa física
+  if (n.indexOf('mirian')    >= 0) return 'Najumi'; // ML Najumi pessoa física
   return xNome || '';
 }
 

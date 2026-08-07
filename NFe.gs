@@ -511,7 +511,9 @@ function nfe_processarLote(rows, isFirst) {
       const lastRow = ws.getLastRow();
       const needed  = lastRow + rows.length;
       if (needed > ws.getMaxRows()) ws.insertRowsAfter(ws.getMaxRows(), needed - ws.getMaxRows());
-      // Col R (18) = SKU: força formato texto apenas nas linhas sendo gravadas
+      // Col B (2)=CNPJ/CPF, Col P (16)=ID Canal, Col R (18)=SKU: força texto
+      ws.getRange(lastRow + 1, 2,  rows.length, 1).setNumberFormat('@');
+      ws.getRange(lastRow + 1, 16, rows.length, 1).setNumberFormat('@');
       ws.getRange(lastRow + 1, 18, rows.length, 1).setNumberFormat('@');
       ws.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
     }
