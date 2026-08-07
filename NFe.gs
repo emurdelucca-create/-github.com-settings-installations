@@ -173,7 +173,7 @@ function _nfe_loadOrigMap() {
 
 // ── Recebe lote de Compras e grava na aba "Compras" ──────────
 // rows: 12 colunas (A-L)
-function nfe_processarLoteCompras(rows, isFirst) {
+function nfe_processarLoteCompras(rows, isFirst, totalRows) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws   = ss.getSheetByName(NFE_CFG.ABA_COMPRAS);
@@ -187,6 +187,9 @@ function nfe_processarLoteCompras(rows, isFirst) {
     if (isFirst) {
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_COMPRAS);
       ws.clearContents();
+      if (totalRows > 0 && ws.getMaxRows() < totalRows + 5) {
+        ws.insertRowsAfter(ws.getMaxRows(), totalRows + 5 - ws.getMaxRows());
+      }
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
@@ -471,7 +474,7 @@ function _nfe_loadForn() {
 // rows: 19 colunas (A-S)
 //   M = Canal  |  O = Num NF  |  P = ID Canal  |  Q = Emitente
 //   R = SKU    |  S = Total Pedido
-function nfe_processarLote(rows, isFirst) {
+function nfe_processarLote(rows, isFirst, totalRows) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws   = ss.getSheetByName(NFE_CFG.ABA_DADOS);
@@ -484,13 +487,16 @@ function nfe_processarLote(rows, isFirst) {
     ];
 
     if (isFirst) {
-      // Regulares: recria a aba do zero
       if (!ws) ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
       ws.clearContents();
+      // Pré-expande UMA VEZ para o total exato — evita insertRowsAfter nos lotes seguintes
+      // (que disparam recálculo pesado em abas com fórmulas referenciando esta aba)
+      if (totalRows > 0 && ws.getMaxRows() < totalRows + 5) {
+        ws.insertRowsAfter(ws.getMaxRows(), totalRows + 5 - ws.getMaxRows());
+      }
       ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
       ws.getRange(1, 1, 1, hdr.length).setFontWeight('bold');
     } else {
-      // Full (append): cria aba com header se não existir ainda
       if (!ws) {
         ws = ss.insertSheet(NFE_CFG.ABA_DADOS);
         ws.getRange(1, 1, 1, hdr.length).setValues([hdr]);
