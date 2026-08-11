@@ -30,11 +30,11 @@ html, body {
   overflow: hidden;
 }
 
-/* ── Layout principal ───────────────────────────── */
+/* ── Layout ─────────────────────────────────────── */
 #app {
   height: 100vh;
   display: grid;
-  grid-template-rows: 50px auto 1fr 32px;
+  grid-template-rows: 50px 1fr 32px;
 }
 
 /* ── Header ─────────────────────────────────────── */
@@ -44,7 +44,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 18px;
 }
 #header h1 {
   font-size: 15px;
@@ -69,44 +69,16 @@ html, body {
 .hbtn:hover { border-color: var(--accent); color: var(--accent); }
 .hbtn:disabled { opacity: 0.4; cursor: default; }
 
-/* ── Cards ──────────────────────────────────────── */
-#cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  padding: 10px 14px;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-.card-val {
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -1px;
-}
-.card-lbl {
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin-top: 5px;
-}
-
-/* ── Corpo principal ─────────────────────────────── */
+/* ── Main: 3 colunas ────────────────────────────── */
 #main {
   display: grid;
-  grid-template-columns: 290px 1fr;
+  grid-template-columns: 270px 230px 1fr;
   gap: 10px;
-  padding: 0 14px;
+  padding: 10px 14px;
   overflow: hidden;
 }
 
-/* ── Painéis ─────────────────────────────────────── */
+/* ── Painéis genéricos ───────────────────────────── */
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -116,15 +88,15 @@ html, body {
   overflow: hidden;
 }
 .panel-title {
-  padding: 8px 14px;
+  padding: 7px 13px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--accent);
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
   background: var(--hdr);
+  flex-shrink: 0;
 }
 .panel-body { overflow-y: auto; flex: 1; }
 
@@ -149,31 +121,51 @@ tr.today td { background: rgba(63,185,80,0.06); }
 tr.today .td-date { color: #58d68d; font-weight: 700; }
 tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
-/* ── Painel direito ──────────────────────────────── */
-#right { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
-
 /* ── Status ──────────────────────────────────────── */
-.tbl .td-status { color: var(--text); }
-.tbl .td-status.erro { color: var(--red); }
-.tbl .td-oldest { text-align: right; font-weight: 600; }
-.td-oldest.ok  { color: var(--green); }
-.td-oldest.amb { color: var(--amber); }
-.td-oldest.dim { color: var(--dim); }
-
-/* ── SKUs ────────────────────────────────────────── */
-#skus-panel { flex: 1; min-height: 0; }
-#skus-body  {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  height: 100%;
+.st-row {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid #1a2035;
+  gap: 8px;
+}
+.st-row:hover { background: var(--hdr); }
+.st-nome {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-nome.erro { color: var(--red); }
+.st-data {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.st-data.ok  { color: var(--green); }
+.st-data.amb { color: var(--amber); }
+.st-data.dim { color: var(--dim); }
+
+/* ── SKUs — grid que se adapta ───────────────────── */
+#skus-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  align-content: start;
+  overflow-y: auto;
+  gap: 0;
 }
 
-.sku-col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
-.sku-col:last-child { border-right: none; }
+.sku-col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
 
 .sku-date {
-  padding: 6px 10px;
+  padding: 5px 9px;
   font-size: 11px;
   font-weight: 700;
   color: var(--accent);
@@ -183,20 +175,18 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 }
 .sku-date.hoje { color: #58d68d; }
 
-.sku-rows { overflow-y: auto; flex: 1; }
-
 .sku-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-bottom: 1px solid #1a2035;
+  gap: 5px;
+  padding: 4px 9px;
+  border-bottom: 1px solid #161f2e;
   font-size: 12px;
 }
-.sku-row:nth-child(even) { background: #111620; }
+.sku-row:nth-child(even) { background: #0f1520; }
 .sku-row:hover { background: var(--hdr); }
-.sku-code { flex: 1; font-family: 'Courier New', monospace; color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
-.sku-qty  { color: var(--green); font-weight: 700; font-size: 13px; min-width: 28px; text-align: right; }
+.sku-code { flex: 1; font-family: 'Courier New', monospace; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sku-qty  { color: var(--green); font-weight: 700; font-size: 12px; min-width: 24px; text-align: right; }
 
 /* ── Footer ─────────────────────────────────────── */
 #footer {
@@ -233,7 +223,6 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 @keyframes rot { to { transform: rotate(360deg); } }
 #loading p { color: var(--muted); font-size: 13px; }
 
-/* ── Scrollbar ───────────────────────────────────── */
 ::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -248,40 +237,18 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
 <div id="app" style="display:none;">
 
-  <!-- Header -->
   <div id="header">
     <h1>📦 VISÃO GERAL SEPARAÇÃO</h1>
     <div id="header-right">
       <span id="timestamp"></span>
-      <button class="hbtn" id="btn-refresh" onclick="carregarDados()">🔄 Atualizar agora</button>
+      <button class="hbtn" id="btn-refresh" onclick="carregarDados()">🔄 Atualizar</button>
       <button class="hbtn" id="btn-fs" onclick="toggleFullscreen()">⛶ Tela cheia</button>
     </div>
   </div>
 
-  <!-- Cards -->
-  <div id="cards">
-    <div class="card">
-      <div class="card-val" id="c-hoje" style="color:var(--green)">—</div>
-      <div class="card-lbl">Hoje</div>
-    </div>
-    <div class="card">
-      <div class="card-val" id="c-ontem" style="color:var(--accent)">—</div>
-      <div class="card-lbl">Ontem</div>
-    </div>
-    <div class="card">
-      <div class="card-val" id="c-total" style="color:var(--amber)">—</div>
-      <div class="card-lbl">Total no período</div>
-    </div>
-    <div class="card">
-      <div class="card-val" id="c-datas" style="color:var(--muted)">—</div>
-      <div class="card-lbl">Datas com pedidos</div>
-    </div>
-  </div>
-
-  <!-- Corpo -->
   <div id="main">
 
-    <!-- Painel de Datas -->
+    <!-- Coluna 1: Datas -->
     <div class="panel">
       <div class="panel-title">Pedidos por Data</div>
       <div class="panel-body">
@@ -289,27 +256,20 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
       </div>
     </div>
 
-    <!-- Coluna direita -->
-    <div id="right">
-
-      <!-- Status -->
-      <div class="panel" style="flex-shrink:0;">
-        <div class="panel-title">Status Atual</div>
-        <div class="panel-body" style="max-height:190px;">
-          <table class="tbl" id="tbl-status"></table>
-        </div>
-      </div>
-
-      <!-- SKUs -->
-      <div class="panel" id="skus-panel">
-        <div class="panel-title">SKUs Mais Enviados — Últimas 4 Datas</div>
-        <div id="skus-body" class="panel-body"></div>
-      </div>
-
+    <!-- Coluna 2: Status -->
+    <div class="panel">
+      <div class="panel-title">Status Atual</div>
+      <div class="panel-body" id="status-list"></div>
     </div>
+
+    <!-- Coluna 3: SKUs -->
+    <div class="panel">
+      <div class="panel-title" id="skus-title">SKUs Mais Enviados</div>
+      <div id="skus-body" class="panel-body"></div>
+    </div>
+
   </div>
 
-  <!-- Footer -->
   <div id="footer">
     <span>Dados do BaseLinker · atualização automática a cada 5 min</span>
     <span id="countdown">Próximo refresh em <b id="cd">60</b>s</span>
@@ -321,9 +281,7 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 var cdSecs = 60;
 var cdTimer;
 
-function fmt(n) {
-  return n.toLocaleString('pt-BR');
-}
+function fmt(n) { return n.toLocaleString('pt-BR'); }
 
 function carregarDados() {
   var btn = document.getElementById('btn-refresh');
@@ -337,13 +295,13 @@ function carregarDados() {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('app').style.display = 'grid';
       btn.disabled = false;
-      btn.textContent = '🔄 Atualizar agora';
+      btn.textContent = '🔄 Atualizar';
       iniciarContagem();
     })
     .withFailureHandler(function(e) {
       document.getElementById('loading-msg').textContent = '❌ Erro: ' + e.message;
       btn.disabled = false;
-      btn.textContent = '🔄 Atualizar agora';
+      btn.textContent = '🔄 Atualizar';
     })
     .vg_getDados();
 }
@@ -361,30 +319,16 @@ function iniciarContagem() {
 function renderizar(d) {
   var hoje = d.hoje;
 
-  // Timestamp
   document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
 
-  // Cards
-  var total = 0;
-  var hojePed = 0, ontemPed = 0;
-  d.datas.forEach(function(r) { total += r.pedidos; });
-  var rev = d.datas.slice().reverse();
-  if (rev[0]) { hojePed  = rev[0].data === hoje ? rev[0].pedidos : 0; }
-  if (rev[1]) { ontemPed = rev[1] ? rev[1].pedidos : 0; }
-  else if (rev[0] && rev[0].data !== hoje) { ontemPed = rev[0].pedidos; }
-
-  document.getElementById('c-hoje').textContent  = fmt(hojePed);
-  document.getElementById('c-ontem').textContent = ontemPed ? fmt(ontemPed) : '—';
-  document.getElementById('c-total').textContent = fmt(total);
-  document.getElementById('c-datas').textContent = d.datas.length;
-
-  // Tabela de datas (mais recente no topo)
+  // ── Datas: mais antiga no topo, mais nova embaixo ──
   var maxPed = 0;
   d.datas.forEach(function(r) { if (r.pedidos > maxPed) maxPed = r.pedidos; });
+
   var dtHtml = '';
-  rev.forEach(function(row) {
+  d.datas.forEach(function(row) {
     var isH = row.data === hoje;
-    var pct  = maxPed > 0 ? (row.pedidos / maxPed * 100).toFixed(1) : 0;
+    var pct = maxPed > 0 ? (row.pedidos / maxPed * 100).toFixed(1) : 0;
     dtHtml += '<tr class="' + (isH ? 'today' : '') + '">'
       + '<td class="td-date">' + row.data + (isH ? ' ◀' : '') + '</td>'
       + '<td class="td-bar"><div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div></td>'
@@ -393,39 +337,34 @@ function renderizar(d) {
   });
   document.getElementById('tbl-datas').innerHTML = dtHtml;
 
-  // Tabela de status
+  // ── Status ──
   var stHtml = '';
   d.status.forEach(function(s) {
     var isErro = s.nome.toLowerCase().indexOf('erro') >= 0;
     var cls = !s.dataAntiga ? 'dim' : (s.dataAntiga === hoje ? 'ok' : 'amb');
-    stHtml += '<tr>'
-      + '<td class="td-status' + (isErro ? ' erro' : '') + '">' + (isErro ? '⚠ ' : '') + s.nome + '</td>'
-      + '<td class="td-oldest ' + cls + '">' + (s.dataAntiga || '—') + '</td>'
-      + '</tr>';
+    stHtml += '<div class="st-row">'
+      + '<span class="st-nome' + (isErro ? ' erro' : '') + '">' + (isErro ? '⚠ ' : '') + s.nome + '</span>'
+      + '<span class="st-data ' + cls + '">' + (s.dataAntiga || '—') + '</span>'
+      + '</div>';
   });
-  document.getElementById('tbl-status').innerHTML = stHtml;
+  document.getElementById('status-list').innerHTML = stHtml;
 
-  // SKUs
+  // ── SKUs: todas as datas, mais antiga → mais nova ──
   var skusBody = document.getElementById('skus-body');
+  document.getElementById('skus-title').textContent =
+    'SKUs Mais Enviados — ' + d.skus.length + ' data' + (d.skus.length !== 1 ? 's' : '');
+
   skusBody.innerHTML = '';
-  // Garante 4 colunas mesmo com menos blocos
-  var blocos = d.skus;
-  while (blocos.length < 4) blocos.push(null);
-  blocos.forEach(function(bloco) {
+  d.skus.forEach(function(bloco) {
     var col = document.createElement('div');
     col.className = 'sku-col';
-    if (!bloco) {
-      col.innerHTML = '<div class="sku-date" style="color:var(--dim)">—</div><div class="sku-rows"></div>';
-      skusBody.appendChild(col);
-      return;
-    }
     var isH  = bloco.data === hoje;
     var rows = bloco.itens.map(function(item) {
       return '<div class="sku-row"><span class="sku-code">' + item.sku + '</span><span class="sku-qty">' + item.qty + '</span></div>';
     }).join('');
     col.innerHTML = '<div class="sku-date' + (isH ? ' hoje' : '') + '">'
-      + bloco.data + (isH ? ' ◀ HOJE' : '')
-      + '</div><div class="sku-rows">' + rows + '</div>';
+      + bloco.data + (isH ? ' ◀' : '')
+      + '</div>' + rows;
     skusBody.appendChild(col);
   });
 }
@@ -434,7 +373,7 @@ function toggleFullscreen() {
   var btn = document.getElementById('btn-fs');
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen();
-    btn.textContent = '✕ Sair da tela cheia';
+    btn.textContent = '✕ Sair';
   } else {
     document.exitFullscreen();
     btn.textContent = '⛶ Tela cheia';
@@ -442,9 +381,7 @@ function toggleFullscreen() {
 }
 
 document.addEventListener('fullscreenchange', function() {
-  if (!document.fullscreenElement) {
-    document.getElementById('btn-fs').textContent = '⛶ Tela cheia';
-  }
+  if (!document.fullscreenElement) document.getElementById('btn-fs').textContent = '⛶ Tela cheia';
 });
 
 carregarDados();

@@ -81,7 +81,7 @@ function vg_getDados() {
     const lastRowS = abaSKUs.getLastRow();
     if (lastCol >= 1 && lastRowS >= 2) {
       const row2    = abaSKUs.getRange(2, 1, 1, lastCol).getValues()[0];
-      const nRows   = Math.min(12, Math.max(0, lastRowS - 3));
+      const nRows   = Math.min(8, Math.max(0, lastRowS - 3));
       const skuData = nRows > 0 ? abaSKUs.getRange(4, 1, nRows, lastCol).getValues() : [];
       const blocks  = [];
       for (let c = 0; c < lastCol; c += STEP) {
@@ -91,7 +91,7 @@ function vg_getDados() {
                                 .filter(r => r.sku);
         blocks.push({ data: dataStr, itens });
       }
-      dados.skus = blocks.slice(-4).reverse(); // 4 datas mais recentes, mais nova primeiro
+      dados.skus = blocks; // todas as datas, da mais antiga para a mais nova
     }
   }
 
