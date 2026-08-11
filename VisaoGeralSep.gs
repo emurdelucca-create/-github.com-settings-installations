@@ -38,6 +38,66 @@ const VG_T = {
   border:    '#30363d',
 };
 
+// ── Web App ───────────────────────────────────────────────────
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('VisaoGeralDashboard')
+    .setTitle('Visão Geral — Separação')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Lê as abas já preenchidas e retorna JSON para o dashboard HTML
+function vg_getDados() {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const tz   = ss.getSpreadsheetTimeZone();
+  const hoje = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+  const dados = { hoje, timestamp: '', datas: [], status: [], skus: [] };
+
+  const abaDatas = ss.getSheetByName('Datas');
+  if (abaDatas) {
+    const ts = String(abaDatas.getRange('A1').getValue());
+    dados.timestamp = ts.replace(/.*atualização:\s*/i, '').trim();
+
+    const lastRow = abaDatas.getLastRow();
+    if (lastRow >= 3) {
+      abaDatas.getRange(3, 1, lastRow - 2, 2).getValues().forEach(([d, p]) => {
+        if (!d) return;
+        dados.datas.push({ data: Utilities.formatDate(new Date(d), tz, 'dd/MM/yyyy'), pedidos: Number(p) || 0 });
+      });
+    }
+
+    abaDatas.getRange(3, 4, VG_STATUS_ALVO.length, 2).getValues().forEach(([nome, dataAntiga]) => {
+      if (!nome) return;
+      dados.status.push({
+        nome: String(nome),
+        dataAntiga: dataAntiga ? Utilities.formatDate(new Date(dataAntiga), tz, 'dd/MM/yyyy') : '',
+      });
+    });
+  }
+
+  const abaSKUs = ss.getSheetByName('SKUs');
+  if (abaSKUs) {
+    const STEP    = 3;
+    const lastCol = abaSKUs.getLastColumn();
+    const lastRowS = abaSKUs.getLastRow();
+    if (lastCol >= 1 && lastRowS >= 2) {
+      const row2    = abaSKUs.getRange(2, 1, 1, lastCol).getValues()[0];
+      const nRows   = Math.min(12, Math.max(0, lastRowS - 3));
+      const skuData = nRows > 0 ? abaSKUs.getRange(4, 1, nRows, lastCol).getValues() : [];
+      const blocks  = [];
+      for (let c = 0; c < lastCol; c += STEP) {
+        if (!row2[c]) continue;
+        const dataStr = Utilities.formatDate(new Date(row2[c]), tz, 'dd/MM/yyyy');
+        const itens   = skuData.map(row => ({ sku: String(row[c] || ''), qty: Number(row[c + 1]) || 0 }))
+                                .filter(r => r.sku);
+        blocks.push({ data: dataStr, itens });
+      }
+      dados.skus = blocks.slice(-4).reverse(); // 4 datas mais recentes, mais nova primeiro
+    }
+  }
+
+  return dados;
+}
+
 // ── Menu ──────────────────────────────────────────────────────
 function onOpen() {
   SpreadsheetApp.getUi()

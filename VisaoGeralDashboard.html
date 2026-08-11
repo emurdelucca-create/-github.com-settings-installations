@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visão Geral — Separação</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --border:  #30363d;
+  --hdr:     #1c2333;
+  --accent:  #388bfd;
+  --green:   #3fb950;
+  --amber:   #d29922;
+  --red:     #f85149;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --dim:     #484f58;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/* ── Layout principal ───────────────────────────── */
+#app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 50px auto 1fr 32px;
+}
+
+/* ── Header ─────────────────────────────────────── */
+#header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+#header h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+#header-right { display: flex; align-items: center; gap: 10px; }
+#timestamp { color: var(--muted); font-size: 12px; }
+
+.hbtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.hbtn:hover { border-color: var(--accent); color: var(--accent); }
+.hbtn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Cards ──────────────────────────────────────── */
+#cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.card-val {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.card-lbl {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-top: 5px;
+}
+
+/* ── Corpo principal ─────────────────────────────── */
+#main {
+  display: grid;
+  grid-template-columns: 290px 1fr;
+  gap: 10px;
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+/* ── Painéis ─────────────────────────────────────── */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-title {
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--hdr);
+}
+.panel-body { overflow-y: auto; flex: 1; }
+
+/* ── Tabela de Datas ─────────────────────────────── */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl tr:hover td { background: var(--hdr); }
+.tbl td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #1a2035;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.td-date { color: var(--accent); font-weight: 500; width: 100px; }
+.td-bar  { width: 100%; padding-right: 8px; }
+.td-num  { color: var(--green); font-weight: 700; font-size: 14px; text-align: right; }
+
+.bar-wrap { height: 5px; background: #1c2333; border-radius: 3px; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, #1f6feb, #3fb950); border-radius: 3px; transition: width 0.5s ease; }
+
+tr.today td { background: rgba(63,185,80,0.06); }
+tr.today .td-date { color: #58d68d; font-weight: 700; }
+tr.today .td-num  { color: #58d68d; font-size: 15px; }
+
+/* ── Painel direito ──────────────────────────────── */
+#right { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+
+/* ── Status ──────────────────────────────────────── */
+.tbl .td-status { color: var(--text); }
+.tbl .td-status.erro { color: var(--red); }
+.tbl .td-oldest { text-align: right; font-weight: 600; }
+.td-oldest.ok  { color: var(--green); }
+.td-oldest.amb { color: var(--amber); }
+.td-oldest.dim { color: var(--dim); }
+
+/* ── SKUs ────────────────────────────────────────── */
+#skus-panel { flex: 1; min-height: 0; }
+#skus-body  {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+
+.sku-col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+.sku-col:last-child { border-right: none; }
+
+.sku-date {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--hdr);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sku-date.hoje { color: #58d68d; }
+
+.sku-rows { overflow-y: auto; flex: 1; }
+
+.sku-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #1a2035;
+  font-size: 12px;
+}
+.sku-row:nth-child(even) { background: #111620; }
+.sku-row:hover { background: var(--hdr); }
+.sku-code { flex: 1; font-family: 'Courier New', monospace; color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.sku-qty  { color: var(--green); font-weight: 700; font-size: 13px; min-width: 28px; text-align: right; }
+
+/* ── Footer ─────────────────────────────────────── */
+#footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--dim);
+}
+#countdown b { color: var(--muted); }
+
+/* ── Loading ─────────────────────────────────────── */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 99;
+}
+.spin {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: rot 0.7s linear infinite;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+#loading p { color: var(--muted); font-size: 13px; }
+
+/* ── Scrollbar ───────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spin"></div>
+  <p id="loading-msg">Carregando dados...</p>
+</div>
+
+<div id="app" style="display:none;">
+
+  <!-- Header -->
+  <div id="header">
+    <h1>📦 VISÃO GERAL SEPARAÇÃO</h1>
+    <div id="header-right">
+      <span id="timestamp"></span>
+      <button class="hbtn" id="btn-refresh" onclick="carregarDados()">🔄 Atualizar agora</button>
+      <button class="hbtn" id="btn-fs" onclick="toggleFullscreen()">⛶ Tela cheia</button>
+    </div>
+  </div>
+
+  <!-- Cards -->
+  <div id="cards">
+    <div class="card">
+      <div class="card-val" id="c-hoje" style="color:var(--green)">—</div>
+      <div class="card-lbl">Hoje</div>
+    </div>
+    <div class="card">
+      <div class="card-val" id="c-ontem" style="color:var(--accent)">—</div>
+      <div class="card-lbl">Ontem</div>
+    </div>
+    <div class="card">
+      <div class="card-val" id="c-total" style="color:var(--amber)">—</div>
+      <div class="card-lbl">Total no período</div>
+    </div>
+    <div class="card">
+      <div class="card-val" id="c-datas" style="color:var(--muted)">—</div>
+      <div class="card-lbl">Datas com pedidos</div>
+    </div>
+  </div>
+
+  <!-- Corpo -->
+  <div id="main">
+
+    <!-- Painel de Datas -->
+    <div class="panel">
+      <div class="panel-title">Pedidos por Data</div>
+      <div class="panel-body">
+        <table class="tbl" id="tbl-datas"></table>
+      </div>
+    </div>
+
+    <!-- Coluna direita -->
+    <div id="right">
+
+      <!-- Status -->
+      <div class="panel" style="flex-shrink:0;">
+        <div class="panel-title">Status Atual</div>
+        <div class="panel-body" style="max-height:190px;">
+          <table class="tbl" id="tbl-status"></table>
+        </div>
+      </div>
+
+      <!-- SKUs -->
+      <div class="panel" id="skus-panel">
+        <div class="panel-title">SKUs Mais Enviados — Últimas 4 Datas</div>
+        <div id="skus-body" class="panel-body"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div id="footer">
+    <span>Dados do BaseLinker · atualização automática a cada 5 min</span>
+    <span id="countdown">Próximo refresh em <b id="cd">60</b>s</span>
+  </div>
+
+</div>
+
+<script>
+var cdSecs = 60;
+var cdTimer;
+
+function fmt(n) {
+  return n.toLocaleString('pt-BR');
+}
+
+function carregarDados() {
+  var btn = document.getElementById('btn-refresh');
+  btn.disabled = true;
+  btn.textContent = '⏳ Aguarde...';
+  clearInterval(cdTimer);
+
+  google.script.run
+    .withSuccessHandler(function(d) {
+      renderizar(d);
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('app').style.display = 'grid';
+      btn.disabled = false;
+      btn.textContent = '🔄 Atualizar agora';
+      iniciarContagem();
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('loading-msg').textContent = '❌ Erro: ' + e.message;
+      btn.disabled = false;
+      btn.textContent = '🔄 Atualizar agora';
+    })
+    .vg_getDados();
+}
+
+function iniciarContagem() {
+  cdSecs = 60;
+  clearInterval(cdTimer);
+  cdTimer = setInterval(function() {
+    cdSecs--;
+    document.getElementById('cd').textContent = cdSecs;
+    if (cdSecs <= 0) { clearInterval(cdTimer); carregarDados(); }
+  }, 1000);
+}
+
+function renderizar(d) {
+  var hoje = d.hoje;
+
+  // Timestamp
+  document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
+
+  // Cards
+  var total = 0;
+  var hojePed = 0, ontemPed = 0;
+  d.datas.forEach(function(r) { total += r.pedidos; });
+  var rev = d.datas.slice().reverse();
+  if (rev[0]) { hojePed  = rev[0].data === hoje ? rev[0].pedidos : 0; }
+  if (rev[1]) { ontemPed = rev[1] ? rev[1].pedidos : 0; }
+  else if (rev[0] && rev[0].data !== hoje) { ontemPed = rev[0].pedidos; }
+
+  document.getElementById('c-hoje').textContent  = fmt(hojePed);
+  document.getElementById('c-ontem').textContent = ontemPed ? fmt(ontemPed) : '—';
+  document.getElementById('c-total').textContent = fmt(total);
+  document.getElementById('c-datas').textContent = d.datas.length;
+
+  // Tabela de datas (mais recente no topo)
+  var maxPed = 0;
+  d.datas.forEach(function(r) { if (r.pedidos > maxPed) maxPed = r.pedidos; });
+  var dtHtml = '';
+  rev.forEach(function(row) {
+    var isH = row.data === hoje;
+    var pct  = maxPed > 0 ? (row.pedidos / maxPed * 100).toFixed(1) : 0;
+    dtHtml += '<tr class="' + (isH ? 'today' : '') + '">'
+      + '<td class="td-date">' + row.data + (isH ? ' ◀' : '') + '</td>'
+      + '<td class="td-bar"><div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div></td>'
+      + '<td class="td-num">' + fmt(row.pedidos) + '</td>'
+      + '</tr>';
+  });
+  document.getElementById('tbl-datas').innerHTML = dtHtml;
+
+  // Tabela de status
+  var stHtml = '';
+  d.status.forEach(function(s) {
+    var isErro = s.nome.toLowerCase().indexOf('erro') >= 0;
+    var cls = !s.dataAntiga ? 'dim' : (s.dataAntiga === hoje ? 'ok' : 'amb');
+    stHtml += '<tr>'
+      + '<td class="td-status' + (isErro ? ' erro' : '') + '">' + (isErro ? '⚠ ' : '') + s.nome + '</td>'
+      + '<td class="td-oldest ' + cls + '">' + (s.dataAntiga || '—') + '</td>'
+      + '</tr>';
+  });
+  document.getElementById('tbl-status').innerHTML = stHtml;
+
+  // SKUs
+  var skusBody = document.getElementById('skus-body');
+  skusBody.innerHTML = '';
+  // Garante 4 colunas mesmo com menos blocos
+  var blocos = d.skus;
+  while (blocos.length < 4) blocos.push(null);
+  blocos.forEach(function(bloco) {
+    var col = document.createElement('div');
+    col.className = 'sku-col';
+    if (!bloco) {
+      col.innerHTML = '<div class="sku-date" style="color:var(--dim)">—</div><div class="sku-rows"></div>';
+      skusBody.appendChild(col);
+      return;
+    }
+    var isH  = bloco.data === hoje;
+    var rows = bloco.itens.map(function(item) {
+      return '<div class="sku-row"><span class="sku-code">' + item.sku + '</span><span class="sku-qty">' + item.qty + '</span></div>';
+    }).join('');
+    col.innerHTML = '<div class="sku-date' + (isH ? ' hoje' : '') + '">'
+      + bloco.data + (isH ? ' ◀ HOJE' : '')
+      + '</div><div class="sku-rows">' + rows + '</div>';
+    skusBody.appendChild(col);
+  });
+}
+
+function toggleFullscreen() {
+  var btn = document.getElementById('btn-fs');
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen();
+    btn.textContent = '✕ Sair da tela cheia';
+  } else {
+    document.exitFullscreen();
+    btn.textContent = '⛶ Tela cheia';
+  }
+}
+
+document.addEventListener('fullscreenchange', function() {
+  if (!document.fullscreenElement) {
+    document.getElementById('btn-fs').textContent = '⛶ Tela cheia';
+  }
+});
+
+carregarDados();
+</script>
+</body>
+</html>
