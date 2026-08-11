@@ -100,7 +100,7 @@ function vg_getDados() {
   if (abaEmb) {
     dados.embalagem = {
       hoje:      Number(abaEmb.getRange('A2').getValue()) || 0,
-      picoData:  String(abaEmb.getRange('A3').getValue() || ''),
+      picoData:  abaEmb.getRange('A3').getDisplayValue() || '',
       picoQtd:   Number(abaEmb.getRange('A4').getValue()) || 0,
       mes:       String(abaEmb.getRange('A5').getValue() || ''),
     };
@@ -174,27 +174,50 @@ function vg_removerGatilho() {
   );
 }
 
-// ── Embalagem: pedidos que entraram em [EXP] no mês vigente ───
+// ── Embalagem: contagem cumulativa via Set de order_ids ───────
+// IDs persistidos na coluna H da aba — pedidos que saem de [EXP]
+// para Enviado continuam contados. Funcionário via extra_field_1.
 function vg_atualizarEmbalagem() {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const tz  = ss.getSpreadsheetTimeZone();
-  const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  const mes  = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const tz    = ss.getSpreadsheetTimeZone();
+  const hoje  = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const mes   = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  const props = PropertiesService.getScriptProperties();
 
-  // Descobrir IDs dos status [EXP]
-  const statusResp = vg_bl('getOrderStatusList', {});
-  const expIds = (statusResp.statuses || [])
-    .filter(s => s.name.startsWith('[EXP]'))
-    .map(s => ({ id: s.id, nome: s.name }));
+  const statusResp  = vg_bl('getOrderStatusList', {});
+  const expStatuses = (statusResp.statuses || []).filter(s => s.name.startsWith('[EXP]'));
+  if (!expStatuses.length) return;
 
-  if (!expIds.length) return;
+  // ── Recuperar IDs do dia atual da coluna H ────────────────────
+  let aba = ss.getSheetByName('Embalagem');
+  if (!aba) aba = ss.insertSheet('Embalagem');
 
-  // Contar pedidos por dia usando date_in_status
-  const contagem  = {}; // 'yyyy-MM-dd' → N
-  const funcHoje  = {}; // nome → pedidos embalados hoje
-  const funcMes   = {}; // nome → pedidos embalados no mês
+  let todayIds = new Set();
+  const h1Val      = aba.getRange('H1').getValue();
+  const storedDate = h1Val instanceof Date
+    ? Utilities.formatDate(h1Val, tz, 'yyyy-MM-dd')
+    : String(h1Val || '');
+  const hLastRow = aba.getLastRow();
 
-  for (const { id } of expIds) {
+  if (storedDate === hoje && hLastRow >= 2) {
+    aba.getRange(2, 8, hLastRow - 1, 1).getValues()
+      .forEach(([id]) => { if (id) todayIds.add(String(id)); });
+  } else if (storedDate && storedDate !== hoje) {
+    // Novo dia: salvar contagem anterior no histórico mensal
+    const prevCount = hLastRow >= 2
+      ? aba.getRange(2, 8, hLastRow - 1, 1).getValues().filter(([id]) => id).length
+      : 0;
+    const prevMes  = storedDate.slice(0, 7);
+    const prevData = JSON.parse(props.getProperty('VG_EMB_MONTH_' + prevMes) || '{}');
+    prevData[storedDate] = prevCount;
+    props.setProperty('VG_EMB_MONTH_' + prevMes, JSON.stringify(prevData));
+  }
+
+  // ── Buscar pedidos em [EXP] e acumular ───────────────────────
+  const funcHoje = {};
+  const funcMes  = {};
+
+  for (const { id } of expStatuses) {
     let idFrom = 0;
     while (true) {
       const r     = vg_bl('getOrders', { status_id: id, id_from: idFrom });
@@ -204,11 +227,10 @@ function vg_atualizarEmbalagem() {
         const ts = pedido.date_in_status;
         if (!ts) continue;
         const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
-        if (!ds.startsWith(mes)) continue; // somente mês vigente
-        contagem[ds] = (contagem[ds] || 0) + 1;
-
-        // Funcionário que embalou (gravado pela ação automática em admin_comments)
-        const func = String(pedido.admin_comments || '').trim();
+        if (!ds.startsWith(mes)) continue;
+        if (ds === hoje) todayIds.add(String(pedido.order_id));
+        // Funcionário via extra_field_1 (configure a ação automática para gravar aqui)
+        const func = String(pedido.extra_field_1 || '').trim();
         if (func) {
           funcMes[func]  = (funcMes[func]  || 0) + 1;
           if (ds === hoje) funcHoje[func] = (funcHoje[func] || 0) + 1;
@@ -219,10 +241,16 @@ function vg_atualizarEmbalagem() {
     }
   }
 
-  // Calcular métricas
-  const hojePed = contagem[hoje] || 0;
+  // ── Histórico mensal (Script Properties) ─────────────────────
+  const monthKey  = 'VG_EMB_MONTH_' + mes;
+  const monthData = JSON.parse(props.getProperty(monthKey) || '{}');
+  const hojePed   = todayIds.size;
+  monthData[hoje] = hojePed;
+  props.setProperty(monthKey, JSON.stringify(monthData));
+
+  // ── Métricas ─────────────────────────────────────────────────
   let picoDia = '', picoQtd = 0;
-  for (const [d, q] of Object.entries(contagem)) {
+  for (const [d, q] of Object.entries(monthData)) {
     if (q > picoQtd) { picoQtd = q; picoDia = d; }
   }
   const picoDisplay = picoDia
@@ -230,32 +258,28 @@ function vg_atualizarEmbalagem() {
     : '';
   const mesDisplay = Utilities.formatDate(new Date(), tz, 'MMMM');
 
-  // Gravar aba "Embalagem"
-  let aba = ss.getSheetByName('Embalagem');
-  if (!aba) aba = ss.insertSheet('Embalagem');
+  // ── Gravar aba ───────────────────────────────────────────────
   aba.clearContents();
-
   const agora = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
   aba.getRange('A1').setValue('Atualizado em: ' + agora);
-  aba.getRange('A2').setValue(hojePed);          // embalados hoje
-  aba.getRange('A3').setValue(picoDisplay);       // data do pico
-  aba.getRange('A4').setValue(picoQtd);          // qtd do pico
-  aba.getRange('A5').setValue(mesDisplay);        // nome do mês
+  aba.getRange('A2').setValue(hojePed);
+  aba.getRange('A3').setNumberFormat('@').setValue(picoDisplay);
+  aba.getRange('A4').setValue(picoQtd);
+  aba.getRange('A5').setValue(mesDisplay);
 
-  // Funcionários por coluna D-F (dinâmico — nomes vindos do admin_comments)
   aba.getRange('D1').setValue('FUNCIONÁRIO');
   aba.getRange('E1').setValue('HOJE');
   aba.getRange('F1').setValue('MÊS');
   const todosFunc = [...new Set([...Object.keys(funcHoje), ...Object.keys(funcMes)])];
   const funcRows  = todosFunc
     .map(nome => [nome, funcHoje[nome] || 0, funcMes[nome] || 0])
-    .sort((a, b) => b[1] - a[1] || b[2] - a[2]); // hoje desc, mês desc como desempate
+    .sort((a, b) => b[1] - a[1] || b[2] - a[2]);
   if (funcRows.length) {
     aba.getRange(2, 4, funcRows.length, 3).setValues(funcRows);
   }
 
-  // Histórico dia a dia do mês (A7+)
-  const sorted = Object.entries(contagem).sort(([a], [b]) => a.localeCompare(b));
+  // Histórico A7+
+  const sorted = Object.entries(monthData).sort(([a], [b]) => a.localeCompare(b));
   if (sorted.length) {
     const rows = sorted.map(([ds, q]) => {
       const [y, m, d] = ds.split('-').map(Number);
@@ -264,6 +288,11 @@ function vg_atualizarEmbalagem() {
     aba.getRange(7, 1, rows.length, 2).setValues(rows);
     aba.getRange(7, 1, rows.length, 1).setNumberFormat('dd/mm/yyyy');
   }
+
+  // IDs do dia em coluna H (H1=data, H2+=IDs)
+  aba.getRange('H1').setNumberFormat('@').setValue(hoje);
+  const idRows = [...todayIds].map(id => [id]);
+  if (idRows.length) aba.getRange(2, 8, idRows.length, 1).setValues(idRows);
 
   SpreadsheetApp.flush();
 }
