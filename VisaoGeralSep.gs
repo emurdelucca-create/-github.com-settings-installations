@@ -123,6 +123,8 @@ function onOpen() {
     .addSeparator()
     .addItem('⏱ Configurar atualização automática (5 min)', 'vg_configurarGatilho')
     .addItem('🗑 Remover atualização automática', 'vg_removerGatilho')
+    .addSeparator()
+    .addItem('👥 Criar/resetar aba de Funcionários', 'vg_criarAbaFuncionarios')
     .addToUi();
 }
 
@@ -174,6 +176,80 @@ function vg_removerGatilho() {
   );
 }
 
+// ── Funcionários: whitelist na aba "Funcionários" ────────────
+// Retorna Set com os nomes válidos (lowercase) ou null se a aba
+// não existir (sem filtro, aceita qualquer valor).
+function _vg_getValidEmployees(ss) {
+  const aba = ss.getSheetByName('Funcionários');
+  if (!aba || aba.getLastRow() < 2) return null;
+  return new Set(
+    aba.getRange(2, 1, aba.getLastRow() - 1, 1).getValues()
+      .map(([n]) => String(n || '').trim().toLowerCase())
+      .filter(n => n)
+  );
+}
+
+// Cria (ou recria) a aba "Funcionários" com a lista pré-configurada.
+// Adicione ou remova nomes diretamente na planilha conforme necessário.
+function vg_criarAbaFuncionarios() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const VG_T_LOCAL = VG_T;
+
+  // Nomes = valores configurados nas ações automáticas do BaseLinker
+  const nomes = [
+    'Anna Paula Alves',
+    'Camila Rangel',
+    'Eduardo',
+    'Eduardo Leite',
+    'Eiky Eduardo',
+    'Freelancer',
+    'Junior',
+    'Kauã Galindo',
+    'Lucas Prisco',
+    'Marcos Felipe',
+    'Mirian',
+    'Nalva',
+    'Nicolas Ventura',
+    'Roger',
+    'Yolanda Ferreira',
+  ];
+
+  let aba = ss.getSheetByName('Funcionários');
+  if (aba) ss.deleteSheet(aba);
+  aba = ss.insertSheet('Funcionários');
+  aba.setTabColor(VG_T_LOCAL.accent);
+
+  const totalR = nomes.length + 3;
+  aba.getRange(1, 1, totalR, 2)
+    .setBackground(VG_T_LOCAL.bgBase)
+    .setFontColor(VG_T_LOCAL.textMain)
+    .setFontFamily('Arial')
+    .setFontSize(11);
+
+  aba.getRange(1, 1, 1, 2).setBackground(VG_T_LOCAL.bgHeader);
+  aba.getRange('A1').setValue('NOME (valor em Comentários do vendedor)')
+    .setFontWeight('bold').setFontColor(VG_T_LOCAL.accentSub).setFontSize(11);
+  aba.getRange('B1').setValue('ATIVO?')
+    .setFontWeight('bold').setFontColor(VG_T_LOCAL.accentSub).setFontSize(11)
+    .setHorizontalAlignment('center');
+  aba.setRowHeight(1, 32);
+
+  const rows = nomes.map(n => [n, 'SIM']);
+  aba.getRange(2, 1, rows.length, 2).setValues(rows);
+  aba.getRange(2, 2, rows.length, 1)
+    .setFontColor(VG_T_LOCAL.green).setFontWeight('bold').setHorizontalAlignment('center');
+
+  for (let r = 2; r <= rows.length + 1; r++) aba.setRowHeight(r, 28);
+  aba.setColumnWidth(1, 240);
+  aba.setColumnWidth(2, 80);
+  aba.setFrozenRows(1);
+
+  SpreadsheetApp.getUi().alert(
+    '✅ Aba "Funcionários" criada com ' + nomes.length + ' nomes.\n' +
+    'Edite diretamente na planilha para adicionar ou remover.'
+  );
+}
+
 // ── Embalagem: contagem cumulativa via Set de order_ids ───────
 // IDs persistidos na coluna H da aba — pedidos que saem de [EXP]
 // para Enviado continuam contados. Funcionário via admin_comments.
@@ -214,8 +290,9 @@ function vg_atualizarEmbalagem() {
   }
 
   // ── Buscar pedidos em [EXP] e acumular ───────────────────────
-  const funcHoje = {};
-  const funcMes  = {};
+  const validEmps = _vg_getValidEmployees(ss); // null = sem filtro
+  const funcHoje  = {};
+  const funcMes   = {};
 
   for (const { id } of expStatuses) {
     let idFrom = 0;
@@ -229,9 +306,9 @@ function vg_atualizarEmbalagem() {
         const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
         if (!ds.startsWith(mes)) continue;
         if (ds === hoje) todayIds.add(String(pedido.order_id));
-        // Funcionário via admin_comments (ação automática: "Comentários do vendedor")
+        // Valida admin_comments contra whitelist da aba "Funcionários"
         const func = String(pedido.admin_comments || '').trim();
-        if (func) {
+        if (func && (!validEmps || validEmps.has(func.toLowerCase()))) {
           funcMes[func]  = (funcMes[func]  || 0) + 1;
           if (ds === hoje) funcHoje[func] = (funcHoje[func] || 0) + 1;
         }
