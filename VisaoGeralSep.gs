@@ -95,6 +95,17 @@ function vg_getDados() {
     }
   }
 
+  // Aba Embalagem
+  const abaEmb = ss.getSheetByName('Embalagem');
+  if (abaEmb) {
+    dados.embalagem = {
+      hoje:      Number(abaEmb.getRange('A2').getValue()) || 0,
+      picoData:  String(abaEmb.getRange('A3').getValue() || ''),
+      picoQtd:   Number(abaEmb.getRange('A4').getValue()) || 0,
+      mes:       String(abaEmb.getRange('A5').getValue() || ''),
+    };
+  }
+
   return dados;
 }
 
@@ -132,22 +143,102 @@ function vg_atualizar_automatico() {
   vg_atualizar(true);
 }
 
+function vg_atualizarEmbalagem_automatico() {
+  vg_atualizarEmbalagem();
+}
+
 function vg_configurarGatilho() {
+  const fns = ['vg_atualizar_automatico', 'vg_atualizarEmbalagem_automatico'];
   ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'vg_atualizar_automatico') ScriptApp.deleteTrigger(t);
+    if (fns.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('vg_atualizar_automatico').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('vg_atualizarEmbalagem_automatico').timeBased().everyMinutes(5).create();
   SpreadsheetApp.getUi().alert('✅ Atualização automática configurada a cada 5 minutos.');
 }
 
 function vg_removerGatilho() {
+  const fns = ['vg_atualizar_automatico', 'vg_atualizarEmbalagem_automatico'];
   let removidos = 0;
   ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'vg_atualizar_automatico') { ScriptApp.deleteTrigger(t); removidos++; }
+    if (fns.includes(t.getHandlerFunction())) { ScriptApp.deleteTrigger(t); removidos++; }
   });
   SpreadsheetApp.getUi().alert(
     removidos > 0 ? '✅ Atualização automática removida.' : 'Nenhum gatilho automático encontrado.'
   );
+}
+
+// ── Embalagem: pedidos que entraram em [EXP] no mês vigente ───
+function vg_atualizarEmbalagem() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const tz  = ss.getSpreadsheetTimeZone();
+  const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const mes  = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+
+  // Descobrir IDs dos status [EXP]
+  const statusResp = vg_bl('getOrderStatusList', {});
+  const expIds = (statusResp.statuses || [])
+    .filter(s => s.name.startsWith('[EXP]'))
+    .map(s => ({ id: s.id, nome: s.name }));
+
+  if (!expIds.length) return;
+
+  // Contar pedidos por dia usando date_in_status
+  const contagem = {}; // 'yyyy-MM-dd' → N
+
+  for (const { id } of expIds) {
+    let idFrom = 0;
+    while (true) {
+      const r     = vg_bl('getOrders', { status_id: id, id_from: idFrom });
+      const batch = r.orders || [];
+      if (!batch.length) break;
+      for (const pedido of batch) {
+        const ts = pedido.date_in_status;
+        if (!ts) continue;
+        const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
+        if (!ds.startsWith(mes)) continue; // somente mês vigente
+        contagem[ds] = (contagem[ds] || 0) + 1;
+      }
+      if (batch.length < 100) break;
+      idFrom = batch[batch.length - 1].order_id;
+    }
+  }
+
+  // Calcular métricas
+  const hojePed = contagem[hoje] || 0;
+  let picoDia = '', picoQtd = 0;
+  for (const [d, q] of Object.entries(contagem)) {
+    if (q > picoQtd) { picoQtd = q; picoDia = d; }
+  }
+  const picoDisplay = picoDia
+    ? Utilities.formatDate(new Date(picoDia + 'T12:00:00'), tz, 'dd/MM/yyyy')
+    : '';
+  const mesDisplay = Utilities.formatDate(new Date(), tz, 'MMMM');
+
+  // Gravar aba "Embalagem"
+  let aba = ss.getSheetByName('Embalagem');
+  if (!aba) aba = ss.insertSheet('Embalagem');
+  aba.clearContents();
+
+  const agora = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+  aba.getRange('A1').setValue('Atualizado em: ' + agora);
+  aba.getRange('A2').setValue(hojePed);          // embalados hoje
+  aba.getRange('A3').setValue(picoDisplay);       // data do pico
+  aba.getRange('A4').setValue(picoQtd);          // qtd do pico
+  aba.getRange('A5').setValue(mesDisplay);        // nome do mês
+
+  // Histórico dia a dia do mês (A7+)
+  const sorted = Object.entries(contagem).sort(([a], [b]) => a.localeCompare(b));
+  if (sorted.length) {
+    const rows = sorted.map(([ds, q]) => {
+      const [y, m, d] = ds.split('-').map(Number);
+      return [new Date(y, m - 1, d), q];
+    });
+    aba.getRange(7, 1, rows.length, 2).setValues(rows);
+    aba.getRange(7, 1, rows.length, 1).setNumberFormat('dd/mm/yyyy');
+  }
+
+  SpreadsheetApp.flush();
 }
 
 // ── Função principal ──────────────────────────────────────────
