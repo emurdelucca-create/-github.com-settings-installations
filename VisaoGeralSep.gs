@@ -181,9 +181,9 @@ function vg_removerGatilho() {
 // não existir (sem filtro, aceita qualquer valor).
 function _vg_getValidEmployees(ss) {
   const aba = ss.getSheetByName('Funcionários');
-  if (!aba || aba.getLastRow() < 2) return null;
+  if (!aba || aba.getLastRow() < 1) return null;
   return new Set(
-    aba.getRange(2, 1, aba.getLastRow() - 1, 1).getValues()
+    aba.getRange(1, 1, aba.getLastRow(), 1).getValues()
       .map(([n]) => String(n || '').trim().toLowerCase())
       .filter(n => n)
   );
