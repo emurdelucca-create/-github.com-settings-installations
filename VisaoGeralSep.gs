@@ -176,7 +176,7 @@ function vg_removerGatilho() {
 
 // ── Embalagem: contagem cumulativa via Set de order_ids ───────
 // IDs persistidos na coluna H da aba — pedidos que saem de [EXP]
-// para Enviado continuam contados. Funcionário via extra_field_1.
+// para Enviado continuam contados. Funcionário via admin_comments.
 function vg_atualizarEmbalagem() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const tz    = ss.getSpreadsheetTimeZone();
@@ -229,8 +229,8 @@ function vg_atualizarEmbalagem() {
         const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
         if (!ds.startsWith(mes)) continue;
         if (ds === hoje) todayIds.add(String(pedido.order_id));
-        // Funcionário via extra_field_1 (configure a ação automática para gravar aqui)
-        const func = String(pedido.extra_field_1 || '').trim();
+        // Funcionário via admin_comments (ação automática: "Comentários do vendedor")
+        const func = String(pedido.admin_comments || '').trim();
         if (func) {
           funcMes[func]  = (funcMes[func]  || 0) + 1;
           if (ds === hoje) funcHoje[func] = (funcHoje[func] || 0) + 1;
