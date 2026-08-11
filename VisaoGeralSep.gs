@@ -179,14 +179,19 @@ function vg_removerGatilho() {
 // ── Funcionários: whitelist na aba "Funcionários" ────────────
 // Retorna Set com os nomes válidos (lowercase) ou null se a aba
 // não existir (sem filtro, aceita qualquer valor).
+// Retorna Map: admin_comments (lowercase) → nome do dash (col B)
+// null se a aba não existir ou não tiver dados a partir da linha 2.
 function _vg_getValidEmployees(ss) {
   const aba = ss.getSheetByName('Funcionários');
-  if (!aba || aba.getLastRow() < 1) return null;
-  return new Set(
-    aba.getRange(1, 1, aba.getLastRow(), 1).getValues()
-      .map(([n]) => String(n || '').trim().toLowerCase())
-      .filter(n => n)
-  );
+  if (!aba || aba.getLastRow() < 2) return null;
+  const map = new Map();
+  aba.getRange(2, 1, aba.getLastRow() - 1, 2).getValues()
+    .forEach(([a, b]) => {
+      const key     = String(a || '').trim();
+      const display = String(b || '').trim() || key;
+      if (key) map.set(key.toLowerCase(), display);
+    });
+  return map.size ? map : null;
 }
 
 // Cria (ou recria) a aba "Funcionários" com a lista pré-configurada.
@@ -306,9 +311,12 @@ function vg_atualizarEmbalagem() {
         const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
         if (!ds.startsWith(mes)) continue;
         if (ds === hoje) todayIds.add(String(pedido.order_id));
-        // Valida admin_comments contra whitelist da aba "Funcionários"
-        const func = String(pedido.admin_comments || '').trim();
-        if (func && (!validEmps || validEmps.has(func.toLowerCase()))) {
+        // Cruza admin_comments com col A da aba Funcionários → exibe col B
+        const rawFunc = String(pedido.admin_comments || '').trim();
+        const func    = validEmps
+          ? (validEmps.get(rawFunc.toLowerCase()) || null)
+          : (rawFunc || null);
+        if (func) {
           funcMes[func]  = (funcMes[func]  || 0) + 1;
           if (ds === hoje) funcHoje[func] = (funcHoje[func] || 0) + 1;
         }
