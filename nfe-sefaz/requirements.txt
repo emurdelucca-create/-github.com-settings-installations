@@ -1,0 +1,6 @@
+requests
+lxml
+signxml
+cryptography
+gspread
+google-auth

@@ -1,0 +1,10 @@
+{
+  "cnpj": "12345678000195",
+  "certificado_pfx": "C:/Users/SeuUsuario/certificado.pfx",
+  "senha_certificado": "sua_senha_aqui",
+  "cuf": 35,
+  "ambiente": 1,
+  "ultimo_nsu": "000000000000000",
+  "nome_planilha": "NF-e SEFAZ",
+  "credentials_json": "credentials.json"
+}
