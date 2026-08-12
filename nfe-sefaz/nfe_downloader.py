@@ -38,12 +38,16 @@ from google.oauth2.service_account import Credentials
 # ─────────────────────────────────────────────────────────────
 CONFIG_FILE  = 'config.json'
 CHAVES_FILE  = 'processadas.json'
-SEFAZ_URL   = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
-NS_DIST     = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe'
-NS_NFE      = 'http://www.portalfiscal.inf.br/nfe'
-SOAP_NS     = 'http://www.w3.org/2003/05/soap-envelope'
+SEFAZ_URL    = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
+NS_DIST      = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe'
+NS_NFE       = 'http://www.portalfiscal.inf.br/nfe'
+NS_CTE       = 'http://www.portalfiscal.inf.br/cte'
+SOAP_NS      = 'http://www.w3.org/2003/05/soap-envelope'
 SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets',
                 'https://www.googleapis.com/auth/drive']
+
+# Abas geradas na planilha (ordem exibida nas tabs)
+ABAS = ['NF-e Compras', 'NF-e Vendas', 'Dev. Compra', 'Dev. Venda', 'CT-e']
 
 CABECALHO = [
     'Chave NF-e', 'Data Emissão', 'Número NF', 'Série', 'Natureza Op.',
@@ -330,7 +334,13 @@ def parsear_nfe(xml_bytes, cnpj_proprio):
     chave     = inf.get('Id', '').replace('NFe', '')
     emit_cnpj = txt(emit, 'nfe:CNPJ', ns) if emit is not None else ''
     dest_cnpj = txt(dest, 'nfe:CNPJ', ns) if dest is not None else ''
-    tipo      = 'COMPRA' if dest_cnpj == cnpj_proprio else 'VENDA'
+    fin_nfe   = txt(ide, 'nfe:finNFe', ns)  # 1=normal 2=complementar 3=ajuste 4=devolução
+
+    if fin_nfe == '4':
+        # Devolução: quem emite devolve ao destino
+        tipo = 'DEV_COMPRA' if emit_cnpj == cnpj_proprio else 'DEV_VENDA'
+    else:
+        tipo = 'COMPRA' if dest_cnpj == cnpj_proprio else 'VENDA'
 
     dh_emi = txt(ide, 'nfe:dhEmi', ns) or txt(ide, 'nfe:dEmi', ns)
     data_emissao = dh_emi[:10] if dh_emi else ''
@@ -397,6 +407,123 @@ def parsear_nfe(xml_bytes, cnpj_proprio):
     return linhas
 
 
+def parsear_cte(xml_bytes, cnpj_proprio):
+    """
+    Parseia um CT-e e retorna lista com um dict por documento.
+    CT-e não tem itens individuais; cada CT-e vira uma linha.
+    """
+    ns = {'cte': NS_CTE}
+
+    def t(elem, path):
+        if elem is None:
+            return ''
+        e = elem.find(path, ns)
+        return (e.text or '').strip() if e is not None else ''
+
+    def fmt_end_cte(end_elem):
+        if end_elem is None:
+            return ''
+        partes = [t(end_elem, 'cte:xLgr'), t(end_elem, 'cte:nro'),
+                  t(end_elem, 'cte:xCpl'), t(end_elem, 'cte:xBairro')]
+        cidade = t(end_elem, 'cte:xMun')
+        uf     = t(end_elem, 'cte:UF')
+        cep    = t(end_elem, 'cte:CEP')
+        partes = [p for p in partes if p]
+        end = ', '.join(partes)
+        if cidade and uf:
+            end += f', {cidade} - {uf}'
+        elif cidade:
+            end += f', {cidade}'
+        if cep:
+            end += f', {cep}'
+        return end
+
+    try:
+        root = etree.fromstring(xml_bytes)
+    except Exception:
+        return []
+
+    cte_elem = root.find('.//cte:CTe', ns)
+    if cte_elem is None:
+        cte_elem = root
+
+    inf = cte_elem.find('.//cte:infCte', ns)
+    if inf is None:
+        return []
+
+    ide    = inf.find('cte:ide', ns)
+    emit   = inf.find('cte:emit', ns)
+    dest   = inf.find('cte:dest', ns)
+    vprest = inf.find('cte:vPrest', ns)
+    imp    = inf.find('cte:imp', ns)
+
+    chave     = inf.get('Id', '').replace('CTe', '')
+    emit_cnpj = t(emit, 'cte:CNPJ')
+    dest_cnpj = t(dest, 'cte:CNPJ') if dest is not None else ''
+    tipo      = 'VENDA' if emit_cnpj == cnpj_proprio else 'COMPRA'
+
+    dh_emi = t(ide, 'cte:dhEmi') or t(ide, 'cte:dEmi')
+    data_emissao = dh_emi[:10] if dh_emi else ''
+
+    # Valor ICMS — tenta nos grupos ICMS00, ICMS20, ICMS45, etc.
+    vl_icms = ''
+    if imp is not None:
+        icms_grp = imp.find('cte:ICMS', ns)
+        if icms_grp is not None:
+            for child in icms_grp:
+                v = child.find('cte:vICMS', ns)
+                if v is not None:
+                    vl_icms = v.text or ''
+                    break
+
+    ender_emit = emit.find('cte:enderEmit', ns) if emit is not None else None
+    ender_dest = dest.find('cte:enderDest', ns) if dest is not None else None
+
+    # Descrição da carga transportada
+    infcarga = inf.find('.//cte:infCarga', ns)
+    descricao = t(infcarga, 'cte:proPred') if infcarga is not None else ''
+
+    vl_total = t(vprest, 'cte:vTPrest') if vprest is not None else ''
+
+    return [{
+        'chave_nfe':    chave,
+        'tipo':         tipo,
+        'data_emissao': data_emissao,
+        'numero_nf':    t(ide, 'cte:nCT'),
+        'serie':        t(ide, 'cte:serie'),
+        'nat_op':       t(ide, 'cte:natOp'),
+        'emit_cnpj':    emit_cnpj,
+        'emit_nome':    t(emit, 'cte:xNome')          if emit is not None else '',
+        'emit_uf':      t(emit, 'cte:enderEmit/cte:UF') if emit is not None else '',
+        'dest_cnpj':    dest_cnpj,
+        'dest_nome':    t(dest, 'cte:xNome')          if dest is not None else '',
+        'dest_uf':      t(dest, 'cte:enderDest/cte:UF') if dest is not None else '',
+        'num_item':     '',
+        'codigo':       '',
+        'ean':          '',
+        'descricao':    descricao,
+        'ncm':          '',
+        'cfop':         t(ide, 'cte:CFOP'),
+        'unidade':      '',
+        'quantidade':   '',
+        'vl_unit':      '',
+        'vl_item':      vl_total,
+        'desc_item':    '',
+        'origem':       '',
+        'vl_prod':      vl_total,
+        'vl_frete':     '',
+        'vl_desc_nf':   '',
+        'vl_total':     vl_total,
+        'vl_icms':      vl_icms,
+        'vl_pis':       '',
+        'vl_cofins':    '',
+        'vl_bcst':      '',
+        'vl_st':        '',
+        'end_emit':     fmt_end_cte(ender_emit),
+        'end_dest':     fmt_end_cte(ender_dest),
+    }]
+
+
 def linha_para_row(l):
     return [
         l['chave_nfe'], l['data_emissao'], l['numero_nf'], l['serie'], l['nat_op'],
@@ -422,7 +549,7 @@ def conectar_sheets(cred_path):
 
 
 def preparar_planilha(gc, nome):
-    """Abre ou cria a planilha e garante as abas Compras/Vendas."""
+    """Abre ou cria a planilha e garante todas as abas definidas em ABAS."""
     try:
         sh = gc.open(nome)
         log(f"Planilha '{nome}' encontrada.")
@@ -430,37 +557,37 @@ def preparar_planilha(gc, nome):
         sh = gc.create(nome)
         log(f"Planilha '{nome}' criada: {sh.url}")
 
-    for aba in ['Compras', 'Vendas']:
+    for aba in ABAS:
         try:
-            ws = sh.worksheet(aba)
+            sh.worksheet(aba)
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(aba, rows=1, cols=len(CABECALHO))
             ws.append_row(CABECALHO, value_input_option='RAW')
-            # Formatar cabeçalho (negrito, fundo escuro)
             ws.format('A1:AG1', {
                 'backgroundColor': {'red': 0.11, 'green': 0.17, 'blue': 0.28},
                 'textFormat': {'bold': True, 'foregroundColor': {'red': 0.22, 'green': 0.55, 'blue': 0.99}},
             })
             log(f"  Aba '{aba}' criada.")
 
-    # Remove aba padrão "Planilha1" / "Sheet1" se existir
-    for nome_padrao in ('Planilha1', 'Sheet1', 'Plan1'):
-        try:
-            sh.del_worksheet(sh.worksheet(nome_padrao))
-        except Exception:
-            pass
+    # Remove abas antigas e abas padrão que não fazem parte de ABAS
+    for nome_padrao in ('Compras', 'Vendas', 'Planilha1', 'Sheet1', 'Plan1'):
+        if nome_padrao not in ABAS:
+            try:
+                sh.del_worksheet(sh.worksheet(nome_padrao))
+            except Exception:
+                pass
 
     return sh
 
 
-def gravar_linhas(sh, compras, vendas):
-    for aba_nome, linhas in [('Compras', compras), ('Vendas', vendas)]:
+def gravar_linhas(sh, dados):
+    """dados: lista de (nome_aba, lista_de_linhas)"""
+    for aba_nome, linhas in dados:
         if not linhas:
             log(f"  Nenhum item para '{aba_nome}'.")
             continue
         ws   = sh.worksheet(aba_nome)
         rows = [linha_para_row(l) for l in linhas]
-        # Grava em lotes de 500 para evitar timeout
         for i in range(0, len(rows), 500):
             ws.append_rows(rows[i:i+500], value_input_option='USER_ENTERED')
         log(f"  ✅ '{aba_nome}': {len(rows)} itens gravados.")
@@ -496,18 +623,36 @@ def main():
     log(f"Total de documentos recebidos da SEFAZ: {len(todos)}")
 
     # 3. Parsear
-    log("Parseando NF-e...")
-    processadas = carregar_processadas()
-    compras, vendas = [], []
-    ignorados = 0
-    ja_gravadas = 0
+    log("Parseando documentos...")
+    processadas  = carregar_processadas()
+    nfe_compras  = []
+    nfe_vendas   = []
+    dev_compras  = []
+    dev_vendas   = []
+    ctes         = []
+    ignorados    = 0
+    ja_gravadas  = 0
     novas_chaves = set()
+
+    TIPO_TO_LISTA = {
+        'COMPRA':     nfe_compras,
+        'VENDA':      nfe_vendas,
+        'DEV_COMPRA': dev_compras,
+        'DEV_VENDA':  dev_vendas,
+    }
+
     for nsu, schema, xml_bytes in todos:
-        # Só processa NF-e completas (procNFe). resNFe são resumos sem itens.
-        if not any(s in schema for s in ('procNFe', 'nfeProc', 'NFe')):
+        is_nfe = any(s in schema for s in ('procNFe', 'nfeProc', 'NFe'))
+        is_cte = any(s in schema for s in ('procCTe', 'cteProc', 'CTe'))
+
+        if is_nfe:
+            linhas = parsear_nfe(xml_bytes, cnpj)
+        elif is_cte:
+            linhas = parsear_cte(xml_bytes, cnpj)
+        else:
             ignorados += 1
             continue
-        linhas = parsear_nfe(xml_bytes, cnpj)
+
         if not linhas:
             continue
         chave = linhas[0]['chave_nfe']
@@ -516,14 +661,22 @@ def main():
             continue
         novas_chaves.add(chave)
         for linha in linhas:
-            (compras if linha['tipo'] == 'COMPRA' else vendas).append(linha)
+            if is_cte:
+                ctes.append(linha)
+            else:
+                TIPO_TO_LISTA.get(linha['tipo'], nfe_compras).append(linha)
 
-    log(f"  Compras: {len(compras)} itens | Vendas: {len(vendas)} itens | Ignorados (resumos/outros): {ignorados} | Já gravadas: {ja_gravadas}")
+    log(
+        f"  NF-e Compras: {len(nfe_compras)} | NF-e Vendas: {len(nfe_vendas)} | "
+        f"Dev. Compra: {len(dev_compras)} | Dev. Venda: {len(dev_vendas)} | "
+        f"CT-e: {len(ctes)} | Ignorados: {ignorados} | Já gravadas: {ja_gravadas}"
+    )
 
-    if not compras and not vendas:
+    total_novos = len(nfe_compras) + len(nfe_vendas) + len(dev_compras) + len(dev_vendas) + len(ctes)
+    if total_novos == 0:
         log("\n⚠  Nenhum item novo encontrado.")
         if ja_gravadas:
-            log(f"   {ja_gravadas} NF-e já estavam gravadas na planilha (sem duplicatas).")
+            log(f"   {ja_gravadas} documentos já estavam gravados na planilha (sem duplicatas).")
         else:
             log("   Se este é o primeiro uso, pode ser que as NF-e de compra ainda estejam")
             log("   como 'resNFe' (resumo). Nesse caso, faça a Manifestação do Destinatário")
@@ -536,7 +689,13 @@ def main():
     log(f"Conectando ao Google Sheets (credencial: {cred})...")
     gc = conectar_sheets(cred)
     sh = preparar_planilha(gc, planilha)
-    gravar_linhas(sh, compras, vendas)
+    gravar_linhas(sh, [
+        ('NF-e Compras', nfe_compras),
+        ('NF-e Vendas',  nfe_vendas),
+        ('Dev. Compra',  dev_compras),
+        ('Dev. Venda',   dev_vendas),
+        ('CT-e',         ctes),
+    ])
 
     # 5. Salvar chaves gravadas e NSU para próxima execução
     salvar_processadas(processadas | novas_chaves)
