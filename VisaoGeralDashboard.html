@@ -34,7 +34,7 @@ html, body {
 #app {
   height: 100vh;
   display: grid;
-  grid-template-rows: 50px auto 1fr 32px;
+  grid-template-rows: 50px 1fr 32px;
 }
 
 /* ── Header ─────────────────────────────────────── */
@@ -68,27 +68,6 @@ html, body {
 }
 .hbtn:hover { border-color: var(--accent); color: var(--accent); }
 .hbtn:disabled { opacity: 0.4; cursor: default; }
-
-/* ── Barra de embalagem ──────────────────────────── */
-#emb-bar {
-  display: flex;
-  gap: 10px;
-  padding: 0 14px 10px;
-}
-.emb-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 18px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 1;
-}
-.emb-icon { font-size: 22px; }
-.emb-info { display: flex; flex-direction: column; gap: 2px; }
-.emb-val  { font-size: 26px; font-weight: 700; line-height: 1; }
-.emb-lbl  { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* ── Main: 4 colunas ────────────────────────────── */
 #main {
@@ -305,24 +284,6 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
     </div>
   </div>
 
-  <!-- Barra de embalagem -->
-  <div id="emb-bar">
-    <div class="emb-card">
-      <span class="emb-icon">📦</span>
-      <div class="emb-info">
-        <span class="emb-val" id="emb-hoje" style="color:var(--green)">—</span>
-        <span class="emb-lbl">Embalados hoje</span>
-      </div>
-    </div>
-    <div class="emb-card">
-      <span class="emb-icon">🏆</span>
-      <div class="emb-info">
-        <span class="emb-val" id="emb-pico-qtd" style="color:var(--amber)">—</span>
-        <span class="emb-lbl" id="emb-pico-lbl">Pico do mês</span>
-      </div>
-    </div>
-  </div>
-
   <div id="main">
 
     <!-- Coluna 1: Datas -->
@@ -403,17 +364,6 @@ function renderizar(d) {
   var hoje = d.hoje;
 
   document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
-
-  // ── Embalagem ──
-  if (d.embalagem) {
-    var e = d.embalagem;
-    document.getElementById('emb-hoje').textContent    = fmt(e.hoje);
-    document.getElementById('emb-pico-qtd').textContent = fmt(e.picoQtd);
-    document.getElementById('emb-pico-lbl').textContent =
-      e.picoData
-        ? 'Pico de ' + e.mes + ' — ' + e.picoData
-        : 'Pico do mês';
-  }
 
   // ── Datas: mais antiga no topo, mais nova embaixo ──
   var maxPed = 0;
