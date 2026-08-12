@@ -64,7 +64,7 @@ if old_soap in c:
 else:
     print('Fix 1 já aplicado ou versão diferente')
 
-# Fix 2: sha1 -> sha256 (caso ainda não aplicado)
+# Fix 2: sha1 -> sha256
 c = c.replace("digest_algorithm='sha1'", "digest_algorithm='sha256'")
 c = c.replace("signature_algorithm='rsa-sha1'", "signature_algorithm='rsa-sha256'")
 
@@ -77,6 +77,36 @@ c = c.replace(
     "xmotiv = (_find(ret, 'xMotivo') or type('', (), {'text': ''})()).text",
     "e_xmot = _find(ret, 'xMotivo'); xmotiv = e_xmot.text if e_xmot is not None else ''"
 )
+
+# Fix 4: novas colunas (Origem, BC ICMS ST, Vl. ICMS ST, Endereço Emitente, Endereço Destinatário)
+old_cab = """CABECALHO = [
+    'Chave NF-e', 'Data Emissão', 'Número NF', 'Série', 'Natureza Op.',
+    'CNPJ Emitente', 'Razão Social Emitente', 'UF Emitente',
+    'CNPJ Destinatário', 'Razão Social Destinatário', 'UF Destinatário',
+    'Nº Item', 'Código', 'EAN', 'Descrição', 'NCM', 'CFOP',
+    'Unidade', 'Quantidade', 'Valor Unit.', 'Valor Item', 'Desconto Item',
+    'Vl. Produtos NF', 'Vl. Frete NF', 'Vl. Desconto NF', 'Vl. Total NF',
+    'ICMS', 'PIS', 'COFINS',
+]"""
+
+new_cab = """CABECALHO = [
+    'Chave NF-e', 'Data Emissão', 'Número NF', 'Série', 'Natureza Op.',
+    'CNPJ Emitente', 'Razão Social Emitente', 'UF Emitente',
+    'CNPJ Destinatário', 'Razão Social Destinatário', 'UF Destinatário',
+    'Nº Item', 'Código', 'EAN', 'Descrição', 'NCM', 'CFOP',
+    'Unidade', 'Quantidade', 'Valor Unit.', 'Valor Item', 'Desconto Item',
+    'Origem',
+    'Vl. Produtos NF', 'Vl. Frete NF', 'Vl. Desconto NF', 'Vl. Total NF',
+    'ICMS', 'PIS', 'COFINS',
+    'BC ICMS ST', 'Vl. ICMS ST',
+    'Endereço Emitente', 'Endereço Destinatário',
+]"""
+
+if old_cab in c:
+    c = c.replace(old_cab, new_cab)
+    print('Fix 4 aplicado: novas colunas adicionadas ao CABECALHO')
+else:
+    print('Fix 4: CABECALHO já atualizado ou versão diferente')
 
 with open('nfe_downloader.py', 'w', encoding='utf-8') as f:
     f.write(c)

@@ -50,8 +50,11 @@ CABECALHO = [
     'CNPJ Destinatário', 'Razão Social Destinatário', 'UF Destinatário',
     'Nº Item', 'Código', 'EAN', 'Descrição', 'NCM', 'CFOP',
     'Unidade', 'Quantidade', 'Valor Unit.', 'Valor Item', 'Desconto Item',
+    'Origem',
     'Vl. Produtos NF', 'Vl. Frete NF', 'Vl. Desconto NF', 'Vl. Total NF',
     'ICMS', 'PIS', 'COFINS',
+    'BC ICMS ST', 'Vl. ICMS ST',
+    'Endereço Emitente', 'Endereço Destinatário',
 ]
 
 
@@ -80,6 +83,29 @@ def txt(elem, path, ns={'nfe': NS_NFE}):
     """Extrai texto de um subelemento xpath."""
     e = elem.find(path, ns)
     return (e.text or '').strip() if e is not None else ''
+
+
+def _formatar_endereco(end_elem, ns):
+    if end_elem is None:
+        return ''
+    partes = [
+        txt(end_elem, 'nfe:xLgr', ns),
+        txt(end_elem, 'nfe:nro', ns),
+        txt(end_elem, 'nfe:xCpl', ns),
+        txt(end_elem, 'nfe:xBairro', ns),
+    ]
+    cidade = txt(end_elem, 'nfe:xMun', ns)
+    uf     = txt(end_elem, 'nfe:UF', ns)
+    cep    = txt(end_elem, 'nfe:CEP', ns)
+    partes = [p for p in partes if p]
+    end = ', '.join(partes)
+    if cidade and uf:
+        end += f', {cidade} - {uf}'
+    elif cidade:
+        end += f', {cidade}'
+    if cep:
+        end += f', {cep}'
+    return end
 
 
 # ─────────────────────────────────────────────────────────────
@@ -196,13 +222,8 @@ def consultar_pagina(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem, cert_tmp, 
     """Uma chamada ao SEFAZ. Retorna (documentos, ult_nsu_ret, max_nsu_ret)."""
     soap = _construir_soap(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem)
     resp_text = _post_sefaz(soap, cert_tmp, key_tmp)
-
-    # Debug: mostra primeiros 600 chars da resposta para diagnóstico
-    log(f"  [debug] resposta SEFAZ (600 chars): {resp_text[:600]}")
-
     ret = _extrair_ret(resp_text)
 
-    # Usar 'is not None' — elementos lxml sem filhos avaliam como False com 'or'
     e_cstat  = _find(ret, 'cStat')
     e_xmot   = _find(ret, 'xMotivo')
     e_ult    = _find(ret, 'ultNSU')
@@ -212,8 +233,6 @@ def consultar_pagina(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem, cert_tmp, 
     xmotiv      = e_xmot.text   if e_xmot   is not None else ''
     ult_nsu_ret = e_ult.text    if e_ult    is not None else ult_nsu
     max_nsu_ret = e_max.text    if e_max    is not None else ult_nsu_ret
-
-    log(f"  [debug] cStat={cstat} xMotivo={xmotiv}")
 
     # 137 = sem docs, 138 = docs encontrados
     if cstat not in ('137', '138'):
@@ -302,26 +321,33 @@ def parsear_nfe(xml_bytes, cnpj_proprio):
     dh_emi = txt(ide, 'nfe:dhEmi', ns) or txt(ide, 'nfe:dEmi', ns)
     data_emissao = dh_emi[:10] if dh_emi else ''
 
+    ender_emit = emit.find('nfe:enderEmit', ns) if emit is not None else None
+    ender_dest = dest.find('nfe:enderDest', ns) if dest is not None else None
+
     cabecalho = {
-        'chave_nfe':    chave,
-        'tipo':         tipo,
-        'data_emissao': data_emissao,
-        'numero_nf':    txt(ide, 'nfe:nNF', ns),
-        'serie':        txt(ide, 'nfe:serie', ns),
-        'nat_op':       txt(ide, 'nfe:natOp', ns),
-        'emit_cnpj':    emit_cnpj,
-        'emit_nome':    txt(emit, 'nfe:xNome', ns)                 if emit is not None else '',
-        'emit_uf':      txt(emit, 'nfe:enderEmit/nfe:UF', ns)      if emit is not None else '',
-        'dest_cnpj':    dest_cnpj,
-        'dest_nome':    txt(dest, 'nfe:xNome', ns)                 if dest is not None else '',
-        'dest_uf':      txt(dest, 'nfe:enderDest/nfe:UF', ns)      if dest is not None else '',
-        'vl_prod':      txt(total, 'nfe:vProd', ns)                if total is not None else '',
-        'vl_frete':     txt(total, 'nfe:vFrete', ns)               if total is not None else '',
-        'vl_desc_nf':   txt(total, 'nfe:vDesc', ns)                if total is not None else '',
-        'vl_total':     txt(total, 'nfe:vNF', ns)                  if total is not None else '',
-        'vl_icms':      txt(total, 'nfe:vICMS', ns)                if total is not None else '',
-        'vl_pis':       txt(total, 'nfe:vPIS', ns)                 if total is not None else '',
-        'vl_cofins':    txt(total, 'nfe:vCOFINS', ns)              if total is not None else '',
+        'chave_nfe':      chave,
+        'tipo':           tipo,
+        'data_emissao':   data_emissao,
+        'numero_nf':      txt(ide, 'nfe:nNF', ns),
+        'serie':          txt(ide, 'nfe:serie', ns),
+        'nat_op':         txt(ide, 'nfe:natOp', ns),
+        'emit_cnpj':      emit_cnpj,
+        'emit_nome':      txt(emit, 'nfe:xNome', ns)           if emit is not None else '',
+        'emit_uf':        txt(emit, 'nfe:enderEmit/nfe:UF', ns) if emit is not None else '',
+        'dest_cnpj':      dest_cnpj,
+        'dest_nome':      txt(dest, 'nfe:xNome', ns)           if dest is not None else '',
+        'dest_uf':        txt(dest, 'nfe:enderDest/nfe:UF', ns) if dest is not None else '',
+        'vl_prod':        txt(total, 'nfe:vProd', ns)          if total is not None else '',
+        'vl_frete':       txt(total, 'nfe:vFrete', ns)         if total is not None else '',
+        'vl_desc_nf':     txt(total, 'nfe:vDesc', ns)          if total is not None else '',
+        'vl_total':       txt(total, 'nfe:vNF', ns)            if total is not None else '',
+        'vl_icms':        txt(total, 'nfe:vICMS', ns)          if total is not None else '',
+        'vl_pis':         txt(total, 'nfe:vPIS', ns)           if total is not None else '',
+        'vl_cofins':      txt(total, 'nfe:vCOFINS', ns)        if total is not None else '',
+        'vl_bcst':        txt(total, 'nfe:vBCST', ns)          if total is not None else '',
+        'vl_st':          txt(total, 'nfe:vST', ns)            if total is not None else '',
+        'end_emit':       _formatar_endereco(ender_emit, ns),
+        'end_dest':       _formatar_endereco(ender_dest, ns),
     }
 
     linhas = []
@@ -329,6 +355,17 @@ def parsear_nfe(xml_bytes, cnpj_proprio):
         prod = det.find('nfe:prod', ns)
         if prod is None:
             continue
+        # Origem do produto: dentro de det/imposto/ICMS/<qualquer grupo>/orig
+        orig = ''
+        imposto = det.find('nfe:imposto', ns)
+        if imposto is not None:
+            icms_group = imposto.find('nfe:ICMS', ns)
+            if icms_group is not None:
+                for child in icms_group:
+                    e_orig = child.find('nfe:orig', ns)
+                    if e_orig is not None:
+                        orig = e_orig.text or ''
+                        break
         linhas.append({**cabecalho,
             'num_item':   det.get('nItem', ''),
             'codigo':     txt(prod, 'nfe:cProd', ns),
@@ -341,6 +378,7 @@ def parsear_nfe(xml_bytes, cnpj_proprio):
             'vl_unit':    txt(prod, 'nfe:vUnCom', ns),
             'vl_item':    txt(prod, 'nfe:vProd', ns),
             'desc_item':  txt(prod, 'nfe:vDesc', ns),
+            'origem':     orig,
         })
     return linhas
 
@@ -353,8 +391,11 @@ def linha_para_row(l):
         l['num_item'], l['codigo'], l['ean'], l['descricao'],
         l['ncm'], l['cfop'], l['unidade'], l['quantidade'],
         l['vl_unit'], l['vl_item'], l['desc_item'],
+        l['origem'],
         l['vl_prod'], l['vl_frete'], l['vl_desc_nf'], l['vl_total'],
         l['vl_icms'], l['vl_pis'], l['vl_cofins'],
+        l['vl_bcst'], l['vl_st'],
+        l['end_emit'], l['end_dest'],
     ]
 
 
@@ -382,7 +423,7 @@ def preparar_planilha(gc, nome):
             ws = sh.add_worksheet(aba, rows=1, cols=len(CABECALHO))
             ws.append_row(CABECALHO, value_input_option='RAW')
             # Formatar cabeçalho (negrito, fundo escuro)
-            ws.format('A1:AC1', {
+            ws.format('A1:AG1', {
                 'backgroundColor': {'red': 0.11, 'green': 0.17, 'blue': 0.28},
                 'textFormat': {'bold': True, 'foregroundColor': {'red': 0.22, 'green': 0.55, 'blue': 0.99}},
             })
