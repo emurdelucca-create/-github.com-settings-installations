@@ -112,8 +112,8 @@ def assinar_xml(xml_element, cert_pem, key_pem):
 
     signer = XMLSigner(
         method=methods.enveloped,
-        digest_algorithm='sha1',
-        signature_algorithm='rsa-sha1',
+        digest_algorithm='sha256',
+        signature_algorithm='rsa-sha256',
         c14n_algorithm='http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     )
     return signer.sign(xml_element, key=key, cert=cert)
