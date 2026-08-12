@@ -102,13 +102,11 @@ def extrair_pem(pfx_path, senha):
 def assinar_xml(xml_element, cert_pem, key_pem):
     try:
         from signxml import XMLSigner, methods
-        from cryptography.x509 import load_pem_x509_certificate
         from cryptography.hazmat.primitives.serialization import load_pem_private_key
     except ImportError:
         raise ImportError("Execute: pip install signxml")
 
-    cert = load_pem_x509_certificate(cert_pem)
-    key  = load_pem_private_key(key_pem, password=None)
+    key = load_pem_private_key(key_pem, password=None)
 
     signer = XMLSigner(
         method=methods.enveloped,
@@ -116,7 +114,8 @@ def assinar_xml(xml_element, cert_pem, key_pem):
         signature_algorithm='rsa-sha256',
         c14n_algorithm='http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     )
-    return signer.sign(xml_element, key=key, cert=cert)
+    # Passa cert como PEM bytes — signxml aceita diretamente
+    return signer.sign(xml_element, key=key, cert=cert_pem)
 
 
 # ─────────────────────────────────────────────────────────────
