@@ -38,6 +38,7 @@ from google.oauth2.service_account import Credentials
 # ─────────────────────────────────────────────────────────────
 CONFIG_FILE  = 'config.json'
 CHAVES_FILE  = 'processadas.json'
+XMLS_DIR     = 'xmls'
 SEFAZ_URL    = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
 NS_DIST      = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe'
 NS_NFE       = 'http://www.portalfiscal.inf.br/nfe'
@@ -95,6 +96,46 @@ def carregar_processadas():
 def salvar_processadas(chaves: set):
     with open(CHAVES_FILE, 'w', encoding='utf-8') as f:
         json.dump(sorted(chaves), f, ensure_ascii=False)
+
+
+def classificar_schema(schema):
+    """
+    Normaliza o atributo `schema` do docZip para o tipo de documento.
+
+    Valores reais devolvidos pela SEFAZ: 'procNFe_v4.00.xsd',
+    'resNFe_v1.01.xsd', 'resEvento_v1.01.xsd', 'procEventoNFe_v1.00.xsd',
+    'procCTe_v3.00.xsd'...
+
+    A ordem importa: 'resNFe' e 'resEvento' contêm a substring 'NFe' e
+    eram tratados como NF-e completa, o que os fazia sumir sem log.
+    """
+    s = (schema or '').split('_')[0]
+    if s.startswith('resEvento') or s.startswith('procEvento'):
+        return 'evento'
+    if s.startswith('resNFe'):
+        return 'resNFe'
+    if s.startswith('procNFe') or s.startswith('nfeProc'):
+        return 'nfe'
+    if s.startswith('resCTe'):
+        return 'resCTe'
+    if s.startswith('procCTe') or s.startswith('cteProc'):
+        return 'cte'
+    return 'outro'
+
+
+def salvar_xml(nsu, schema, xml_bytes):
+    """
+    Grava o docZip cru em disco antes de qualquer parsing.
+
+    A SEFAZ trata rebaixar do NSU 0 como Consumo Indevido (cStat 656) e
+    bloqueia o CNPJ por 1 hora — documento descartado é documento perdido.
+    """
+    Path(XMLS_DIR).mkdir(exist_ok=True)
+    tipo = classificar_schema(schema)
+    destino = Path(XMLS_DIR) / f'{str(nsu).zfill(15)}_{tipo}.xml'
+    if not destino.exists():
+        destino.write_bytes(xml_bytes)
+    return destino
 
 
 def txt(elem, path, ns={'nfe': NS_NFE}):
@@ -277,9 +318,10 @@ def baixar_todos(cnpj, cuf, ambiente, ult_nsu_inicial, cert_pem, key_pem):
     ct.write(cert_pem); kt.write(key_pem)
     ct.close(); kt.close()
 
-    todos   = []
-    cur_nsu = ult_nsu_inicial
-    pagina  = 0
+    todos    = []
+    cur_nsu  = ult_nsu_inicial
+    nsu_ret  = ult_nsu_inicial
+    pagina   = 0
 
     try:
         while True:
@@ -288,7 +330,11 @@ def baixar_todos(cnpj, cuf, ambiente, ult_nsu_inicial, cert_pem, key_pem):
             docs, ult_ret, max_ret = consultar_pagina(
                 cnpj, cuf, ambiente, cur_nsu, cert_pem, key_pem, ct.name, kt.name
             )
+            # Persiste o XML cru ANTES de parsear — rebaixar não é de graça.
+            for nsu, schema, xml_bytes in docs:
+                salvar_xml(nsu, schema, xml_bytes)
             todos.extend(docs)
+            nsu_ret = ult_ret
             log(f"  → {len(docs)} docs recebidos | ultNSU: {ult_ret} | maxNSU: {max_ret}")
 
             if ult_ret == max_ret or ult_ret == cur_nsu:
@@ -299,7 +345,9 @@ def baixar_todos(cnpj, cuf, ambiente, ult_nsu_inicial, cert_pem, key_pem):
         os.unlink(ct.name)
         os.unlink(kt.name)
 
-    return todos, cur_nsu
+    # Devolve o ultNSU da última RESPOSTA, não o NSU da última requisição —
+    # caso contrário a página final é rebaixada a cada execução.
+    return todos, nsu_ret
 
 
 # ─────────────────────────────────────────────────────────────
@@ -641,15 +689,20 @@ def main():
         'DEV_VENDA':  dev_vendas,
     }
 
-    for nsu, schema, xml_bytes in todos:
-        is_nfe = any(s in schema for s in ('procNFe', 'nfeProc', 'NFe'))
-        is_cte = any(s in schema for s in ('procCTe', 'cteProc', 'CTe'))
+    por_schema = {}
 
-        if is_nfe:
+    for nsu, schema, xml_bytes in todos:
+        tipo_doc = classificar_schema(schema)
+        por_schema[tipo_doc] = por_schema.get(tipo_doc, 0) + 1
+
+        is_cte = tipo_doc == 'cte'
+        if tipo_doc == 'nfe':
             linhas = parsear_nfe(xml_bytes, cnpj)
         elif is_cte:
             linhas = parsear_cte(xml_bytes, cnpj)
         else:
+            # resNFe / resCTe (resumos ainda não manifestados) e eventos não
+            # têm detalhe de itens. Ficam no disco para o `vendas.py scan`.
             ignorados += 1
             continue
 
@@ -671,6 +724,10 @@ def main():
         f"Dev. Compra: {len(dev_compras)} | Dev. Venda: {len(dev_vendas)} | "
         f"CT-e: {len(ctes)} | Ignorados: {ignorados} | Já gravadas: {ja_gravadas}"
     )
+    if por_schema:
+        detalhe = ' | '.join(f'{k}: {v}' for k, v in sorted(por_schema.items()))
+        log(f"  Distribuição por schema — {detalhe}")
+        log(f"  XMLs brutos salvos em '{XMLS_DIR}/' — use 'py vendas.py scan'.")
 
     total_novos = len(nfe_compras) + len(nfe_vendas) + len(dev_compras) + len(dev_vendas) + len(ctes)
     if total_novos == 0:

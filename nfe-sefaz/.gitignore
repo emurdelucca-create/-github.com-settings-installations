@@ -1,0 +1,21 @@
+# Certificado digital A1 e segredos — NUNCA versionar
+*.pfx
+*.p12
+*.pem
+*.key
+config.json
+credentials.json
+
+# Estado local de execução
+processadas.json
+dump_estado.json
+chaves_vendas.json
+
+# XMLs brutos baixados da SEFAZ (podem ser dezenas de milhares)
+xmls/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
