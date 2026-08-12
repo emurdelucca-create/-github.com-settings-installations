@@ -197,17 +197,28 @@ def consultar_pagina(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem, cert_tmp, 
     """Uma chamada ao SEFAZ. Retorna (documentos, ult_nsu_ret, max_nsu_ret)."""
     soap = _construir_soap(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem)
     resp_text = _post_sefaz(soap, cert_tmp, key_tmp)
+
+    # Debug: mostra primeiros 600 chars da resposta para diagnóstico
+    log(f"  [debug] resposta SEFAZ (600 chars): {resp_text[:600]}")
+
     ret = _extrair_ret(resp_text)
 
-    cstat  = (_find(ret, 'cStat') or type('', (), {'text': '0'})()).text
-    xmotiv = (_find(ret, 'xMotivo') or type('', (), {'text': ''})()).text
+    # Usar 'is not None' — elementos lxml sem filhos avaliam como False com 'or'
+    e_cstat  = _find(ret, 'cStat')
+    e_xmot   = _find(ret, 'xMotivo')
+    e_ult    = _find(ret, 'ultNSU')
+    e_max    = _find(ret, 'maxNSU')
+
+    cstat       = e_cstat.text  if e_cstat  is not None else '0'
+    xmotiv      = e_xmot.text   if e_xmot   is not None else ''
+    ult_nsu_ret = e_ult.text    if e_ult    is not None else ult_nsu
+    max_nsu_ret = e_max.text    if e_max    is not None else ult_nsu_ret
+
+    log(f"  [debug] cStat={cstat} xMotivo={xmotiv}")
 
     # 137 = sem docs, 138 = docs encontrados
     if cstat not in ('137', '138'):
         raise Exception(f"SEFAZ cStat {cstat}: {xmotiv}")
-
-    ult_nsu_ret = (_find(ret, 'ultNSU') or type('', (), {'text': ult_nsu})()).text
-    max_nsu_ret = (_find(ret, 'maxNSU') or type('', (), {'text': ult_nsu_ret})()).text
 
     documentos = []
     for doc_zip in ret.iter(f'{{{NS_NFE}}}docZip'):
