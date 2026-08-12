@@ -121,18 +121,17 @@ def assinar_xml(xml_element, cert_pem, key_pem):
 # ─────────────────────────────────────────────────────────────
 # SOAP / SEFAZ
 # ─────────────────────────────────────────────────────────────
-def _construir_soap(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem):
-    dist_xml = etree.fromstring(
+def _construir_soap(cnpj, cuf, ambiente, ult_nsu, cert_pem=None, key_pem=None):
+    # NFeDistribuicaoDFe autentica via mTLS (certificado no HTTPS).
+    # O schema distDFeInt não prevê assinatura XML — enviamos o XML limpo.
+    xml_body = (
         f'<distDFeInt xmlns="{NS_NFE}" versao="1.01">'
         f'<tpAmb>{ambiente}</tpAmb>'
         f'<cUFAutor>{cuf}</cUFAutor>'
         f'<CNPJ>{cnpj}</CNPJ>'
         f'<distNSU><ultNSU>{ult_nsu}</ultNSU></distNSU>'
-        f'</distDFeInt>'.encode()
+        f'</distDFeInt>'
     )
-    signed     = assinar_xml(dist_xml, cert_pem, key_pem)
-    signed_str = etree.tostring(signed, encoding='unicode')
-
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         f'<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
@@ -145,7 +144,7 @@ def _construir_soap(cnpj, cuf, ambiente, ult_nsu, cert_pem, key_pem):
         f'</soap12:Header>'
         f'<soap12:Body>'
         f'<nfeDistDFeInteresse xmlns="{NS_DIST}">'
-        f'<nfeDadosMsg>{signed_str}</nfeDadosMsg>'
+        f'<nfeDadosMsg>{xml_body}</nfeDadosMsg>'
         f'</nfeDistDFeInteresse>'
         f'</soap12:Body>'
         f'</soap12:Envelope>'
