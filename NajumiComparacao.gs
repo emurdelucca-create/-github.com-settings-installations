@@ -259,18 +259,32 @@ function _ncEscrever(itens, fornecMap, estoqueMap) {
   let aba   = ss.getSheetByName(NC.ABA_SAIDA);
   if (!aba) aba = ss.insertSheet(NC.ABA_SAIDA);
 
-  const NCOLS = 62;
-  const NHDR  = 5;
-  const PRIMA = NHDR + 1;
+  const NCOLS = 62, NHDR = 5, PRIMA = NHDR + 1;
 
   aba.clearContents();
   aba.clearFormats();
+  aba.clearConditionalFormatRules();
+
+  // Paleta por grupo: c=col inicial (1-based), n=num colunas
+  // hBg1=cor linha 1, hBg=cor linhas 2-5, hFg=fonte, dBg=fundo dados
+  const GP = [
+    { c:  1, n:  3, hBg1:'#37474F', hBg:'#455A64', hFg:'#ECEFF1', dBg: null      }, // Identificação
+    { c:  4, n: 13, hBg1:'#0D47A1', hBg:'#1565C0', hFg:'#FFFFFF', dBg:'#E3F2FD'  }, // Najumi Total
+    { c: 17, n:  6, hBg1:'#1B5E20', hBg:'#2E7D32', hFg:'#FFFFFF', dBg:'#E8F5E9'  }, // ML Najumi
+    { c: 23, n:  6, hBg1:'#BF360C', hBg:'#D84315', hFg:'#FFFFFF', dBg:'#FBE9E7'  }, // Shopee Total
+    { c: 29, n:  6, hBg1:'#880E4F', hBg:'#AD1457', hFg:'#FFFFFF', dBg:'#FCE4EC'  }, // Shopee Full
+    { c: 35, n:  6, hBg1:'#4A148C', hBg:'#6A1B9A', hFg:'#FFFFFF', dBg:'#F3E5F5'  }, // Shopee Sem Full
+    { c: 41, n:  7, hBg1:'#004D40', hBg:'#00695C', hFg:'#FFFFFF', dBg:'#E0F2F1'  }, // Geral ABC
+    { c: 48, n:  5, hBg1:'#01579B', hBg:'#0277BD', hFg:'#FFFFFF', dBg:'#E1F5FE'  }, // Geral 0-30
+    { c: 53, n:  5, hBg1:'#006064', hBg:'#00838F', hFg:'#FFFFFF', dBg:'#E0F7FA'  }, // Geral 30-60
+    { c: 58, n:  5, hBg1:'#33691E', hBg:'#558B2F', hFg:'#FFFFFF', dBg:'#F1F8E9'  }, // Geral 60-90
+  ];
 
   // ── Linha 1 ───────────────────────────────────────────────────
   const h1 = _ncArr(NCOLS);
   h1[0] = 'SKU'; h1[1] = 'Fornecedor'; h1[2] = 'Estoque';
-  h1[3] = 'Dados de venda Najumi';
-  h1[40] = 'Geral (Todas as demais contas, tirando Najumi)';
+  h1[3]  = '📦  DADOS DE VENDA — NAJUMI';
+  h1[40] = '🏢  GERAL  (todas as demais contas, exceto Najumi)';
   aba.getRange(1, 1, 1, NCOLS).setValues([h1]);
 
   // ── Linha 2 ───────────────────────────────────────────────────
@@ -285,66 +299,64 @@ function _ncEscrever(itens, fornecMap, estoqueMap) {
   // ── Linha 3 ───────────────────────────────────────────────────
   const h3 = _ncArr(NCOLS);
   h3[3]  = 'Vendas por período';
-  h3[9]  = 'Curva ABC';
-  h3[40] = 'Curva ABC';
+  h3[9]  = 'Curva ABC  0-90 dias';
+  h3[40] = 'Curva ABC  0-90 dias';
+  h3[47] = 'Vendas por período';
   aba.getRange(3, 1, 1, NCOLS).setValues([h3]);
 
   // ── Linha 4 ───────────────────────────────────────────────────
   const h4 = _ncArr(NCOLS);
-  h4[3]=  '0-30'; h4[5]= '30-60'; h4[7]= '60-90'; h4[9]= '0-90';
-  h4[16]= '0-30'; h4[18]= '30-60'; h4[20]= '60-90';
-  h4[22]= '0-30'; h4[24]= '30-60'; h4[26]= '60-90';
-  h4[28]= '0-30'; h4[30]= '30-60'; h4[32]= '60-90';
-  h4[34]= '0-30'; h4[36]= '30-60'; h4[38]= '60-90';
-  h4[40]= '0-90';
-  h4[47]= '0-30'; h4[52]= '30-60'; h4[57]= '60-90';
+  h4[3]='0–30d'; h4[5]='30–60d'; h4[7]='60–90d'; h4[9]='0–90d';
+  h4[16]='0–30d'; h4[18]='30–60d'; h4[20]='60–90d';
+  h4[22]='0–30d'; h4[24]='30–60d'; h4[26]='60–90d';
+  h4[28]='0–30d'; h4[30]='30–60d'; h4[32]='60–90d';
+  h4[34]='0–30d'; h4[36]='30–60d'; h4[38]='60–90d';
+  h4[40]='0–90d';
+  h4[47]='0–30d'; h4[52]='30–60d'; h4[57]='60–90d';
   aba.getRange(4, 1, 1, NCOLS).setValues([h4]);
 
   // ── Linha 5 ───────────────────────────────────────────────────
   const h5 = [
-    'SKU', 'Fornecedor', 'Estoque',
-    'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)',
-    'Qntd. Total Vend.', 'Fat. Total', 'Caixa Total', 'Margem Total', '% Fat', '% Acumulado', 'Curva',
-    'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)',
-    'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)',
-    'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)',
-    'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)', 'Qntd.', 'Fat (R$)',
-    'Qntd. Total Vend.', 'Fat. Total', 'Caixa Total', 'Margem Total', '% Fat', '% Acumulado', 'Curva',
-    'Qntd. Total Vend.', 'Fat. Total', '% Fat', '% Acumulado', 'Curva',
-    'Qntd. Total Vend.', 'Fat. Total', '% Fat', '% Acumulado', 'Curva',
-    'Qntd. Total Vend.', 'Fat. Total', '% Fat', '% Acumulado', 'Curva',
+    'SKU','Fornecedor','Estoque',
+    'Qtd.','Fat. (R$)','Qtd.','Fat. (R$)','Qtd.','Fat. (R$)',
+    'Qtd. Total','Fat. Total','Caixa Total','Margem Total','% Fat','% Acum.','Curva',
+    'Qtd.','Fat. (R$)','Qtd.','Fat. (R$)','Qtd.','Fat. (R$)',
+    'Qtd.','Fat. (R$)','Qtd.','Fat. (R$)','Qtd.','Fat. (R$)',
+    'Qtd.','Fat. (R$)','Qtd.','Fat. (R$)','Qtd.','Fat. (R$)',
+    'Qtd.','Fat. (R$)','Qtd.','Fat. (R$)','Qtd.','Fat. (R$)',
+    'Qtd. Total','Fat. Total','Caixa Total','Margem Total','% Fat','% Acum.','Curva',
+    'Qtd. Total','Fat. Total','% Fat','% Acum.','Curva',
+    'Qtd. Total','Fat. Total','% Fat','% Acum.','Curva',
+    'Qtd. Total','Fat. Total','% Fat','% Acum.','Curva',
   ];
   aba.getRange(5, 1, 1, NCOLS).setValues([h5]);
 
   // ── Dados ─────────────────────────────────────────────────────
   const rows = itens.map(item => {
-    const n  = item.najumi;
-    const ml = item.mlNaj;
-    const st = item.shopTotal;
-    const sf = item.shopFull;
+    const n   = item.najumi;
+    const ml  = item.mlNaj;
+    const st  = item.shopTotal;
+    const sf  = item.shopFull;
     const ss2 = item.shopSem;
     const n9  = item.n90;
     const g9  = item.g90;
     const g3  = item.g030;
     const g36 = item.g36;
     const g69 = item.g69;
-
     return [
-      item.sku,                       // A
-      fornecMap[item.sku]  || '',     // B
-      estoqueMap[item.sku] || 0,      // C
-      n['0-30'].qty,  n['0-30'].fat,  // D E
-      n['30-60'].qty, n['30-60'].fat, // F G
-      n['60-90'].qty, n['60-90'].fat, // H I
-      n9.qty, n9.fat, n9.caixa, n9.margem, n9.pctFat, n9.pctAcum, n9.curva, // J-P
-      ml['0-30'].qty, ml['0-30'].fat, ml['30-60'].qty, ml['30-60'].fat, ml['60-90'].qty, ml['60-90'].fat, // Q-V
-      st['0-30'].qty, st['0-30'].fat, st['30-60'].qty, st['30-60'].fat, st['60-90'].qty, st['60-90'].fat, // W-AB
-      sf['0-30'].qty, sf['0-30'].fat, sf['30-60'].qty, sf['30-60'].fat, sf['60-90'].qty, sf['60-90'].fat, // AC-AH
-      ss2['0-30'].qty, ss2['0-30'].fat, ss2['30-60'].qty, ss2['30-60'].fat, ss2['60-90'].qty, ss2['60-90'].fat, // AI-AN
-      g9.qty, g9.fat, g9.caixa, g9.margem, g9.pctFat, g9.pctAcum, g9.curva, // AO-AU
-      g3.qty,  g3.fat,  g3.pctFat,  g3.pctAcum,  g3.curva,  // AV-AZ
-      g36.qty, g36.fat, g36.pctFat, g36.pctAcum, g36.curva, // BA-BE
-      g69.qty, g69.fat, g69.pctFat, g69.pctAcum, g69.curva, // BF-BJ
+      item.sku, fornecMap[item.sku]||'', estoqueMap[item.sku]||0,
+      n['0-30'].qty,  n['0-30'].fat,
+      n['30-60'].qty, n['30-60'].fat,
+      n['60-90'].qty, n['60-90'].fat,
+      n9.qty, n9.fat, n9.caixa, n9.margem, n9.pctFat, n9.pctAcum, n9.curva,
+      ml['0-30'].qty,  ml['0-30'].fat,  ml['30-60'].qty, ml['30-60'].fat, ml['60-90'].qty, ml['60-90'].fat,
+      st['0-30'].qty,  st['0-30'].fat,  st['30-60'].qty, st['30-60'].fat, st['60-90'].qty, st['60-90'].fat,
+      sf['0-30'].qty,  sf['0-30'].fat,  sf['30-60'].qty, sf['30-60'].fat, sf['60-90'].qty, sf['60-90'].fat,
+      ss2['0-30'].qty, ss2['0-30'].fat, ss2['30-60'].qty,ss2['30-60'].fat,ss2['60-90'].qty,ss2['60-90'].fat,
+      g9.qty, g9.fat, g9.caixa, g9.margem, g9.pctFat, g9.pctAcum, g9.curva,
+      g3.qty,  g3.fat,  g3.pctFat,  g3.pctAcum,  g3.curva,
+      g36.qty, g36.fat, g36.pctFat, g36.pctAcum, g36.curva,
+      g69.qty, g69.fat, g69.pctFat, g69.pctAcum, g69.curva,
     ];
   });
 
@@ -355,6 +367,10 @@ function _ncEscrever(itens, fornecMap, estoqueMap) {
       aba.getRange(PRIMA, c, rows.length, 1).setNumberFormat('0.0%'));
     [5,7,9,11,12,13,18,20,22,24,26,28,30,32,34,36,38,40,42,43,44,49,54,59].forEach(c =>
       aba.getRange(PRIMA, c, rows.length, 1).setNumberFormat('R$ #,##0.00'));
+    // Fundo colorido por grupo nos dados
+    GP.forEach(g => {
+      if (g.dBg) aba.getRange(PRIMA, g.c, rows.length, g.n).setBackground(g.dBg);
+    });
   }
 
   // ── Mesclar cabeçalhos ────────────────────────────────────────
@@ -366,9 +382,9 @@ function _ncEscrever(itens, fornecMap, estoqueMap) {
   aba.getRange(3,4,1,6).merge();  aba.getRange(3,10,1,7).merge();
   aba.getRange(3,17,1,6).merge(); aba.getRange(3,23,1,6).merge();
   aba.getRange(3,29,1,6).merge(); aba.getRange(3,35,1,6).merge();
-  aba.getRange(3,41,1,7).merge(); aba.getRange(3,48,1,22).merge();
-  aba.getRange(4,4,1,2).merge();  aba.getRange(4,6,1,2).merge();
-  aba.getRange(4,8,1,2).merge();  aba.getRange(4,10,1,7).merge();
+  aba.getRange(3,41,1,7).merge(); aba.getRange(3,48,1,15).merge(); // fix: 22→15
+  aba.getRange(4,4,1,2).merge();  aba.getRange(4,6,1,2).merge();  aba.getRange(4,8,1,2).merge();
+  aba.getRange(4,10,1,7).merge();
   aba.getRange(4,17,1,2).merge(); aba.getRange(4,19,1,2).merge(); aba.getRange(4,21,1,2).merge();
   aba.getRange(4,23,1,2).merge(); aba.getRange(4,25,1,2).merge(); aba.getRange(4,27,1,2).merge();
   aba.getRange(4,29,1,2).merge(); aba.getRange(4,31,1,2).merge(); aba.getRange(4,33,1,2).merge();
@@ -376,11 +392,66 @@ function _ncEscrever(itens, fornecMap, estoqueMap) {
   aba.getRange(4,41,1,7).merge();
   aba.getRange(4,48,1,5).merge(); aba.getRange(4,53,1,5).merge(); aba.getRange(4,58,1,5).merge();
 
-  // ── Estilo ────────────────────────────────────────────────────
+  // ── Cores do cabeçalho ────────────────────────────────────────
+  // Linhas 2-5: cor por sub-grupo (aplicar primeiro)
+  GP.forEach(g => {
+    aba.getRange(2, g.c, 4, g.n).setBackground(g.hBg).setFontColor(g.hFg);
+  });
+  // Linha 1: bloco principal (sobrepõe cols 1-3 que são merged verticalmente)
+  aba.getRange(1,1,1,3) .setBackground(GP[0].hBg1).setFontColor(GP[0].hFg);
+  aba.getRange(1,4,1,37).setBackground('#0D47A1').setFontColor('#FFFFFF');
+  aba.getRange(1,41,1,22).setBackground('#004D40').setFontColor('#FFFFFF');
+
+  // Formatação geral do cabeçalho
   aba.getRange(1,1,NHDR,NCOLS)
-     .setBackground('#1c2c4a').setFontColor('#3a8dff')
-     .setFontWeight('bold').setHorizontalAlignment('center')
-     .setVerticalAlignment('middle');
+     .setFontWeight('bold')
+     .setHorizontalAlignment('center')
+     .setVerticalAlignment('middle')
+     .setWrap(true);
+  // Linha 1: fonte maior para os títulos principais
+  aba.getRange(1,4,1,37).setFontSize(11);
+  aba.getRange(1,41,1,22).setFontSize(11);
+
+  // ── Bordas de separação entre grupos ─────────────────────────
+  const totalRows = NHDR + rows.length;
+  [4,17,23,29,35,41,48,53,58].forEach(c => {
+    aba.getRange(1, c, totalRows, 1).setBorder(
+      null, true, null, null, null, null,
+      '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_THICK
+    );
+  });
+  // Borda inferior do cabeçalho
+  aba.getRange(NHDR, 1, 1, NCOLS).setBorder(
+    null, null, true, null, null, null,
+    '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_THICK
+  );
+
+  // ── Formatação condicional: Curva A/B/C ──────────────────────
+  if (rows.length > 0) {
+    const cfRules = [];
+    [16, 47, 52, 57, 62].forEach(c => {
+      const rng = aba.getRange(PRIMA, c, rows.length, 1);
+      cfRules.push(
+        SpreadsheetApp.newConditionalFormatRule()
+          .whenTextEqualTo('A').setBackground('#B7E1CD').setFontColor('#0D6832')
+          .setRanges([rng]).build(),
+        SpreadsheetApp.newConditionalFormatRule()
+          .whenTextEqualTo('B').setBackground('#FCE8B2').setFontColor('#594300')
+          .setRanges([rng]).build(),
+        SpreadsheetApp.newConditionalFormatRule()
+          .whenTextEqualTo('C').setBackground('#F4C7C3').setFontColor('#6B0000')
+          .setRanges([rng]).build()
+      );
+    });
+    aba.setConditionalFormatRules(cfRules);
+  }
+
+  // ── Alturas de linha do cabeçalho ─────────────────────────────
+  aba.setRowHeight(1, 50);
+  aba.setRowHeight(2, 40);
+  aba.setRowHeight(3, 35);
+  aba.setRowHeight(4, 28);
+  aba.setRowHeight(5, 28);
 
   aba.setFrozenRows(NHDR);
   aba.setFrozenColumns(3);
