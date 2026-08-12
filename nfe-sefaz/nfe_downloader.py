@@ -36,7 +36,8 @@ from google.oauth2.service_account import Credentials
 # ─────────────────────────────────────────────────────────────
 # Constantes
 # ─────────────────────────────────────────────────────────────
-CONFIG_FILE = 'config.json'
+CONFIG_FILE  = 'config.json'
+CHAVES_FILE  = 'processadas.json'
 SEFAZ_URL   = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
 NS_DIST     = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe'
 NS_NFE      = 'http://www.portalfiscal.inf.br/nfe'
@@ -77,6 +78,19 @@ def carregar_config():
 def salvar_config(cfg):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def carregar_processadas():
+    """Retorna set de chaves NF-e já gravadas na planilha."""
+    if not Path(CHAVES_FILE).exists():
+        return set()
+    with open(CHAVES_FILE, encoding='utf-8') as f:
+        return set(json.load(f))
+
+
+def salvar_processadas(chaves: set):
+    with open(CHAVES_FILE, 'w', encoding='utf-8') as f:
+        json.dump(sorted(chaves), f, ensure_ascii=False)
 
 
 def txt(elem, path, ns={'nfe': NS_NFE}):
@@ -483,24 +497,37 @@ def main():
 
     # 3. Parsear
     log("Parseando NF-e...")
+    processadas = carregar_processadas()
     compras, vendas = [], []
     ignorados = 0
+    ja_gravadas = 0
+    novas_chaves = set()
     for nsu, schema, xml_bytes in todos:
         # Só processa NF-e completas (procNFe). resNFe são resumos sem itens.
         if not any(s in schema for s in ('procNFe', 'nfeProc', 'NFe')):
             ignorados += 1
             continue
-        for linha in parsear_nfe(xml_bytes, cnpj):
+        linhas = parsear_nfe(xml_bytes, cnpj)
+        if not linhas:
+            continue
+        chave = linhas[0]['chave_nfe']
+        if chave in processadas:
+            ja_gravadas += 1
+            continue
+        novas_chaves.add(chave)
+        for linha in linhas:
             (compras if linha['tipo'] == 'COMPRA' else vendas).append(linha)
 
-    log(f"  Compras: {len(compras)} itens | Vendas: {len(vendas)} itens | Ignorados (resumos/outros): {ignorados}")
+    log(f"  Compras: {len(compras)} itens | Vendas: {len(vendas)} itens | Ignorados (resumos/outros): {ignorados} | Já gravadas: {ja_gravadas}")
 
     if not compras and not vendas:
-        log("\n⚠  Nenhum item encontrado.")
-        log("   Se este é o primeiro uso, pode ser que as NF-e de compra ainda estejam")
-        log("   como 'resNFe' (resumo). Nesse caso, faça a Manifestação do Destinatário")
-        log("   no portal da SEFAZ para liberar o XML completo e rode o script novamente.")
-        # Salva o NSU mesmo assim para não baixar tudo de novo
+        log("\n⚠  Nenhum item novo encontrado.")
+        if ja_gravadas:
+            log(f"   {ja_gravadas} NF-e já estavam gravadas na planilha (sem duplicatas).")
+        else:
+            log("   Se este é o primeiro uso, pode ser que as NF-e de compra ainda estejam")
+            log("   como 'resNFe' (resumo). Nesse caso, faça a Manifestação do Destinatário")
+            log("   no portal da SEFAZ para liberar o XML completo e rode o script novamente.")
         cfg['ultimo_nsu'] = ult_nsu_final
         salvar_config(cfg)
         return
@@ -511,7 +538,8 @@ def main():
     sh = preparar_planilha(gc, planilha)
     gravar_linhas(sh, compras, vendas)
 
-    # 5. Salvar NSU para próxima execução
+    # 5. Salvar chaves gravadas e NSU para próxima execução
+    salvar_processadas(processadas | novas_chaves)
     cfg['ultimo_nsu'] = ult_nsu_final
     salvar_config(cfg)
 
