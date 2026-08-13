@@ -15,14 +15,36 @@
  *
  *  Ele cria/recria APENAS estas 4 abas e não encosta em nenhuma outra:
  *      Config | Tabela_ICMS | Faturamento_UF | Precificacao
+ *
+ *  ---------------------------------------------------------------------------
+ *  LOCALE — por que existe a função F() abaixo
+ *  ---------------------------------------------------------------------------
+ *  Numa planilha em pt-BR o Sheets separa argumentos por ";" e não por ",".
+ *  Fórmula gravada com vírgula vira #ERROR! (erro de parsing) e o erro se
+ *  propaga por todas as células que dependem dela.
+ *
+ *  Pior: literal decimal com ponto (0.12) NÃO dá erro em pt-BR — o ponto é
+ *  separador de milhar, então 0.12 é lido como 12. Número errado, sem aviso.
+ *
+ *  Solução aqui:
+ *    • detectarSeparador() descobre em tempo de execução qual separador esta
+ *      planilha aceita, testando =SUM(1,2) numa aba temporária;
+ *    • F() converte as vírgulas das fórmulas para o separador certo;
+ *    • NENHUMA fórmula contém literal decimal — as alíquotas de 12% e 7%
+ *      moram em células da aba Config (ALQ_INTER_12 e ALQ_INTER_7).
+ *
+ *  INVARIANTE que faz o F() ser seguro: nenhum texto entre aspas dentro das
+ *  fórmulas contém vírgula, e não há literal decimal. Se você editar as
+ *  fórmulas, preserve isso — senão o replace corrompe o conteúdo.
  * ============================================================================
  */
 
 var ABAS = ['Config', 'Tabela_ICMS', 'Faturamento_UF', 'Precificacao'];
 
+var SEP = ',';   // definido em criarPlanilha() por detectarSeparador()
+
 var FMT_MOEDA = 'R$ #,##0.00';
 var FMT_PCT   = '0.00%';
-var FMT_PCT4  = '0.0000%';
 
 var COR_TITULO  = '#1c3d5a';
 var COR_SECAO   = '#dbe5f1';
@@ -32,11 +54,11 @@ var COR_RESULT  = '#d9ead3';
 var COR_ALERTA  = '#f4cccc';
 
 /**
- * UF | Estado | Grupo (S/SE ou N/NE/CO) | Alíquota interna | FCP | Faturamento inicial
+ * UF | Estado | Grupo (S/SE ou N/NE/CO) | Alíquota interna | FCP | Faturamento
  *
  * "Grupo" define a alíquota interestadual: S/SE -> S/SE = 12%, qualquer outro
- * cruzamento = 7%. O ES conta como N/NE/CO para essa regra (é a regra do
- * Senado: Resolução 22/1989).
+ * cruzamento = 7%. O ES conta como N/NE/CO para essa regra (Resolução do
+ * Senado 22/1989).
  *
  * A coluna "Alíquota interna" já embute o adicional/FECP dos estados que o
  * cobram dentro da alíquota cheia (ex.: RJ 20% + 2% FECP = 22%). Por isso o
@@ -73,10 +95,52 @@ var UFS = [
   ['TO', 'Tocantins',           'N/NE/CO', 0.200,  0,     22475.91]
 ];
 
-var N_UF   = UFS.length;      // 27
-var LIN_1  = 2;               // primeira linha de dados
-var LIN_N  = LIN_1 + N_UF - 1;// última linha de dados = 28
-var LIN_TOT = LIN_N + 1;      // linha de total = 29
+var N_UF    = UFS.length;         // 27
+var LIN_1   = 2;                  // primeira linha de dados
+var LIN_N   = LIN_1 + N_UF - 1;   // última linha de dados = 28
+var LIN_TOT = LIN_N + 1;          // linha de total = 29
+
+
+// ===========================================================================
+//  LOCALE
+// ===========================================================================
+
+/**
+ * Descobre o separador de argumentos que ESTA planilha aceita, testando o
+ * comportamento real em vez de adivinhar pelo código de idioma.
+ *
+ *   locale en_US : =SUM(1,2) -> 3      (vírgula separa argumentos)
+ *   locale pt-BR : =SUM(1,2) -> 1,2    (vírgula é decimal; 1 argumento só)
+ *
+ * Qualquer resultado diferente de 3 significa que a vírgula não é separador.
+ */
+function detectarSeparador(ss) {
+  var nome = '__sep_probe__';
+  var antiga = ss.getSheetByName(nome);
+  if (antiga) ss.deleteSheet(antiga);
+
+  var probe = ss.insertSheet(nome);
+  var sep = ',';
+  try {
+    probe.getRange('A1').setFormula('=SUM(1,2)');
+    SpreadsheetApp.flush();
+    if (probe.getRange('A1').getValue() !== 3) sep = ';';
+  } catch (e) {
+    sep = ';';
+  }
+  ss.deleteSheet(probe);
+  return sep;
+}
+
+/** Converte as vírgulas de uma fórmula para o separador desta planilha. */
+function F(formula) {
+  return SEP === ',' ? formula : formula.split(',').join(SEP);
+}
+
+/** Versão de F() para matrizes usadas em setFormulas(). */
+function FF(matriz) {
+  return matriz.map(function (linha) { return linha.map(F); });
+}
 
 
 // ===========================================================================
@@ -96,6 +160,8 @@ function onOpen() {
 function criarPlanilha() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
+  SEP = detectarSeparador(ss);
+
   // Remove SOMENTE as abas geradas por este script (as suas ficam intactas).
   ABAS.forEach(function (nome) {
     var s = ss.getSheetByName(nome);
@@ -103,10 +169,10 @@ function criarPlanilha() {
   });
 
   // Ordem de criação importa: Tabela_ICMS é referenciada pelas outras.
-  var shTab  = ss.insertSheet('Tabela_ICMS');
-  var shCfg  = ss.insertSheet('Config');
-  var shFat  = ss.insertSheet('Faturamento_UF');
-  var shPre  = ss.insertSheet('Precificacao');
+  var shTab = ss.insertSheet('Tabela_ICMS');
+  var shCfg = ss.insertSheet('Config');
+  var shFat = ss.insertSheet('Faturamento_UF');
+  var shPre = ss.insertSheet('Precificacao');
 
   // 1) estrutura estática
   montarTabelaICMS_estatico(shTab);
@@ -126,12 +192,33 @@ function criarPlanilha() {
   // 4) acabamento
   formatarTudo(shCfg, shTab, shFat, shPre);
 
+  SpreadsheetApp.flush();
   ss.setActiveSheet(shPre);
+
+  var erros = contarErros(ss);
   SpreadsheetApp.getUi().alert(
     'Planilha criada.\n\n' +
+    'Idioma da planilha: ' + ss.getSpreadsheetLocale() + '\n' +
+    'Separador de argumentos detectado: "' + SEP + '"\n' +
+    'Células com erro de fórmula: ' + erros + '\n\n' +
     'Amarelo = você preenche.  Cinza = calculado.  Verde = resultado.\n\n' +
     'Comece por Config, depois Faturamento_UF, depois Precificacao.'
   );
+}
+
+/** Conta células em erro nas 4 abas — verificação pós-montagem. */
+function contarErros(ss) {
+  var n = 0;
+  ABAS.forEach(function (nome) {
+    var sh = ss.getSheetByName(nome);
+    if (!sh) return;
+    sh.getDataRange().getValues().forEach(function (linha) {
+      linha.forEach(function (v) {
+        if (typeof v === 'string' && v.indexOf('#') === 0 && v.length > 2) n++;
+      });
+    });
+  });
+  return n;
 }
 
 
@@ -150,23 +237,21 @@ function montarTabelaICMS_estatico(sh) {
   sh.getRange(LIN_1, 1, N_UF, 5).setValues(dados);
 
   sh.getRange('N1').setValue('COMO ESTA ABA FUNCIONA');
-  sh.getRange('N2:N12').setValues([
+  sh.getRange('N2:N15').setValues([
     ['Alíquota interestadual (Res. Senado 22/1989 e 13/2012):'],
     ['  • S/SE → S/SE ................ 12%'],
     ['  • qualquer outro cruzamento .. 7%   (o ES entra como N/NE/CO)'],
     ['  • mercadoria importada ....... 4%   (CST de origem 1, 2, 3 ou 8)'],
     ['  • venda dentro da própria UF . alíquota interna, e DIFAL = 0'],
+    ['As três primeiras são editáveis em Config, caso o Senado mude.'],
     [''],
     ['DIFAL = alíquota interna do destino − alíquota interestadual.'],
     ['É REPARTIÇÃO do mesmo ICMS, não imposto adicional: a origem fica'],
     ['com a interestadual e o destino fica com a diferença.'],
     [''],
     ['Base dupla (LC 190/22, art. 13, §6º): a base do DIFAL é remontada'],
-  ]);
-  sh.getRange('N13:N15').setValues([
     ['"por dentro" com a alíquota interna do destino, o que eleva o DIFAL'],
-    ['efetivo (ex.: MG sai de 6,00% para 7,32% do preço). Ligue/desligue'],
-    ['isso em Config.']
+    ['efetivo (ex.: MG sai de 6,00% para 7,32% do preço).']
   ]);
 }
 
@@ -176,21 +261,24 @@ function montarTabelaICMS_formulas(sh) {
     f.push([
       // F - interna total (interna + FCP, se habilitado)
       '=D' + i + '+IF(USA_FCP="Sim",E' + i + ',0)',
-      // G - interestadual da SAÍDA para mercadoria nacional
-      '=IF($A' + i + '=UF_ORIGEM,$F' + i + ',IF(AND($C' + i + '="S/SE",GRUPO_ORIGEM="S/SE"),0.12,0.07))',
-      // H - interestadual da SAÍDA para mercadoria importada
+      // G - interestadual da SAÍDA, mercadoria nacional
+      '=IF($A' + i + '=UF_ORIGEM,$F' + i +
+        ',IF(AND($C' + i + '="S/SE",GRUPO_ORIGEM="S/SE"),ALQ_INTER_12,ALQ_INTER_7))',
+      // H - interestadual da SAÍDA, mercadoria importada
       '=IF($A' + i + '=UF_ORIGEM,$F' + i + ',ALQ_INTER_IMP)',
       // I - DIFAL efetivo sobre o preço, mercadoria nacional
-      '=IF(BASE_DUPLA="Sim",(1-$G' + i + ')/(1-$F' + i + ')*$F' + i + '-$G' + i + ',$F' + i + '-$G' + i + ')',
+      '=IF(BASE_DUPLA="Sim",(1-$G' + i + ')/(1-$F' + i + ')*$F' + i + '-$G' + i +
+        ',$F' + i + '-$G' + i + ')',
       // J - DIFAL efetivo sobre o preço, mercadoria importada
-      '=IF(BASE_DUPLA="Sim",(1-$H' + i + ')/(1-$F' + i + ')*$F' + i + '-$H' + i + ',$F' + i + '-$H' + i + ')',
+      '=IF(BASE_DUPLA="Sim",(1-$H' + i + ')/(1-$F' + i + ')*$F' + i + '-$H' + i +
+        ',$F' + i + '-$H' + i + ')',
       // K - interestadual do cenário ativo
       '=IF(ORIGEM_MERC="Importada",$H' + i + ',$G' + i + ')',
       // L - DIFAL efetivo do cenário ativo
       '=IF(ORIGEM_MERC="Importada",$J' + i + ',$I' + i + ')'
     ]);
   }
-  sh.getRange(LIN_1, 6, N_UF, 7).setFormulas(f);
+  sh.getRange(LIN_1, 6, N_UF, 7).setFormulas(FF(f));
 }
 
 
@@ -207,54 +295,56 @@ function montarConfig_estatico(sh) {
     [ 5, 'Grupo da UF de origem', '', 'auto'],
     [ 6, 'Origem da mercadoria', 'Nacional', 'in'],
     [ 7, 'Modalidade de aquisição', 'Revenda (compra no Brasil)', 'in'],
-    [ 8, 'Alíquota interestadual — mercadoria importada', 0.04, 'in'],
-    [ 9, 'Crédito de ICMS acumulado é aproveitável?', 'Sim', 'in'],
-    [10, 'Considerar FCP no DIFAL?', 'Não', 'in'],
+    [ 8, 'Alíquota interestadual — S/SE para S/SE', 0.12, 'in'],
+    [ 9, 'Alíquota interestadual — demais cruzamentos', 0.07, 'in'],
+    [10, 'Alíquota interestadual — mercadoria importada', 0.04, 'in'],
+    [11, 'Crédito de ICMS acumulado é aproveitável?', 'Sim', 'in'],
+    [12, 'Considerar FCP no DIFAL?', 'Não', 'in'],
 
-    [12, '2) REGIME E TESES (Lucro Real — não cumulativo)', '', 'sec'],
-    [13, 'PIS %', 0.0165, 'in'],
-    [14, 'COFINS %', 0.076, 'in'],
-    [15, 'Excluir ICMS da base de PIS/COFINS? (Tema 69 / RE 574.706)', 'Sim', 'in'],
-    [16, 'Excluir ICMS da base do crédito? (Lei 14.592/23)', 'Sim', 'in'],
-    [17, 'DIFAL com base dupla? (LC 190/22, art. 13, §6º)', 'Sim', 'in'],
+    [14, '2) REGIME E TESES (Lucro Real — não cumulativo)', '', 'sec'],
+    [15, 'PIS %', 0.0165, 'in'],
+    [16, 'COFINS %', 0.076, 'in'],
+    [17, 'Excluir ICMS da base de PIS/COFINS? (Tema 69 / RE 574.706)', 'Sim', 'in'],
+    [18, 'Excluir ICMS da base do crédito? (Lei 14.592/23)', 'Sim', 'in'],
+    [19, 'DIFAL com base dupla? (LC 190/22, art. 13, §6º)', 'Sim', 'in'],
 
-    [20, '3) AQUISIÇÃO — REVENDA (compra no Brasil)', '', 'sec'],
-    [21, 'Custo unitário do produto (sem IPI)', 283.87, 'in'],
-    [22, 'UF do fornecedor', 'SP', 'in'],
-    [23, 'Alíquota de crédito de ICMS na entrada', '', 'auto'],
-    [24, 'IPI % na compra (custo — não gera crédito na revenda)', 0.09, 'in'],
-    [25, 'IPI R$ na compra', '', 'auto'],
-    [26, 'Frete e despesas de compra (por unidade)', 0, 'in'],
-    [27, 'Custo de aquisição bruto', '', 'auto'],
-    [28, 'Crédito de ICMS', '', 'auto'],
-    [29, 'Base do crédito de PIS/COFINS', '', 'auto'],
-    [30, 'Crédito de PIS/COFINS', '', 'auto'],
+    [21, '3) AQUISIÇÃO — REVENDA (compra no Brasil)', '', 'sec'],
+    [22, 'Custo unitário do produto (sem IPI)', 283.87, 'in'],
+    [23, 'UF do fornecedor', 'SP', 'in'],
+    [24, 'Alíquota de crédito de ICMS na entrada', '', 'auto'],
+    [25, 'IPI % na compra (custo — não gera crédito na revenda)', 0.09, 'in'],
+    [26, 'IPI R$ na compra', '', 'auto'],
+    [27, 'Frete e despesas de compra (por unidade)', 0, 'in'],
+    [28, 'Custo de aquisição bruto', '', 'auto'],
+    [29, 'Crédito de ICMS', '', 'auto'],
+    [30, 'Base do crédito de PIS/COFINS', '', 'auto'],
+    [31, 'Crédito de PIS/COFINS', '', 'auto'],
 
-    [32, '4) AQUISIÇÃO — IMPORTAÇÃO PRÓPRIA', '', 'sec'],
-    [33, 'Valor aduaneiro / CIF (R$, por unidade)', 0, 'in'],
-    [34, 'Imposto de Importação %', 0, 'in'],
-    [35, 'IPI % (crédito na DI e débito na saída)', 0, 'in'],
-    [36, 'PIS-Importação %', 0.021, 'in'],
-    [37, 'COFINS-Importação %', 0.0965, 'in'],
-    [38, 'Despesas aduaneiras (Siscomex, THC, armazenagem, desembaraço)', 0, 'in'],
-    [39, 'Frete interno pós-desembaraço', 0, 'in'],
-    [40, 'II R$', '', 'auto'],
-    [41, 'IPI R$', '', 'auto'],
-    [42, 'PIS-Importação R$', '', 'auto'],
-    [43, 'COFINS-Importação R$', '', 'auto'],
-    [44, 'Base de cálculo do ICMS-Importação (por dentro)', '', 'auto'],
-    [45, 'ICMS-Importação R$', '', 'auto'],
-    [46, 'Custo de aquisição bruto', '', 'auto'],
-    [47, 'Crédito de ICMS', '', 'auto'],
-    [48, 'Crédito de PIS/COFINS', '', 'auto'],
-    [49, 'Crédito de IPI', '', 'auto'],
+    [33, '4) AQUISIÇÃO — IMPORTAÇÃO PRÓPRIA', '', 'sec'],
+    [34, 'Valor aduaneiro / CIF (R$, por unidade)', 0, 'in'],
+    [35, 'Imposto de Importação %', 0, 'in'],
+    [36, 'IPI % (crédito na DI e débito na saída)', 0, 'in'],
+    [37, 'PIS-Importação %', 0.021, 'in'],
+    [38, 'COFINS-Importação %', 0.0965, 'in'],
+    [39, 'Despesas aduaneiras (Siscomex, THC, armazenagem, desembaraço)', 0, 'in'],
+    [40, 'Frete interno pós-desembaraço', 0, 'in'],
+    [41, 'II R$', '', 'auto'],
+    [42, 'IPI R$', '', 'auto'],
+    [43, 'PIS-Importação R$', '', 'auto'],
+    [44, 'COFINS-Importação R$', '', 'auto'],
+    [45, 'Base de cálculo do ICMS-Importação (por dentro)', '', 'auto'],
+    [46, 'ICMS-Importação R$', '', 'auto'],
+    [47, 'Custo de aquisição bruto', '', 'auto'],
+    [48, 'Crédito de ICMS', '', 'auto'],
+    [49, 'Crédito de PIS/COFINS', '', 'auto'],
+    [50, 'Crédito de IPI', '', 'auto'],
 
-    [51, '5) AQUISIÇÃO — CENÁRIO ATIVO (alimenta a precificação)', '', 'sec'],
-    [52, 'Custo de aquisição bruto', '', 'auto'],
-    [53, 'Crédito de ICMS na entrada', '', 'auto'],
-    [54, 'Crédito de PIS/COFINS na entrada', '', 'auto'],
-    [55, 'Crédito de IPI na entrada', '', 'auto'],
-    [56, 'Alíquota de IPI na saída', '', 'auto']
+    [52, '5) AQUISIÇÃO — CENÁRIO ATIVO (alimenta a precificação)', '', 'sec'],
+    [53, 'Custo de aquisição bruto', '', 'auto'],
+    [54, 'Crédito de ICMS na entrada', '', 'auto'],
+    [55, 'Crédito de PIS/COFINS na entrada', '', 'auto'],
+    [56, 'Crédito de IPI na entrada', '', 'auto'],
+    [57, 'Alíquota de IPI na saída', '', 'auto']
   ];
 
   linhas.forEach(function (l) {
@@ -268,21 +358,21 @@ function montarConfig_estatico(sh) {
   });
 
   // Formatos
-  [8, 13, 14, 23, 24, 34, 35, 36, 37, 56].forEach(function (r) {
+  [8, 9, 10, 15, 16, 24, 25, 35, 36, 37, 38, 57].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_PCT);
   });
-  [21, 25, 26, 27, 28, 29, 30, 33, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-   52, 53, 54, 55].forEach(function (r) {
+  [22, 26, 27, 28, 29, 30, 31, 34, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+   53, 54, 55, 56].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_MOEDA);
   });
 
   // Dropdowns
   var listaUF = UFS.map(function (u) { return u[0]; });
   dropdown(sh, 'B4',  listaUF);
-  dropdown(sh, 'B22', listaUF);
+  dropdown(sh, 'B23', listaUF);
   dropdown(sh, 'B6',  ['Nacional', 'Importada']);
   dropdown(sh, 'B7',  ['Revenda (compra no Brasil)', 'Importação própria']);
-  ['B9', 'B10', 'B15', 'B16', 'B17'].forEach(function (c) {
+  ['B11', 'B12', 'B17', 'B18', 'B19'].forEach(function (c) {
     dropdown(sh, c, ['Sim', 'Não']);
   });
 
@@ -305,7 +395,7 @@ function montarConfig_estatico(sh) {
     ['• Crédito acumulado: mercadoria importada credita ~18% na entrada e debita'],
     ['  só 4% na saída interestadual. O DIFAL vai para OUTRO estado e não abate'],
     ['  crédito de SP, então o excedente ACUMULA. Se você não consegue monetizar'],
-    ['  esse saldo, marque "Não" em B9 — a planilha passa a limitar o crédito'],
+    ['  esse saldo, marque "Não" em B11 — a planilha passa a limitar o crédito'],
     ['  aproveitado ao valor do débito próprio e mostra o que ficou preso.'],
     [''],
     ['• Tema 69 e Lei 14.592/23 puxam para lados opostos: o primeiro reduz o'],
@@ -320,48 +410,48 @@ function montarConfig_estatico(sh) {
 function montarConfig_formulas(sh) {
   var ALQ_INT_ORIG = 'VLOOKUP(UF_ORIGEM,Tabela_ICMS!$A$' + LIN_1 + ':$F$' + LIN_N + ',6,FALSE)';
 
-  sh.getRange('B5').setFormula(
-    '=IFERROR(VLOOKUP(UF_ORIGEM,Tabela_ICMS!$A$' + LIN_1 + ':$C$' + LIN_N + ',3,FALSE),"?")');
+  sh.getRange('B5').setFormula(F(
+    '=IFERROR(VLOOKUP(UF_ORIGEM,Tabela_ICMS!$A$' + LIN_1 + ':$C$' + LIN_N + ',3,FALSE),"?")'));
 
   // --- Revenda -------------------------------------------------------------
   // Crédito de entrada: mesma UF -> interna; UF diferente -> interestadual da
   // operação fornecedor→você (4% se a mercadoria for importada).
-  sh.getRange('B23').setFormula(
+  sh.getRange('B24').setFormula(F(
     '=IF(R_UF_FORN=UF_ORIGEM,' + ALQ_INT_ORIG + ',' +
       'IF(ORIGEM_MERC="Importada",ALQ_INTER_IMP,' +
         'IF(AND(VLOOKUP(R_UF_FORN,Tabela_ICMS!$A$' + LIN_1 + ':$C$' + LIN_N + ',3,FALSE)="S/SE",' +
-           'GRUPO_ORIGEM="S/SE"),0.12,0.07)))');
+           'GRUPO_ORIGEM="S/SE"),ALQ_INTER_12,ALQ_INTER_7)))'));
 
-  sh.getRange('B25').setFormula('=R_CUSTO*R_IPI_PCT');
-  sh.getRange('B27').setFormula('=R_CUSTO+R_IPI_RS+R_FRETE');
+  sh.getRange('B26').setFormula(F('=R_CUSTO*R_IPI_PCT'));
+  sh.getRange('B28').setFormula(F('=R_CUSTO+R_IPI_RS+R_FRETE'));
   // IPI não integra a base do ICMS na compra para revenda (CF 155, §2º, XI).
-  sh.getRange('B28').setFormula('=(R_CUSTO+R_FRETE)*R_ALQ_ICMS_ENT');
+  sh.getRange('B29').setFormula(F('=(R_CUSTO+R_FRETE)*R_ALQ_ICMS_ENT'));
   // IPI não recuperável integra o custo e entra na base do crédito (IN 2121/22,
   // art. 171, II). O ICMS sai da base desde a Lei 14.592/23.
-  sh.getRange('B29').setFormula('=R_TOTAL-IF(EXCLUI_ICMS_CRED="Sim",R_CRED_ICMS,0)');
-  sh.getRange('B30').setFormula('=R_BASE_CRED_PC*(ALQ_PIS+ALQ_COFINS)');
+  sh.getRange('B30').setFormula(F('=R_TOTAL-IF(EXCLUI_ICMS_CRED="Sim",R_CRED_ICMS,0)'));
+  sh.getRange('B31').setFormula(F('=R_BASE_CRED_PC*(ALQ_PIS+ALQ_COFINS)'));
 
   // --- Importação própria --------------------------------------------------
-  sh.getRange('B40').setFormula('=I_VA*I_II_PCT');
-  sh.getRange('B41').setFormula('=(I_VA+I_II_RS)*I_IPI_PCT');
-  sh.getRange('B42').setFormula('=I_VA*I_PIS_PCT');    // base = valor aduaneiro (RE 559.937)
-  sh.getRange('B43').setFormula('=I_VA*I_COFINS_PCT');
-  sh.getRange('B44').setFormula(
-    '=IFERROR((I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_DESP)/(1-' + ALQ_INT_ORIG + '),0)');
-  sh.getRange('B45').setFormula('=I_BASE_ICMS*' + ALQ_INT_ORIG);
-  sh.getRange('B46').setFormula(
-    '=I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_ICMS_RS+I_DESP+I_FRETE_INT');
-  sh.getRange('B47').setFormula('=I_ICMS_RS');
-  sh.getRange('B48').setFormula('=I_PIS_RS+I_COFINS_RS');
-  sh.getRange('B49').setFormula('=I_IPI_RS');
+  sh.getRange('B41').setFormula(F('=I_VA*I_II_PCT'));
+  sh.getRange('B42').setFormula(F('=(I_VA+I_II_RS)*I_IPI_PCT'));
+  sh.getRange('B43').setFormula(F('=I_VA*I_PIS_PCT'));      // base = valor aduaneiro (RE 559.937)
+  sh.getRange('B44').setFormula(F('=I_VA*I_COFINS_PCT'));
+  sh.getRange('B45').setFormula(F(
+    '=IFERROR((I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_DESP)/(1-' + ALQ_INT_ORIG + '),0)'));
+  sh.getRange('B46').setFormula(F('=I_BASE_ICMS*' + ALQ_INT_ORIG));
+  sh.getRange('B47').setFormula(F(
+    '=I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_ICMS_RS+I_DESP+I_FRETE_INT'));
+  sh.getRange('B48').setFormula(F('=I_ICMS_RS'));
+  sh.getRange('B49').setFormula(F('=I_PIS_RS+I_COFINS_RS'));
+  sh.getRange('B50').setFormula(F('=I_IPI_RS'));
 
   // --- Cenário ativo -------------------------------------------------------
   var IMP = 'MODALIDADE="Importação própria"';
-  sh.getRange('B52').setFormula('=IF(' + IMP + ',I_CUSTO_TOTAL,R_TOTAL)');
-  sh.getRange('B53').setFormula('=IF(' + IMP + ',I_CRED_ICMS,R_CRED_ICMS)');
-  sh.getRange('B54').setFormula('=IF(' + IMP + ',I_CRED_PC,R_CRED_PC)');
-  sh.getRange('B55').setFormula('=IF(' + IMP + ',I_CRED_IPI,0)');
-  sh.getRange('B56').setFormula('=IF(' + IMP + ',I_IPI_PCT,0)');
+  sh.getRange('B53').setFormula(F('=IF(' + IMP + ',I_CUSTO_TOTAL,R_TOTAL)'));
+  sh.getRange('B54').setFormula(F('=IF(' + IMP + ',I_CRED_ICMS,R_CRED_ICMS)'));
+  sh.getRange('B55').setFormula(F('=IF(' + IMP + ',I_CRED_PC,R_CRED_PC)'));
+  sh.getRange('B56').setFormula(F('=IF(' + IMP + ',I_CRED_IPI,0)'));
+  sh.getRange('B57').setFormula(F('=IF(' + IMP + ',I_IPI_PCT,0)'));
 }
 
 
@@ -444,12 +534,12 @@ function montarFaturamento_formulas(sh) {
       '=$C' + i + '*IFERROR(VLOOKUP($A' + i + ',' + T + ',12,FALSE),0)'
     ]);
   }
-  sh.getRange(LIN_1, 4, N_UF, 7).setFormulas(f);
+  sh.getRange(LIN_1, 4, N_UF, 7).setFormulas(FF(f));
 
-  sh.getRange(LIN_TOT, 3).setFormula('=SUM(C' + LIN_1 + ':C' + LIN_N + ')');
-  sh.getRange(LIN_TOT, 4).setFormula('=SUM(D' + LIN_1 + ':D' + LIN_N + ')');
-  sh.getRange(LIN_TOT, 9).setFormula('=SUM(I' + LIN_1 + ':I' + LIN_N + ')');
-  sh.getRange(LIN_TOT, 10).setFormula('=SUM(J' + LIN_1 + ':J' + LIN_N + ')');
+  sh.getRange(LIN_TOT, 3).setFormula(F('=SUM(C' + LIN_1 + ':C' + LIN_N + ')'));
+  sh.getRange(LIN_TOT, 4).setFormula(F('=SUM(D' + LIN_1 + ':D' + LIN_N + ')'));
+  sh.getRange(LIN_TOT, 9).setFormula(F('=SUM(I' + LIN_1 + ':I' + LIN_N + ')'));
+  sh.getRange(LIN_TOT, 10).setFormula(F('=SUM(J' + LIN_1 + ':J' + LIN_N + ')'));
 
   // Média ponderada = SUMPRODUCT(faturamento; alíquota) / faturamento total
   function pond(col) {
@@ -459,19 +549,19 @@ function montarFaturamento_formulas(sh) {
 
   // UFs em branco/zero saem da conta: não somam no total nem no SUMPRODUCT.
   var b = LIN_TOT + 2;
-  sh.getRange(b + 1, 2).setFormula('=COUNTIF(C' + LIN_1 + ':C' + LIN_N + ',">0")');
-  sh.getRange(b + 2, 2).setFormula('=C' + LIN_TOT);
+  sh.getRange(b + 1, 2).setFormula(F('=COUNTIF(C' + LIN_1 + ':C' + LIN_N + ',">0")'));
+  sh.getRange(b + 2, 2).setFormula(F('=C' + LIN_TOT));
 
   var r = LIN_TOT + 7;
-  sh.getRange(r,     2).setFormula(pond('$E'));           // ICMS próprio nacional
-  sh.getRange(r + 1, 2).setFormula(pond('$G'));           // DIFAL nacional
-  sh.getRange(r + 2, 2).setFormula('=B' + r + '+B' + (r + 1));
-  sh.getRange(r + 3, 2).setFormula(pond('$F'));           // ICMS próprio importado
-  sh.getRange(r + 4, 2).setFormula(pond('$H'));           // DIFAL importado
-  sh.getRange(r + 5, 2).setFormula('=B' + (r + 3) + '+B' + (r + 4));
-  sh.getRange(r + 7, 2).setFormula('=IF(ORIGEM_MERC="Importada",B' + (r + 3) + ',B' + r + ')');
-  sh.getRange(r + 8, 2).setFormula('=IF(ORIGEM_MERC="Importada",B' + (r + 4) + ',B' + (r + 1) + ')');
-  sh.getRange(r + 9, 2).setFormula('=B' + (r + 7) + '+B' + (r + 8));
+  sh.getRange(r,     2).setFormula(F(pond('$E')));           // ICMS próprio nacional
+  sh.getRange(r + 1, 2).setFormula(F(pond('$G')));           // DIFAL nacional
+  sh.getRange(r + 2, 2).setFormula(F('=B' + r + '+B' + (r + 1)));
+  sh.getRange(r + 3, 2).setFormula(F(pond('$F')));           // ICMS próprio importado
+  sh.getRange(r + 4, 2).setFormula(F(pond('$H')));           // DIFAL importado
+  sh.getRange(r + 5, 2).setFormula(F('=B' + (r + 3) + '+B' + (r + 4)));
+  sh.getRange(r + 7, 2).setFormula(F('=IF(ORIGEM_MERC="Importada",B' + (r + 3) + ',B' + r + ')'));
+  sh.getRange(r + 8, 2).setFormula(F('=IF(ORIGEM_MERC="Importada",B' + (r + 4) + ',B' + (r + 1) + ')'));
+  sh.getRange(r + 9, 2).setFormula(F('=B' + (r + 7) + '+B' + (r + 8)));
 }
 
 
@@ -480,7 +570,7 @@ function montarFaturamento_formulas(sh) {
 // ===========================================================================
 function montarPrecificacao_estatico(sh) {
   sh.getRange('A1').setValue('PRECIFICAÇÃO POR CANAL — LUCRO REAL');
-  sh.getRange('A3:E3').setValues([['Item', 'Mercado Livre', 'Shopee', 'Canal 3', '']]);
+  sh.getRange('A3:D3').setValues([['Item', 'Mercado Livre', 'Shopee', 'Canal 3']]);
   sh.getRange('A3:D3').setBackground(COR_TITULO).setFontColor('#ffffff').setFontWeight('bold');
 
   var L = [
@@ -577,66 +667,69 @@ function montarPrecificacao_estatico(sh) {
 }
 
 function montarPrecificacao_formulas(sh) {
-  var cols = ['B', 'C', 'D'];
-  cols.forEach(function (c) {
+  ['B', 'C', 'D'].forEach(function (c) {
     var m = {};
     for (var r = 4; r <= 45; r++) m[r] = c + r;
 
     var PC = '(ALQ_PIS+ALQ_COFINS)';
 
-    sh.getRange(c + '6').setFormula('=' + m[4] + '*' + m[5]);
-    sh.getRange(c + '12').setFormula('=(' + m[6] + '+' + m[7] + '+' + m[8] + ')*' + m[11] + '*' + PC);
+    sh.getRange(c + '6').setFormula(F('=' + m[4] + '*' + m[5]));
+    sh.getRange(c + '12').setFormula(F(
+      '=(' + m[6] + '+' + m[7] + '+' + m[8] + ')*' + m[11] + '*' + PC));
 
-    sh.getRange(c + '15').setFormula('=ALQ_IPI_SAIDA');
-    sh.getRange(c + '16').setFormula('=' + m[4] + '*' + m[15] + '/(1+' + m[15] + ')');
-    sh.getRange(c + '17').setFormula('=' + m[4] + '-' + m[16]);
-    sh.getRange(c + '18').setFormula('=ICMS_PROP_MED');
-    sh.getRange(c + '19').setFormula('=' + m[4] + '*' + m[18]);
-    sh.getRange(c + '20').setFormula('=DIFAL_MED');
-    sh.getRange(c + '21').setFormula('=' + m[4] + '*' + m[20]);
-    sh.getRange(c + '22').setFormula('=' + m[19] + '+' + m[21]);
-    sh.getRange(c + '23').setFormula('=IFERROR(' + m[22] + '/' + m[4] + ',0)');
-    sh.getRange(c + '24').setFormula('=' + m[17] + '-IF(EXCLUI_ICMS_PC="Sim",' + m[19] + ',0)');
-    sh.getRange(c + '25').setFormula('=' + m[24] + '*ALQ_PIS');
-    sh.getRange(c + '26').setFormula('=' + m[24] + '*ALQ_COFINS');
+    sh.getRange(c + '15').setFormula(F('=ALQ_IPI_SAIDA'));
+    sh.getRange(c + '16').setFormula(F('=' + m[4] + '*' + m[15] + '/(1+' + m[15] + ')'));
+    sh.getRange(c + '17').setFormula(F('=' + m[4] + '-' + m[16]));
+    sh.getRange(c + '18').setFormula(F('=ICMS_PROP_MED'));
+    sh.getRange(c + '19').setFormula(F('=' + m[4] + '*' + m[18]));
+    sh.getRange(c + '20').setFormula(F('=DIFAL_MED'));
+    sh.getRange(c + '21').setFormula(F('=' + m[4] + '*' + m[20]));
+    sh.getRange(c + '22').setFormula(F('=' + m[19] + '+' + m[21]));
+    sh.getRange(c + '23').setFormula(F('=IFERROR(' + m[22] + '/' + m[4] + ',0)'));
+    sh.getRange(c + '24').setFormula(F(
+      '=' + m[17] + '-IF(EXCLUI_ICMS_PC="Sim",' + m[19] + ',0)'));
+    sh.getRange(c + '25').setFormula(F('=' + m[24] + '*ALQ_PIS'));
+    sh.getRange(c + '26').setFormula(F('=' + m[24] + '*ALQ_COFINS'));
 
-    sh.getRange(c + '29').setFormula('=CUSTO_BRUTO');
-    sh.getRange(c + '30').setFormula('=CRED_ICMS_ENT');
-    sh.getRange(c + '31').setFormula('=IF(CRED_ICMS_APROV="Sim",' + m[30] + ',MIN(' + m[30] + ',' + m[19] + '))');
-    sh.getRange(c + '32').setFormula('=' + m[30] + '-' + m[31]);
-    sh.getRange(c + '33').setFormula('=CRED_PC_ENT');
-    sh.getRange(c + '34').setFormula('=CRED_IPI_ENT');
-    sh.getRange(c + '35').setFormula('=' + m[29] + '-' + m[31] + '-' + m[33] + '-' + m[34]);
+    sh.getRange(c + '29').setFormula(F('=CUSTO_BRUTO'));
+    sh.getRange(c + '30').setFormula(F('=CRED_ICMS_ENT'));
+    sh.getRange(c + '31').setFormula(F(
+      '=IF(CRED_ICMS_APROV="Sim",' + m[30] + ',MIN(' + m[30] + ',' + m[19] + '))'));
+    sh.getRange(c + '32').setFormula(F('=' + m[30] + '-' + m[31]));
+    sh.getRange(c + '33').setFormula(F('=CRED_PC_ENT'));
+    sh.getRange(c + '34').setFormula(F('=CRED_IPI_ENT'));
+    sh.getRange(c + '35').setFormula(F(
+      '=' + m[29] + '-' + m[31] + '-' + m[33] + '-' + m[34]));
 
-    sh.getRange(c + '38').setFormula(
+    sh.getRange(c + '38').setFormula(F(
       '=IF(N(' + m[4] + ')=0,"",' +
       m[4] + '-' + m[6] + '-' + m[7] + '-' + m[8] + '-' + m[9] + '-' + m[10] +
       '+' + m[12] + '-' + m[35] + '-' + m[16] + '-' + m[19] + '-' + m[21] +
-      '-' + m[25] + '-' + m[26] + ')');
-    sh.getRange(c + '39').setFormula('=IFERROR(' + m[38] + '/' + m[17] + ',"")');
+      '-' + m[25] + '-' + m[26] + ')'));
+    sh.getRange(c + '39').setFormula(F('=IFERROR(' + m[38] + '/' + m[17] + ',"")'));
 
     // K = 1 − comissão − IPI/(1+IPI) − ICMS próprio − DIFAL
     //       − (PIS+COFINS)*(1/(1+IPI) − Tema69*ICMS próprio)
     //       + comissão*%crédito*(PIS+COFINS)
-    sh.getRange(c + '43').setFormula(
+    sh.getRange(c + '43').setFormula(F(
       '=1-' + m[5] + '-' + m[15] + '/(1+' + m[15] + ')-' + m[18] + '-' + m[20] +
       '-' + PC + '*(1/(1+' + m[15] + ')-IF(EXCLUI_ICMS_PC="Sim",' + m[18] + ',0))' +
-      '+' + m[5] + '*' + m[11] + '*' + PC);
-    sh.getRange(c + '44').setFormula(
+      '+' + m[5] + '*' + m[11] + '*' + PC));
+    sh.getRange(c + '44').setFormula(F(
       '=' + m[7] + '+' + m[8] + '+' + m[9] + '+' + m[10] + '+' + m[35] +
-      '-(' + m[7] + '+' + m[8] + ')*' + m[11] + '*' + PC);
-    sh.getRange(c + '45').setFormula(
-      '=IFERROR(' + m[44] + '/(' + m[43] + '-' + m[42] + '/(1+' + m[15] + ')),"")');
+      '-(' + m[7] + '+' + m[8] + ')*' + m[11] + '*' + PC));
+    sh.getRange(c + '45').setFormula(F(
+      '=IFERROR(' + m[44] + '/(' + m[43] + '-' + m[42] + '/(1+' + m[15] + ')),"")'));
   });
 
   // Alertas visuais
-  var reg = sh.getRange('B38:D39');
-  var regra = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberLessThan(0).setBackground(COR_ALERTA).setRanges([reg]).build();
-  var reg2 = sh.getRange('B32:D32');
+  var regra1 = SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberLessThan(0).setBackground(COR_ALERTA)
+    .setRanges([sh.getRange('B38:D39')]).build();
   var regra2 = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberGreaterThan(0).setBackground(COR_ALERTA).setRanges([reg2]).build();
-  sh.setConditionalFormatRules([regra, regra2]);
+    .whenNumberGreaterThan(0).setBackground(COR_ALERTA)
+    .setRanges([sh.getRange('B32:D32')]).build();
+  sh.setConditionalFormatRules([regra1, regra2]);
 }
 
 
@@ -650,50 +743,52 @@ function criarNamedRanges(ss, cfg, fat) {
     ['GRUPO_ORIGEM',     cfg, 'B5'],
     ['ORIGEM_MERC',      cfg, 'B6'],
     ['MODALIDADE',       cfg, 'B7'],
-    ['ALQ_INTER_IMP',    cfg, 'B8'],
-    ['CRED_ICMS_APROV',  cfg, 'B9'],
-    ['USA_FCP',          cfg, 'B10'],
+    ['ALQ_INTER_12',     cfg, 'B8'],
+    ['ALQ_INTER_7',      cfg, 'B9'],
+    ['ALQ_INTER_IMP',    cfg, 'B10'],
+    ['CRED_ICMS_APROV',  cfg, 'B11'],
+    ['USA_FCP',          cfg, 'B12'],
 
-    ['ALQ_PIS',          cfg, 'B13'],
-    ['ALQ_COFINS',       cfg, 'B14'],
-    ['EXCLUI_ICMS_PC',   cfg, 'B15'],
-    ['EXCLUI_ICMS_CRED', cfg, 'B16'],
-    ['BASE_DUPLA',       cfg, 'B17'],
+    ['ALQ_PIS',          cfg, 'B15'],
+    ['ALQ_COFINS',       cfg, 'B16'],
+    ['EXCLUI_ICMS_PC',   cfg, 'B17'],
+    ['EXCLUI_ICMS_CRED', cfg, 'B18'],
+    ['BASE_DUPLA',       cfg, 'B19'],
 
-    ['R_CUSTO',          cfg, 'B21'],
-    ['R_UF_FORN',        cfg, 'B22'],
-    ['R_ALQ_ICMS_ENT',   cfg, 'B23'],
-    ['R_IPI_PCT',        cfg, 'B24'],
-    ['R_IPI_RS',         cfg, 'B25'],
-    ['R_FRETE',          cfg, 'B26'],
-    ['R_TOTAL',          cfg, 'B27'],
-    ['R_CRED_ICMS',      cfg, 'B28'],
-    ['R_BASE_CRED_PC',   cfg, 'B29'],
-    ['R_CRED_PC',        cfg, 'B30'],
+    ['R_CUSTO',          cfg, 'B22'],
+    ['R_UF_FORN',        cfg, 'B23'],
+    ['R_ALQ_ICMS_ENT',   cfg, 'B24'],
+    ['R_IPI_PCT',        cfg, 'B25'],
+    ['R_IPI_RS',         cfg, 'B26'],
+    ['R_FRETE',          cfg, 'B27'],
+    ['R_TOTAL',          cfg, 'B28'],
+    ['R_CRED_ICMS',      cfg, 'B29'],
+    ['R_BASE_CRED_PC',   cfg, 'B30'],
+    ['R_CRED_PC',        cfg, 'B31'],
 
-    ['I_VA',             cfg, 'B33'],
-    ['I_II_PCT',         cfg, 'B34'],
-    ['I_IPI_PCT',        cfg, 'B35'],
-    ['I_PIS_PCT',        cfg, 'B36'],
-    ['I_COFINS_PCT',     cfg, 'B37'],
-    ['I_DESP',           cfg, 'B38'],
-    ['I_FRETE_INT',      cfg, 'B39'],
-    ['I_II_RS',          cfg, 'B40'],
-    ['I_IPI_RS',         cfg, 'B41'],
-    ['I_PIS_RS',         cfg, 'B42'],
-    ['I_COFINS_RS',      cfg, 'B43'],
-    ['I_BASE_ICMS',      cfg, 'B44'],
-    ['I_ICMS_RS',        cfg, 'B45'],
-    ['I_CUSTO_TOTAL',    cfg, 'B46'],
-    ['I_CRED_ICMS',      cfg, 'B47'],
-    ['I_CRED_PC',        cfg, 'B48'],
-    ['I_CRED_IPI',       cfg, 'B49'],
+    ['I_VA',             cfg, 'B34'],
+    ['I_II_PCT',         cfg, 'B35'],
+    ['I_IPI_PCT',        cfg, 'B36'],
+    ['I_PIS_PCT',        cfg, 'B37'],
+    ['I_COFINS_PCT',     cfg, 'B38'],
+    ['I_DESP',           cfg, 'B39'],
+    ['I_FRETE_INT',      cfg, 'B40'],
+    ['I_II_RS',          cfg, 'B41'],
+    ['I_IPI_RS',         cfg, 'B42'],
+    ['I_PIS_RS',         cfg, 'B43'],
+    ['I_COFINS_RS',      cfg, 'B44'],
+    ['I_BASE_ICMS',      cfg, 'B45'],
+    ['I_ICMS_RS',        cfg, 'B46'],
+    ['I_CUSTO_TOTAL',    cfg, 'B47'],
+    ['I_CRED_ICMS',      cfg, 'B48'],
+    ['I_CRED_PC',        cfg, 'B49'],
+    ['I_CRED_IPI',       cfg, 'B50'],
 
-    ['CUSTO_BRUTO',      cfg, 'B52'],
-    ['CRED_ICMS_ENT',    cfg, 'B53'],
-    ['CRED_PC_ENT',      cfg, 'B54'],
-    ['CRED_IPI_ENT',     cfg, 'B55'],
-    ['ALQ_IPI_SAIDA',    cfg, 'B56'],
+    ['CUSTO_BRUTO',      cfg, 'B53'],
+    ['CRED_ICMS_ENT',    cfg, 'B54'],
+    ['CRED_PC_ENT',      cfg, 'B55'],
+    ['CRED_IPI_ENT',     cfg, 'B56'],
+    ['ALQ_IPI_SAIDA',    cfg, 'B57'],
 
     ['ICMS_PROP_NAC',    fat, 'B' + r],
     ['DIFAL_MED_NAC',    fat, 'B' + (r + 1)],
@@ -723,11 +818,11 @@ function dropdown(sh, a1, valores) {
 function formatarTudo(cfg, tab, fat, pre) {
   [cfg, tab, fat, pre].forEach(function (sh) {
     sh.getRange('A1').setFontSize(13).setFontWeight('bold').setFontColor(COR_TITULO);
-    sh.setFrozenRows(1);
   });
 
   cfg.setColumnWidth(1, 400); cfg.setColumnWidth(2, 150); cfg.setColumnWidth(3, 25);
   cfg.setColumnWidth(4, 620);
+  cfg.setFrozenRows(1);
 
   tab.getRange('A1:L1').setBackground(COR_TITULO).setFontColor('#ffffff')
      .setFontWeight('bold').setWrap(true);
@@ -744,8 +839,8 @@ function formatarTudo(cfg, tab, fat, pre) {
   fat.getRange(LIN_1, 3, N_UF + 1, 1).setNumberFormat(FMT_MOEDA);
   fat.getRange(LIN_1, 4, N_UF + 1, 5).setNumberFormat(FMT_PCT);
   fat.getRange(LIN_1, 9, N_UF + 1, 2).setNumberFormat(FMT_MOEDA);
-  fat.getRange(LIN_TOT + 2, 1, 1, 1).setFontWeight('bold');
-  fat.getRange(LIN_TOT + 6, 1, 1, 1).setFontWeight('bold');
+  fat.getRange(LIN_TOT + 2, 1).setFontWeight('bold');
+  fat.getRange(LIN_TOT + 6, 1).setFontWeight('bold');
   fat.setFrozenRows(1); fat.setFrozenColumns(2);
 
   pre.setColumnWidth(1, 340);
