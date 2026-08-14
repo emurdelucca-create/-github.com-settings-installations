@@ -21,7 +21,15 @@
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
     th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
     th { color: #666; font-weight: normal; font-size: 11px; text-transform: uppercase; }
+    td.arq { word-break: break-all; }
     select { font-size: 12px; padding: 2px 4px; }
+    .x { color: #b71c1c; cursor: pointer; font-weight: bold; padding: 0 4px; }
+    #pares { font-size: 12px; padding: 10px 12px; background: #fff; border: 1px solid #e0e0e0;
+             border-radius: 8px; margin-bottom: 12px; line-height: 1.7; }
+    #pares b { color: #333; }
+    .pconta { display: inline-block; margin-right: 12px; }
+    .pok   { color: #2e7d32; }
+    .pnok  { color: #b71c1c; }
     button {
       background: #ee4d2d; color: #fff; border: none; border-radius: 4px;
       padding: 11px 24px; font-size: 14px; cursor: pointer; width: 100%; margin-top: 4px;
@@ -30,6 +38,7 @@
     #status { margin-top: 12px; padding: 10px; border-radius: 4px; font-size: 12px; display: none; white-space: pre-wrap; }
     .ok   { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
     .err  { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+    .warn { background: #fff8e1; color: #e65100; border: 1px solid #ffcc80; }
     .info { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
     .progress { width: 100%; background: #eee; border-radius: 4px; margin-top: 10px; display: none; }
     .progress-bar { height: 8px; background: #ee4d2d; border-radius: 4px; width: 0%; transition: width 0.3s; }
@@ -41,13 +50,12 @@
     Em cada conta, a referência é o arquivo com <b>mais itens em promoção</b> — ele é confrontado
     com o outro. O cruzamento é feito pelo <b>ID de variação</b> (coluna D) e o preço confrontado é o
     <b>Preço de desconto</b> (coluna H).<br>
-    Gera uma aba por conta com todos os itens da referência + status + o preço do outro arquivo.
-    Dá para travar a referência em ANTIGA ou VIGENTE no menu <b>⚙️ Referência</b>.
+    Selecione os 3 arquivos de cada pasta (pode ser em vários cliques — a lista vai acumulando).
   </p>
 
   <div class="bloco">
-    <h4>1 · Promo ANTIGA (referência)</h4>
-    <div class="hint">Arquivos da pasta "Antigas" — pode selecionar os 3 de uma vez.</div>
+    <h4>1 · Promo ANTIGA (pasta "Antigas")</h4>
+    <div class="hint">Confira se cada arquivo caiu no campo certo — trocar os dois inverte os rótulos do relatório.</div>
     <div class="drop-zone" id="dzAntiga">
       <label for="inAntiga">📁 Clique ou arraste os arquivos .xlsx</label>
       <input type="file" id="inAntiga" multiple accept=".xlsx,.xls">
@@ -56,14 +64,16 @@
   </div>
 
   <div class="bloco">
-    <h4>2 · Promo VIGENTE (atual)</h4>
-    <div class="hint">Arquivos da pasta "Vigentes" — pode selecionar os 3 de uma vez.</div>
+    <h4>2 · Promo VIGENTE (pasta "Vigentes")</h4>
+    <div class="hint">A campanha atual, clonada da antiga.</div>
     <div class="drop-zone" id="dzVigente">
       <label for="inVigente">📁 Clique ou arraste os arquivos .xlsx</label>
       <input type="file" id="inVigente" multiple accept=".xlsx,.xls">
     </div>
     <table id="tbVigente"></table>
   </div>
+
+  <div id="pares">Carregando contas...</div>
 
   <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
   <button id="btn" onclick="comparar()" disabled>Comparar</button>
@@ -75,7 +85,16 @@
 
     google.script.run.withSuccessHandler(function(lista) {
       CONTAS = lista || [];
-      render('antiga'); render('vigente');
+      // Redetecta o que já tinha sido selecionado antes da lista chegar
+      ['antiga', 'vigente'].forEach(function(tipo) {
+        arquivos[tipo].forEach(function(item) {
+          if (!item.conta) item.conta = detectarConta(item.file.name);
+        });
+        render(tipo);
+      });
+      atualizarPares();
+    }).withFailureHandler(function(err) {
+      setStatus('❌ Não foi possível carregar a lista de contas: ' + err.message, 'err');
     }).pspContas();
 
     function norm(s) {
@@ -95,7 +114,10 @@
       var input = document.getElementById(idInput);
       var zona  = document.getElementById(idZona);
 
-      input.addEventListener('change', function() { adicionar(this.files, tipo); });
+      input.addEventListener('change', function() {
+        adicionar(this.files, tipo);
+        this.value = '';   // permite reselecionar o mesmo arquivo depois
+      });
       zona.addEventListener('dragover',  function(e) { e.preventDefault(); zona.style.background = '#fff3f1'; });
       zona.addEventListener('dragleave', function()  { zona.style.background = '#fff'; });
       zona.addEventListener('drop', function(e) {
@@ -107,53 +129,99 @@
     ligarEntrada('inAntiga',  'dzAntiga',  'antiga');
     ligarEntrada('inVigente', 'dzVigente', 'vigente');
 
+    // Acumula (não substitui) e evita repetir o mesmo arquivo
     function adicionar(fileList, tipo) {
-      arquivos[tipo] = [];
       for (var i = 0; i < fileList.length; i++) {
         var f = fileList[i];
         if (!f.name.match(/\.(xlsx|xls)$/i)) continue;
+        var repetido = arquivos[tipo].some(function(x) {
+          return x.file.name === f.name && x.file.size === f.size;
+        });
+        if (repetido) continue;
         arquivos[tipo].push({ file: f, conta: detectarConta(f.name) });
       }
       render(tipo);
       setStatus('', '');
     }
 
+    function remover(tipo, idx) {
+      arquivos[tipo].splice(idx, 1);
+      render(tipo);
+    }
+
     function render(tipo) {
       var tb = document.getElementById(tipo === 'antiga' ? 'tbAntiga' : 'tbVigente');
       var lista = arquivos[tipo];
-      if (!lista.length) { tb.innerHTML = ''; validar(); return; }
+      if (!lista.length) { tb.innerHTML = ''; atualizarPares(); return; }
 
-      var html = '<tr><th>Arquivo</th><th>Conta</th></tr>';
+      var html = '<tr><th>Arquivo</th><th>Conta</th><th></th></tr>';
       lista.forEach(function(item, idx) {
         var opcoes = '<option value="">— selecione —</option>';
         CONTAS.forEach(function(c) {
           opcoes += '<option value="' + c + '"' + (c === item.conta ? ' selected' : '') + '>' + c + '</option>';
         });
-        html += '<tr><td>📄 ' + item.file.name + '</td>' +
-                '<td><select onchange="setConta(\'' + tipo + '\',' + idx + ',this.value)">' + opcoes + '</select></td></tr>';
+        html += '<tr><td class="arq">📄 ' + item.file.name + '</td>' +
+                '<td><select onchange="setConta(\'' + tipo + '\',' + idx + ',this.value)">' + opcoes + '</select></td>' +
+                '<td><span class="x" onclick="remover(\'' + tipo + '\',' + idx + ')" title="remover">✕</span></td></tr>';
       });
       tb.innerHTML = html;
-      validar();
+      atualizarPares();
     }
 
     function setConta(tipo, idx, valor) {
       arquivos[tipo][idx].conta = valor;
-      validar();
+      atualizarPares();
     }
 
-    // Só habilita quando existe pelo menos um par antiga+vigente da mesma conta
+    function arquivoDe(tipo, conta) {
+      var achados = arquivos[tipo].filter(function(x) { return x.conta === conta; });
+      return achados.length ? achados[0].file : null;
+    }
+
+    // Pares completos (antiga + vigente da mesma conta)
     function paresProntos() {
       var pares = [];
       CONTAS.forEach(function(c) {
-        var a = arquivos.antiga.filter(function(x)  { return x.conta === c; })[0];
-        var v = arquivos.vigente.filter(function(x) { return x.conta === c; })[0];
-        if (a && v) pares.push({ conta: c, antiga: a.file, vigente: v.file });
+        var a = arquivoDe('antiga', c);
+        var v = arquivoDe('vigente', c);
+        if (a && v) pares.push({ conta: c, antiga: a, vigente: v });
       });
       return pares;
     }
 
-    function validar() {
-      document.getElementById('btn').disabled = paresProntos().length === 0;
+    // Painel de status por conta — deixa claro o que vai (e o que não vai) rodar
+    function atualizarPares() {
+      if (!CONTAS.length) return;
+      var partes = [], prontos = 0, avisos = [];
+
+      CONTAS.forEach(function(c) {
+        var a = arquivoDe('antiga', c);
+        var v = arquivoDe('vigente', c);
+        var falta = [];
+        if (!a) falta.push('ANTIGA');
+        if (!v) falta.push('VIGENTE');
+
+        if (!falta.length) {
+          prontos++;
+          partes.push('<span class="pconta pok">✅ ' + c + '</span>');
+          if (a.name === v.name && a.size === v.size) {
+            avisos.push('⚠️ ' + c + ': o mesmo arquivo foi usado nos dois campos.');
+          }
+        } else {
+          partes.push('<span class="pconta pnok">✖ ' + c + ' (falta ' + falta.join(' e ') + ')</span>');
+        }
+      });
+
+      var html = '<b>Contas prontas para comparar:</b><br>' + partes.join('');
+      if (avisos.length) html += '<br><span class="pnok">' + avisos.join('<br>') + '</span>';
+      document.getElementById('pares').innerHTML = html;
+
+      var btn = document.getElementById('btn');
+      btn.disabled = prontos === 0;
+      btn.textContent = prontos === 0
+        ? 'Comparar'
+        : 'Comparar ' + prontos + ' conta' + (prontos > 1 ? 's' : '') +
+          (prontos < CONTAS.length ? ' (as demais ficam de fora)' : '');
     }
 
     // ── Leitura do xlsx ────────────────────────────────────────
@@ -247,6 +315,9 @@
       document.getElementById('progressWrap').style.display = 'block';
 
       var resultados = [];
+      var fora = CONTAS.filter(function(c) {
+        return !pares.some(function(p) { return p.conta === c; });
+      });
       var passos = pares.length + 1;
 
       function progresso(i) {
@@ -259,10 +330,15 @@
           google.script.run
             .withSuccessHandler(function() {
               progresso(passos);
-              setStatus('✅ Comparação concluída!\n\n' + resultados.join('\n') +
-                        '\n\nEm cada conta, a referência é o arquivo com MAIS itens em promoção.\n' +
-                        'Vermelho = está na referência e não tem par no outro arquivo.\n' +
-                        'Laranja = está nos dois, com preço de desconto diferente.', 'ok');
+              var msg = '✅ Comparação concluída — ' + pares.length + ' conta(s)\n\n' + resultados.join('\n');
+              if (fora.length) {
+                msg += '\n\n⚠️ Ficaram de fora (faltou arquivo): ' + fora.join(', ') +
+                       '\nSelecione os arquivos que faltam e clique em Comparar de novo.';
+              }
+              msg += '\n\nEm cada conta, a referência é o arquivo com MAIS itens em promoção.\n' +
+                     'Vermelho = está na referência e não tem par no outro arquivo.\n' +
+                     'Laranja = está nos dois, com preço de desconto diferente.';
+              setStatus(msg, fora.length ? 'warn' : 'ok');
               document.getElementById('btn').disabled = false;
             })
             .withFailureHandler(function(err) { falhar(err.message); })
@@ -272,12 +348,12 @@
 
         var par = pares[i];
         progresso(i);
-        setStatus('⏳ Lendo arquivos de ' + par.conta + '...', 'info');
+        setStatus('⏳ (' + (i + 1) + '/' + pares.length + ') Lendo arquivos de ' + par.conta + '...', 'info');
 
         lerArquivo(par.antiga, function(linhasAntiga) {
           lerArquivo(par.vigente, function(linhasVigente) {
-            setStatus('⏳ Comparando ' + par.conta + ' (' + linhasAntiga.length +
-                      ' itens na antiga × ' + linhasVigente.length + ' na vigente)...', 'info');
+            setStatus('⏳ (' + (i + 1) + '/' + pares.length + ') Comparando ' + par.conta + ' — ' +
+                      linhasAntiga.length + ' linhas na ANTIGA × ' + linhasVigente.length + ' na VIGENTE...', 'info');
             google.script.run
               .withSuccessHandler(function(res) {
                 resultados.push('• ' + res.conta + ' — referência: promo ' + res.ladoRef +
@@ -286,7 +362,7 @@
                                 res.dif + ' com preço diferente, ' + res.ok + ' ok');
                 proximo(i + 1);
               })
-              .withFailureHandler(function(err) { falhar(err.message); })
+              .withFailureHandler(function(err) { falhar(par.conta + ': ' + err.message); })
               .pspProcessarConta(par.conta, linhasAntiga, linhasVigente);
           }, falhar);
         }, falhar);
