@@ -344,7 +344,8 @@ function montarConfig_estatico(sh) {
     [54, 'Crédito de ICMS na entrada', '', 'auto'],
     [55, 'Crédito de PIS/COFINS na entrada', '', 'auto'],
     [56, 'Crédito de IPI na entrada', '', 'auto'],
-    [57, 'Alíquota de IPI na saída', '', 'auto']
+    [57, 'Alíquota de IPI na saída', '', 'auto'],
+    [58, 'CUSTO LÍQUIDO DE CRÉDITOS (é este que vira o CMV)', '', 'res']
   ];
 
   linhas.forEach(function (l) {
@@ -353,7 +354,9 @@ function montarConfig_estatico(sh) {
       sh.getRange(l[0], 1, 1, 2).setBackground(COR_SECAO).setFontWeight('bold');
     } else {
       if (l[2] !== '') sh.getRange(l[0], 2).setValue(l[2]);
-      sh.getRange(l[0], 2).setBackground(l[3] === 'in' ? COR_INPUT : COR_AUTO);
+      sh.getRange(l[0], 2).setBackground(
+        l[3] === 'in' ? COR_INPUT : (l[3] === 'res' ? COR_RESULT : COR_AUTO));
+      if (l[3] === 'res') sh.getRange(l[0], 1, 1, 2).setFontWeight('bold');
     }
   });
 
@@ -362,7 +365,7 @@ function montarConfig_estatico(sh) {
     sh.getRange(r, 2).setNumberFormat(FMT_PCT);
   });
   [22, 26, 27, 28, 29, 30, 31, 34, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-   53, 54, 55, 56].forEach(function (r) {
+   53, 54, 55, 56, 58].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_MOEDA);
   });
 
@@ -378,7 +381,7 @@ function montarConfig_estatico(sh) {
 
   // Notas
   sh.getRange('D3').setValue('OBSERVAÇÕES');
-  sh.getRange('D4:D28').setValues([
+  sh.getRange('D4:D34').setValues([
     ['• "Origem da mercadoria" = CST de origem do item. Importada (1/2/3/8) → saída'],
     ['  interestadual a 4%, INDEPENDENTE de quem importou. Se você compra de um'],
     ['  distribuidor nacional que importou, ainda é 4% na sua saída.'],
@@ -403,7 +406,13 @@ function montarConfig_estatico(sh) {
     [''],
     ['• IRPJ/CSLL NÃO entram aqui. São apurados no fechamento, sobre o lucro'],
     ['  do período — depois das despesas fixas e das compensações. A margem'],
-    ['  desta planilha é margem de contribuição, antes disso.']
+    ['  desta planilha é margem de contribuição, antes disso.'],
+    [''],
+    ['• Na importação, ESTRANHE se o "custo de aquisição bruto" vier maior que'],
+    ['  o que você pagou: é normal. O ICMS-importação é calculado "por dentro"'],
+    ['  (entra na própria base), infla o custo bruto e volta inteiro como'],
+    ['  crédito na linha de baixo. Olhe sempre o CUSTO LÍQUIDO (linha 58) —'],
+    ['  é esse que vira CMV na aba Precificacao.']
   ]);
 }
 
@@ -452,6 +461,9 @@ function montarConfig_formulas(sh) {
   sh.getRange('B55').setFormula(F('=IF(' + IMP + ',I_CRED_PC,R_CRED_PC)'));
   sh.getRange('B56').setFormula(F('=IF(' + IMP + ',I_CRED_IPI,0)'));
   sh.getRange('B57').setFormula(F('=IF(' + IMP + ',I_IPI_PCT,0)'));
+  // O custo bruto é intermediário: o ICMS-importação é calculado "por dentro",
+  // infla o custo e volta inteiro como crédito. O que vira CMV é o líquido.
+  sh.getRange('B58').setFormula(F('=B53-B54-B55-B56'));
 }
 
 
@@ -789,6 +801,7 @@ function criarNamedRanges(ss, cfg, fat) {
     ['CRED_PC_ENT',      cfg, 'B55'],
     ['CRED_IPI_ENT',     cfg, 'B56'],
     ['ALQ_IPI_SAIDA',    cfg, 'B57'],
+    ['CUSTO_LIQUIDO',    cfg, 'B58'],
 
     ['ICMS_PROP_NAC',    fat, 'B' + r],
     ['DIFAL_MED_NAC',    fat, 'B' + (r + 1)],
