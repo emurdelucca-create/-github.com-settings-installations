@@ -321,31 +321,32 @@ function montarConfig_estatico(sh) {
     [31, 'Crédito de PIS/COFINS', '', 'auto'],
 
     [33, '4) AQUISIÇÃO — IMPORTAÇÃO PRÓPRIA', '', 'sec'],
-    [34, 'Valor aduaneiro / CIF (R$, por unidade)', 0, 'in'],
-    [35, 'Imposto de Importação %', 0, 'in'],
-    [36, 'IPI % (crédito na DI e débito na saída)', 0, 'in'],
-    [37, 'PIS-Importação %', 0.021, 'in'],
-    [38, 'COFINS-Importação %', 0.0965, 'in'],
-    [39, 'Despesas aduaneiras (Siscomex, THC, armazenagem, desembaraço)', 0, 'in'],
-    [40, 'Frete interno pós-desembaraço', 0, 'in'],
-    [41, 'II R$', '', 'auto'],
-    [42, 'IPI R$', '', 'auto'],
-    [43, 'PIS-Importação R$', '', 'auto'],
-    [44, 'COFINS-Importação R$', '', 'auto'],
-    [45, 'Base de cálculo do ICMS-Importação (por dentro)', '', 'auto'],
-    [46, 'ICMS-Importação R$', '', 'auto'],
-    [47, 'Custo de aquisição bruto', '', 'auto'],
-    [48, 'Crédito de ICMS', '', 'auto'],
-    [49, 'Crédito de PIS/COFINS', '', 'auto'],
-    [50, 'Crédito de IPI', '', 'auto'],
+    [34, 'O custo abaixo já está LÍQUIDO de créditos?', 'Não', 'in'],
+    [35, 'Custo por unidade (valor aduaneiro/CIF, ou custo líquido)', 0, 'in'],
+    [36, 'Imposto de Importação %   [só no modo "Não"]', 0, 'in'],
+    [37, 'IPI %   [SEMPRE — é ele que gera o débito na saída]', 0, 'in'],
+    [38, 'PIS-Importação %   [só no modo "Não"]', 0.021, 'in'],
+    [39, 'COFINS-Importação %   [só no modo "Não"]', 0.0965, 'in'],
+    [40, 'Despesas aduaneiras (Siscomex, THC, armazenagem, desembaraço)', 0, 'in'],
+    [41, 'Frete interno pós-desembaraço', 0, 'in'],
+    [42, 'II R$', '', 'auto'],
+    [43, 'IPI R$', '', 'auto'],
+    [44, 'PIS-Importação R$', '', 'auto'],
+    [45, 'COFINS-Importação R$', '', 'auto'],
+    [46, 'Base de cálculo do ICMS-Importação (por dentro)', '', 'auto'],
+    [47, 'ICMS-Importação R$', '', 'auto'],
+    [48, 'Custo de aquisição bruto', '', 'auto'],
+    [49, 'Crédito de ICMS', '', 'auto'],
+    [50, 'Crédito de PIS/COFINS', '', 'auto'],
+    [51, 'Crédito de IPI', '', 'auto'],
 
-    [52, '5) AQUISIÇÃO — CENÁRIO ATIVO (alimenta a precificação)', '', 'sec'],
-    [53, 'Custo de aquisição bruto', '', 'auto'],
-    [54, 'Crédito de ICMS na entrada', '', 'auto'],
-    [55, 'Crédito de PIS/COFINS na entrada', '', 'auto'],
-    [56, 'Crédito de IPI na entrada', '', 'auto'],
-    [57, 'Alíquota de IPI na saída', '', 'auto'],
-    [58, 'CUSTO LÍQUIDO DE CRÉDITOS (é este que vira o CMV)', '', 'res']
+    [53, '5) AQUISIÇÃO — CENÁRIO ATIVO (alimenta a precificação)', '', 'sec'],
+    [54, 'Custo de aquisição bruto', '', 'auto'],
+    [55, 'Crédito de ICMS na entrada', '', 'auto'],
+    [56, 'Crédito de PIS/COFINS na entrada', '', 'auto'],
+    [57, 'Crédito de IPI na entrada', '', 'auto'],
+    [58, 'Alíquota de IPI na saída', '', 'auto'],
+    [59, 'CUSTO LÍQUIDO DE CRÉDITOS (é este que vira o CMV)', '', 'res']
   ];
 
   linhas.forEach(function (l) {
@@ -361,11 +362,11 @@ function montarConfig_estatico(sh) {
   });
 
   // Formatos
-  [8, 9, 10, 15, 16, 24, 25, 35, 36, 37, 38, 57].forEach(function (r) {
+  [8, 9, 10, 15, 16, 24, 25, 36, 37, 38, 39, 58].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_PCT);
   });
-  [22, 26, 27, 28, 29, 30, 31, 34, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-   53, 54, 55, 56, 58].forEach(function (r) {
+  [22, 26, 27, 28, 29, 30, 31, 35, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+   54, 55, 56, 57, 59].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_MOEDA);
   });
 
@@ -375,13 +376,13 @@ function montarConfig_estatico(sh) {
   dropdown(sh, 'B23', listaUF);
   dropdown(sh, 'B6',  ['Nacional', 'Importada']);
   dropdown(sh, 'B7',  ['Revenda (compra no Brasil)', 'Importação própria']);
-  ['B11', 'B12', 'B17', 'B18', 'B19'].forEach(function (c) {
+  ['B11', 'B12', 'B17', 'B18', 'B19', 'B34'].forEach(function (c) {
     dropdown(sh, c, ['Sim', 'Não']);
   });
 
   // Notas
   sh.getRange('D3').setValue('OBSERVAÇÕES');
-  sh.getRange('D4:D34').setValues([
+  sh.getRange('D4:D53').setValues([
     ['• "Origem da mercadoria" = CST de origem do item. Importada (1/2/3/8) → saída'],
     ['  interestadual a 4%, INDEPENDENTE de quem importou. Se você compra de um'],
     ['  distribuidor nacional que importou, ainda é 4% na sua saída.'],
@@ -408,11 +409,30 @@ function montarConfig_estatico(sh) {
     ['  do período — depois das despesas fixas e das compensações. A margem'],
     ['  desta planilha é margem de contribuição, antes disso.'],
     [''],
-    ['• Na importação, ESTRANHE se o "custo de aquisição bruto" vier maior que'],
-    ['  o que você pagou: é normal. O ICMS-importação é calculado "por dentro"'],
-    ['  (entra na própria base), infla o custo bruto e volta inteiro como'],
-    ['  crédito na linha de baixo. Olhe sempre o CUSTO LÍQUIDO (linha 58) —'],
-    ['  é esse que vira CMV na aba Precificacao.']
+    ['• B34 escolhe COMO você digita o custo da importação:'],
+    [''],
+    ['    "Não"  → B35 é o valor aduaneiro puro. A planilha calcula II, IPI,'],
+    ['             PIS/COFINS e o ICMS "por dentro", soma no custo e devolve'],
+    ['             como crédito. Use quando quiser ver a importação aberta.'],
+    [''],
+    ['    "Sim"  → B35 já é o custo líquido de créditos (a cotação que o'],
+    ['             despachante te passa). A planilha não calcula nem credita'],
+    ['             nada — usa o número como está. II, PIS-imp e COFINS-imp'],
+    ['             passam a ser ignorados.'],
+    [''],
+    ['  Os dois modos dão a MESMA margem quando os números são coerentes.'],
+    ['  O "Sim" só evita mostrar um custo bruto inflado e neutraliza o'],
+    ['  limitador de crédito do B11, que não teria o que limitar.'],
+    [''],
+    ['• ATENÇÃO: o IPI % (B37) é lido nos DOIS modos. No "Sim" ele não gera'],
+    ['  crédito, mas continua definindo o DÉBITO de IPI na saída — como'],
+    ['  importador você é equiparado a industrial e deve IPI na venda.'],
+    ['  Deixar B37 zerado apaga esse débito da conta.'],
+    [''],
+    ['• No modo "Não", ESTRANHE se o "custo de aquisição bruto" vier maior'],
+    ['  que o que você pagou: é normal. O ICMS-importação é calculado "por'],
+    ['  dentro" (entra na própria base), infla o custo bruto e volta inteiro'],
+    ['  como crédito. Olhe sempre o CUSTO LÍQUIDO (linha 59).']
   ]);
 }
 
@@ -441,29 +461,49 @@ function montarConfig_formulas(sh) {
   sh.getRange('B31').setFormula(F('=R_BASE_CRED_PC*(ALQ_PIS+ALQ_COFINS)'));
 
   // --- Importação própria --------------------------------------------------
-  sh.getRange('B41').setFormula(F('=I_VA*I_II_PCT'));
-  sh.getRange('B42').setFormula(F('=(I_VA+I_II_RS)*I_IPI_PCT'));
-  sh.getRange('B43').setFormula(F('=I_VA*I_PIS_PCT'));      // base = valor aduaneiro (RE 559.937)
-  sh.getRange('B44').setFormula(F('=I_VA*I_COFINS_PCT'));
-  sh.getRange('B45').setFormula(F(
-    '=IFERROR((I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_DESP)/(1-' + ALQ_INT_ORIG + '),0)'));
-  sh.getRange('B46').setFormula(F('=I_BASE_ICMS*' + ALQ_INT_ORIG));
-  sh.getRange('B47').setFormula(F(
-    '=I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_ICMS_RS+I_DESP+I_FRETE_INT'));
-  sh.getRange('B48').setFormula(F('=I_ICMS_RS'));
-  sh.getRange('B49').setFormula(F('=I_PIS_RS+I_COFINS_RS'));
-  sh.getRange('B50').setFormula(F('=I_IPI_RS'));
+  // Dois modos de entrada, controlados por I_CUSTO_LIQ (B34):
+  //
+  //   "Não"  → B35 é o valor aduaneiro. A planilha calcula II, IPI, PIS/COFINS
+  //            e o ICMS "por dentro", soma tudo no custo e devolve como crédito.
+  //   "Sim"  → B35 já é o custo líquido (ex.: cotação do despachante com os
+  //            créditos abatidos). Zera todos os tributos e créditos daqui,
+  //            porque eles já estão embutidos no número digitado.
+  //
+  // Os dois modos chegam ao MESMO CMV e à MESMA margem quando os números são
+  // coerentes. O modo "Sim" só evita exibir um custo bruto inflado e neutraliza
+  // o limitador de crédito (B11), que não teria o que limitar.
+  //
+  // O IPI % (B37) é lido nos DOIS modos: no "Sim" ele não gera crédito, mas
+  // continua definindo o débito de IPI na saída (equiparado a industrial).
+  var LIQ = 'I_CUSTO_LIQ="Sim"';
+
+  sh.getRange('B42').setFormula(F('=IF(' + LIQ + ',0,I_VA*I_II_PCT)'));
+  sh.getRange('B43').setFormula(F('=IF(' + LIQ + ',0,(I_VA+I_II_RS)*I_IPI_PCT)'));
+  sh.getRange('B44').setFormula(F('=IF(' + LIQ + ',0,I_VA*I_PIS_PCT)'));   // base = valor aduaneiro (RE 559.937)
+  sh.getRange('B45').setFormula(F('=IF(' + LIQ + ',0,I_VA*I_COFINS_PCT)'));
+  sh.getRange('B46').setFormula(F(
+    '=IF(' + LIQ + ',0,IFERROR((I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_DESP)/(1-' +
+    ALQ_INT_ORIG + '),0))'));
+  sh.getRange('B47').setFormula(F('=I_BASE_ICMS*' + ALQ_INT_ORIG));
+  sh.getRange('B48').setFormula(F(
+    '=IF(' + LIQ + ',I_VA+I_DESP+I_FRETE_INT,' +
+    'I_VA+I_II_RS+I_IPI_RS+I_PIS_RS+I_COFINS_RS+I_ICMS_RS+I_DESP+I_FRETE_INT)'));
+  sh.getRange('B49').setFormula(F('=I_ICMS_RS'));
+  sh.getRange('B50').setFormula(F('=I_PIS_RS+I_COFINS_RS'));
+  sh.getRange('B51').setFormula(F('=I_IPI_RS'));
 
   // --- Cenário ativo -------------------------------------------------------
   var IMP = 'MODALIDADE="Importação própria"';
-  sh.getRange('B53').setFormula(F('=IF(' + IMP + ',I_CUSTO_TOTAL,R_TOTAL)'));
-  sh.getRange('B54').setFormula(F('=IF(' + IMP + ',I_CRED_ICMS,R_CRED_ICMS)'));
-  sh.getRange('B55').setFormula(F('=IF(' + IMP + ',I_CRED_PC,R_CRED_PC)'));
-  sh.getRange('B56').setFormula(F('=IF(' + IMP + ',I_CRED_IPI,0)'));
-  sh.getRange('B57').setFormula(F('=IF(' + IMP + ',I_IPI_PCT,0)'));
-  // O custo bruto é intermediário: o ICMS-importação é calculado "por dentro",
-  // infla o custo e volta inteiro como crédito. O que vira CMV é o líquido.
-  sh.getRange('B58').setFormula(F('=B53-B54-B55-B56'));
+  sh.getRange('B54').setFormula(F('=IF(' + IMP + ',I_CUSTO_TOTAL,R_TOTAL)'));
+  sh.getRange('B55').setFormula(F('=IF(' + IMP + ',I_CRED_ICMS,R_CRED_ICMS)'));
+  sh.getRange('B56').setFormula(F('=IF(' + IMP + ',I_CRED_PC,R_CRED_PC)'));
+  sh.getRange('B57').setFormula(F('=IF(' + IMP + ',I_CRED_IPI,0)'));
+  sh.getRange('B58').setFormula(F('=IF(' + IMP + ',I_IPI_PCT,0)'));
+  // O custo bruto é intermediário: no modo "Não" o ICMS-importação é calculado
+  // "por dentro", infla o custo e volta inteiro como crédito. O que vira CMV
+  // é o líquido — e no modo "Sim" ele é igual ao que você digitou.
+  sh.getRange('B59').setFormula(F('=B54-B55-B56-B57'));
+
 }
 
 
@@ -778,30 +818,31 @@ function criarNamedRanges(ss, cfg, fat) {
     ['R_BASE_CRED_PC',   cfg, 'B30'],
     ['R_CRED_PC',        cfg, 'B31'],
 
-    ['I_VA',             cfg, 'B34'],
-    ['I_II_PCT',         cfg, 'B35'],
-    ['I_IPI_PCT',        cfg, 'B36'],
-    ['I_PIS_PCT',        cfg, 'B37'],
-    ['I_COFINS_PCT',     cfg, 'B38'],
-    ['I_DESP',           cfg, 'B39'],
-    ['I_FRETE_INT',      cfg, 'B40'],
-    ['I_II_RS',          cfg, 'B41'],
-    ['I_IPI_RS',         cfg, 'B42'],
-    ['I_PIS_RS',         cfg, 'B43'],
-    ['I_COFINS_RS',      cfg, 'B44'],
-    ['I_BASE_ICMS',      cfg, 'B45'],
-    ['I_ICMS_RS',        cfg, 'B46'],
-    ['I_CUSTO_TOTAL',    cfg, 'B47'],
-    ['I_CRED_ICMS',      cfg, 'B48'],
-    ['I_CRED_PC',        cfg, 'B49'],
-    ['I_CRED_IPI',       cfg, 'B50'],
+    ['I_CUSTO_LIQ',      cfg, 'B34'],
+    ['I_VA',             cfg, 'B35'],
+    ['I_II_PCT',         cfg, 'B36'],
+    ['I_IPI_PCT',        cfg, 'B37'],
+    ['I_PIS_PCT',        cfg, 'B38'],
+    ['I_COFINS_PCT',     cfg, 'B39'],
+    ['I_DESP',           cfg, 'B40'],
+    ['I_FRETE_INT',      cfg, 'B41'],
+    ['I_II_RS',          cfg, 'B42'],
+    ['I_IPI_RS',         cfg, 'B43'],
+    ['I_PIS_RS',         cfg, 'B44'],
+    ['I_COFINS_RS',      cfg, 'B45'],
+    ['I_BASE_ICMS',      cfg, 'B46'],
+    ['I_ICMS_RS',        cfg, 'B47'],
+    ['I_CUSTO_TOTAL',    cfg, 'B48'],
+    ['I_CRED_ICMS',      cfg, 'B49'],
+    ['I_CRED_PC',        cfg, 'B50'],
+    ['I_CRED_IPI',       cfg, 'B51'],
 
-    ['CUSTO_BRUTO',      cfg, 'B53'],
-    ['CRED_ICMS_ENT',    cfg, 'B54'],
-    ['CRED_PC_ENT',      cfg, 'B55'],
-    ['CRED_IPI_ENT',     cfg, 'B56'],
-    ['ALQ_IPI_SAIDA',    cfg, 'B57'],
-    ['CUSTO_LIQUIDO',    cfg, 'B58'],
+    ['CUSTO_BRUTO',      cfg, 'B54'],
+    ['CRED_ICMS_ENT',    cfg, 'B55'],
+    ['CRED_PC_ENT',      cfg, 'B56'],
+    ['CRED_IPI_ENT',     cfg, 'B57'],
+    ['ALQ_IPI_SAIDA',    cfg, 'B58'],
+    ['CUSTO_LIQUIDO',    cfg, 'B59'],
 
     ['ICMS_PROP_NAC',    fat, 'B' + r],
     ['DIFAL_MED_NAC',    fat, 'B' + (r + 1)],
