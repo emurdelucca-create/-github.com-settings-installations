@@ -38,9 +38,11 @@
 <body>
   <h3>🏷️ Importar e Comparar Promos</h3>
   <p class="sub">
-    A promo <b>ANTIGA</b> é a referência (preços corretos). O cruzamento é feito pelo
-    <b>ID de variação</b> (coluna D) e o preço confrontado é o <b>Preço de desconto</b> (coluna H).<br>
-    Gera uma aba por conta com todos os itens da antiga + status + o preço que está hoje na vigente.
+    Em cada conta, a referência é o arquivo com <b>mais itens em promoção</b> — ele é confrontado
+    com o outro. O cruzamento é feito pelo <b>ID de variação</b> (coluna D) e o preço confrontado é o
+    <b>Preço de desconto</b> (coluna H).<br>
+    Gera uma aba por conta com todos os itens da referência + status + o preço do outro arquivo.
+    Dá para travar a referência em ANTIGA ou VIGENTE no menu <b>⚙️ Referência</b>.
   </p>
 
   <div class="bloco">
@@ -258,7 +260,9 @@
             .withSuccessHandler(function() {
               progresso(passos);
               setStatus('✅ Comparação concluída!\n\n' + resultados.join('\n') +
-                        '\n\nAs linhas em vermelho são as que faltam inserir na promo vigente.', 'ok');
+                        '\n\nEm cada conta, a referência é o arquivo com MAIS itens em promoção.\n' +
+                        'Vermelho = está na referência e não tem par no outro arquivo.\n' +
+                        'Laranja = está nos dois, com preço de desconto diferente.', 'ok');
               document.getElementById('btn').disabled = false;
             })
             .withFailureHandler(function(err) { falhar(err.message); })
@@ -276,8 +280,10 @@
                       ' itens na antiga × ' + linhasVigente.length + ' na vigente)...', 'info');
             google.script.run
               .withSuccessHandler(function(res) {
-                resultados.push('• ' + res.conta + ': ' + res.total + ' itens — ' +
-                                res.falta + ' faltando, ' + res.dif + ' com preço diferente, ' + res.ok + ' ok');
+                resultados.push('• ' + res.conta + ' — referência: promo ' + res.ladoRef +
+                                ' (' + res.qtdRef + ' itens) × ' + res.ladoComp + ' (' + res.qtdComp + ')\n' +
+                                '   ' + res.falta + ' sem par na ' + res.ladoComp + ', ' +
+                                res.dif + ' com preço diferente, ' + res.ok + ' ok');
                 proximo(i + 1);
               })
               .withFailureHandler(function(err) { falhar(err.message); })
