@@ -289,6 +289,9 @@ function _pspEscreverAba(conta, linhas, ctx) {
   if (aba.getFilter()) aba.getFilter().remove();
   aba.clear();
   aba.clearConditionalFormatRules();
+  // Desfaz mesclagens de versões anteriores: com A1:M1 mesclada o Sheets
+  // recusa setFrozenColumns(1) ("parte de uma célula mesclada")
+  aba.getRange(1, 1, 1, PSP_NCOLS).breakApart();
 
   const header = PSP_HEADER_FIXO.concat([
     'Preço original (' + ctx.ladoRef + ')',
@@ -301,13 +304,14 @@ function _pspEscreverAba(conta, linhas, ctx) {
   ]);
 
   const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
-  aba.getRange(PSP.LINHA_TITULO, 1, 1, PSP_NCOLS).merge()
+  aba.getRange(PSP.LINHA_TITULO, 1, 1, PSP_NCOLS)
+     .setBackground('#ee4d2d').setFontColor('#ffffff')
+     .setFontWeight('bold').setFontSize(11)
+     .setVerticalAlignment('middle');
+  aba.getRange(PSP.LINHA_TITULO, 1)
      .setValue('🏷️ ' + conta + ' — Referência: promo ' + ctx.ladoRef + ' (' + ctx.qtdRef +
                ' itens, a que tem mais)  ×  Comparada: promo ' + ctx.ladoComp + ' (' + ctx.qtdComp +
-               ' itens)   ·   atualizado em ' + ts)
-     .setFontWeight('bold').setFontSize(11)
-     .setBackground('#ee4d2d').setFontColor('#ffffff')
-     .setVerticalAlignment('middle');
+               ' itens)   ·   atualizado em ' + ts);
 
   aba.getRange(PSP.LINHA_HEADER, 1, 1, PSP_NCOLS)
      .setValues([header])

@@ -315,6 +315,7 @@
       document.getElementById('progressWrap').style.display = 'block';
 
       var resultados = [];
+      var erros = [];
       var fora = CONTAS.filter(function(c) {
         return !pares.some(function(p) { return p.conta === c; });
       });
@@ -330,7 +331,9 @@
           google.script.run
             .withSuccessHandler(function() {
               progresso(passos);
-              var msg = '✅ Comparação concluída — ' + pares.length + ' conta(s)\n\n' + resultados.join('\n');
+              var msg = (erros.length ? '⚠️ Concluído com erros — ' : '✅ Comparação concluída — ') +
+                        resultados.length + ' de ' + pares.length + ' conta(s)\n\n' + resultados.join('\n');
+              if (erros.length) msg += '\n\n❌ Falharam:\n' + erros.join('\n');
               if (fora.length) {
                 msg += '\n\n⚠️ Ficaram de fora (faltou arquivo): ' + fora.join(', ') +
                        '\nSelecione os arquivos que faltam e clique em Comparar de novo.';
@@ -338,7 +341,7 @@
               msg += '\n\nEm cada conta, a referência é o arquivo com MAIS itens em promoção.\n' +
                      'Vermelho = está na referência e não tem par no outro arquivo.\n' +
                      'Laranja = está nos dois, com preço de desconto diferente.';
-              setStatus(msg, fora.length ? 'warn' : 'ok');
+              setStatus(msg, erros.length ? 'err' : (fora.length ? 'warn' : 'ok'));
               document.getElementById('btn').disabled = false;
             })
             .withFailureHandler(function(err) { falhar(err.message); })
@@ -362,10 +365,17 @@
                                 res.dif + ' com preço diferente, ' + res.ok + ' ok');
                 proximo(i + 1);
               })
-              .withFailureHandler(function(err) { falhar(par.conta + ': ' + err.message); })
+              .withFailureHandler(function(err) { pular(i, par.conta, err.message); })
               .pspProcessarConta(par.conta, linhasAntiga, linhasVigente);
-          }, falhar);
-        }, falhar);
+          }, function(msg) { pular(i, par.conta, msg); });
+        }, function(msg) { pular(i, par.conta, msg); });
+      }
+
+      // Erro em uma conta não pode derrubar as demais: registra e segue
+      function pular(i, conta, msg) {
+        erros.push('• ' + conta + ': ' + msg);
+        setStatus('⚠️ ' + conta + ' falhou: ' + msg + '\nSeguindo para a próxima conta...', 'warn');
+        proximo(i + 1);
       }
 
       proximo(0);
