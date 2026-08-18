@@ -317,7 +317,7 @@ function montarParametros_estatico(sh) {
   sh.getRange('B27').setFormula(F('=DIFAL_MED_IMP'));
 
   sh.getRange('D3').setValue('O QUE CADA COISA FAZ');
-  sh.getRange('D4:D50').setValues([
+  sh.getRange('D4:D55').setValues([
     ['• Tema 69 (linha 16): o ICMS destacado não integra a base de PIS/COFINS.'],
     ['  Decisão definitiva do STF, vale para todo mundo. Deixe "Sim".'],
     [''],
@@ -355,6 +355,11 @@ function montarParametros_estatico(sh) {
     ['                              alíquotas concentradas do seu produto'],
     ['                              (autopeças da Lei 10.485: 2,3% e 10,8%).'],
     ['                              A mercadoria segue sem gerar crédito.'],
+    [''],
+    ['  O crédito de PIS/COFINS sobre as taxas do canal (coluna H) NÃO segue'],
+    ['  a coluna U: ele vem da nota de SERVIÇO que o marketplace emite contra'],
+    ['  você, e o monofásico da mercadoria não alcança esse serviço. Se quiser'],
+    ['  desligar ou reduzir esse crédito, use a linha 15 desta aba.'],
     [''],
     ['  Ou seja: importar direto um item monofásico tira a alíquota zero e'],
     ['  ainda paga MAIS que o regime normal (13,1% contra 9,25%). Confirme'],
@@ -572,7 +577,10 @@ function montarPrecificacao_formulas(sh) {
     // Total de custos do canal: comissão + taxa fixa + frete grátis + outros
     G:  function (r) { return '=IF($A' + r + '="","",$I' + r + '*$C' + r + '+$D' + r + '+$E' + r + '+$F' + r + ')'; },
     // Crédito de PIS/COFINS sobre as taxas do canal (zerado se monofásico)
-    H:  function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,$G' + r + '*(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS))'; },
+    // O crédito aqui vem da NF de SERVIÇO que o canal emite contra você, não da
+    // mercadoria. O regime monofásico do produto não alcança esse serviço, então
+    // a coluna U não entra nesta conta.
+    H:  function (r) { return '=IF($A' + r + '="","",$G' + r + '*(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)'; },
 
     // Alíquota de ICMS da COMPRA. Mesma UF -> interna; UF diferente ->
     // interestadual da operação fornecedor→você (4% se a mercadoria for
@@ -623,7 +631,7 @@ function montarPrecificacao_formulas(sh) {
     N:  function (r) {
           var ipi = 'IF($Z' + r + '="Débito e Crédito",$Y' + r + ',0)';
           var pcI = 'IF($U' + r + '=REVENDEDOR,0,$V' + r + '+$W' + r + ')';
-          var crT = 'IF($U' + r + '=REVENDEDOR,0,(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)';
+          var crT = '((ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)';
           var icm = 'IF($P' + r + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC)';
           var dif = 'IF($P' + r + '="Importada",DIFAL_MED_IMP,DIFAL_MED_NAC)';
           var K = '(1-$C' + r + '-' + ipi + '/(1+' + ipi + ')-' + icm + '-' + dif +
