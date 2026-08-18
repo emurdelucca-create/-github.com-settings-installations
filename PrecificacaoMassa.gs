@@ -121,7 +121,7 @@ var COLS = [
   ['R',  '',                       '',                   'UF meu estabelecimento',        'in',  'texto'],
   ['S',  '',                       '',                   'UF de compra',                  'in',  'texto'],
   ['T',  '',                       '',                   'ICMS %',                        'fx',  'pct'  ],
-  ['U',  '',                       '',                   'Item Monofásico? (Sim/Não)',    'in',  'texto'],
+  ['U',  '',                       '',                   'Monofásico? (ver dropdown)',    'in',  'texto'],
   ['V',  '',                       '',                   'Pis %',                         'in',  'pct'  ],
   ['W',  '',                       '',                   'Cofins %',                      'in',  'pct'  ],
   ['X',  '',                       '',                   'ST %',                          'in',  'pct'  ],
@@ -274,16 +274,19 @@ function montarParametros_estatico(sh) {
     [18, 'DIFAL com base dupla? (LC 190/22, art. 13, §6º)', 'Sim', 'in'],
     [19, 'Considerar FCP no DIFAL?', 'Não', 'in'],
     [20, 'Crédito de ICMS acumulado é aproveitável?', 'Sim', 'in'],
+    [21, 'Texto da opção "revendedor" da coluna U (não altere)', 'Sim - revendedor', 'auto'],
 
-    [22, '4) MÉDIAS DO SEU MIX DE ESTADOS (vêm de Faturamento_UF)', '', 'sec'],
-    [23, 'ICMS próprio médio — mercadoria NACIONAL', '', 'auto'],
-    [24, 'DIFAL médio — mercadoria NACIONAL', '', 'auto'],
-    [25, 'ICMS próprio médio — mercadoria IMPORTADA', '', 'auto'],
-    [26, 'DIFAL médio — mercadoria IMPORTADA', '', 'auto'],
+    [23, '4) MÉDIAS DO SEU MIX DE ESTADOS (vêm de Faturamento_UF)', '', 'sec'],
+    [24, 'ICMS próprio médio — mercadoria NACIONAL', '', 'auto'],
+    [25, 'DIFAL médio — mercadoria NACIONAL', '', 'auto'],
+    [26, 'ICMS próprio médio — mercadoria IMPORTADA', '', 'auto'],
+    [27, 'DIFAL médio — mercadoria IMPORTADA', '', 'auto'],
 
-    [28, '5) PADRÕES SUGERIDOS PARA LINHAS NOVAS (referência, não alimenta nada)', '', 'sec'],
-    [29, 'PIS % do item', 0.0165, 'in'],
-    [30, 'COFINS % do item', 0.076, 'in']
+    [29, '5) PADRÕES SUGERIDOS PARA LINHAS NOVAS (referência, não alimenta nada)', '', 'sec'],
+    [30, 'PIS % do item — regime normal', 0.0165, 'in'],
+    [31, 'COFINS % do item — regime normal', 0.076, 'in'],
+    [32, 'PIS % — fabricante/importador de autopeça monofásica', 0.023, 'in'],
+    [33, 'COFINS % — fabricante/importador de autopeça monofásica', 0.108, 'in']
   ];
 
   linhas.forEach(function (l) {
@@ -296,7 +299,7 @@ function montarParametros_estatico(sh) {
     }
   });
 
-  [8, 9, 10, 13, 14, 15, 23, 24, 25, 26, 29, 30].forEach(function (r) {
+  [8, 9, 10, 13, 14, 15, 24, 25, 26, 27, 30, 31, 32, 33].forEach(function (r) {
     sh.getRange(r, 2).setNumberFormat(FMT_PCT);
   });
 
@@ -308,13 +311,13 @@ function montarParametros_estatico(sh) {
 
   sh.getRange('B5').setFormula(F(
     '=IFERROR(VLOOKUP(UF_ORIGEM,Tabela_ICMS!$A$' + LIN_1 + ':$C$' + LIN_N + ',3,FALSE),"?")'));
-  sh.getRange('B23').setFormula(F('=ICMS_PROP_NAC'));
-  sh.getRange('B24').setFormula(F('=DIFAL_MED_NAC'));
-  sh.getRange('B25').setFormula(F('=ICMS_PROP_IMP'));
-  sh.getRange('B26').setFormula(F('=DIFAL_MED_IMP'));
+  sh.getRange('B24').setFormula(F('=ICMS_PROP_NAC'));
+  sh.getRange('B25').setFormula(F('=DIFAL_MED_NAC'));
+  sh.getRange('B26').setFormula(F('=ICMS_PROP_IMP'));
+  sh.getRange('B27').setFormula(F('=DIFAL_MED_IMP'));
 
   sh.getRange('D3').setValue('O QUE CADA COISA FAZ');
-  sh.getRange('D4:D31').setValues([
+  sh.getRange('D4:D50').setValues([
     ['• Tema 69 (linha 16): o ICMS destacado não integra a base de PIS/COFINS.'],
     ['  Decisão definitiva do STF, vale para todo mundo. Deixe "Sim".'],
     [''],
@@ -337,6 +340,25 @@ function montarParametros_estatico(sh) {
     [''],
     ['• IRPJ e CSLL não entram: são apurados no fechamento, sobre o lucro do'],
     ['  período. O que a planilha calcula é margem de CONTRIBUIÇÃO.'],
+    [''],
+    ['• Coluna U (monofásico) tem TRÊS estados, e a diferença é grande:'],
+    [''],
+    ['    "Não" ................... PIS/COFINS normais dos dois lados.'],
+    [''],
+    ['    "Sim - revendedor" ...... você COMPRA de um fabricante/importador'],
+    ['                              brasileiro. Saída a ZERO e sem crédito'],
+    ['                              na entrada. É o caso de quem revende.'],
+    [''],
+    ['    "Sim - fabricante/importador" ... você é quem IMPORTA ou fabrica.'],
+    ['                              A concentração cai em VOCÊ: não há'],
+    ['                              alíquota zero. Preencha V e W com as'],
+    ['                              alíquotas concentradas do seu produto'],
+    ['                              (autopeças da Lei 10.485: 2,3% e 10,8%).'],
+    ['                              A mercadoria segue sem gerar crédito.'],
+    [''],
+    ['  Ou seja: importar direto um item monofásico tira a alíquota zero e'],
+    ['  ainda paga MAIS que o regime normal (13,1% contra 9,25%). Confirme'],
+    ['  as alíquotas do seu produto no art. 3º da lei antes de usar.'],
     [''],
     ['• LIMITAÇÃO — ST: quando a coluna X tem ST, a planilha trata o ST como'],
     ['  custo e zera o crédito de ICMS da compra, mas segue debitando ICMS e'],
@@ -527,7 +549,7 @@ function montarPrecificacao_estatico(sh) {
   dropCol(sh, 'Q',  ['Sim', 'Não']);
   dropCol(sh, 'R',  listaUF);
   dropCol(sh, 'S',  listaUF);
-  dropCol(sh, 'U',  ['Sim', 'Não']);
+  dropCol(sh, 'U',  ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
   dropCol(sh, 'Z',  ['Só custo', 'Débito e Crédito']);
 
   // Uma linha de exemplo, para você ver o formato esperado
@@ -542,13 +564,15 @@ function montarPrecificacao_estatico(sh) {
 function montarPrecificacao_formulas(sh) {
   var n = N_LINHAS, L = LIN_DADOS;
   var TAB = 'Tabela_ICMS!$A:$J';
+  // REVENDEDOR aponta para uma célula de Parametros com o texto exato da opção,
+  // para as fórmulas não dependerem de digitação idêntica em 500 linhas.
 
   // Blocos e sua atribuição por coluna. Cada função recebe o número da linha.
   var defs = {
     // Total de custos do canal: comissão + taxa fixa + frete grátis + outros
     G:  function (r) { return '=IF($A' + r + '="","",$I' + r + '*$C' + r + '+$D' + r + '+$E' + r + '+$F' + r + ')'; },
     // Crédito de PIS/COFINS sobre as taxas do canal (zerado se monofásico)
-    H:  function (r) { return '=IF($A' + r + '="","",IF($U' + r + '="Sim",0,$G' + r + '*(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS))'; },
+    H:  function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,$G' + r + '*(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS))'; },
 
     // Alíquota de ICMS da COMPRA. Mesma UF -> interna; UF diferente ->
     // interestadual da operação fornecedor→você (4% se a mercadoria for
@@ -564,9 +588,9 @@ function montarPrecificacao_formulas(sh) {
     // --- Créditos da entrada. Todos zerados quando o CMV digitado já é
     //     líquido (coluna Q = "Sim"), porque já estão embutidos nele.
     AB: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",$X' + r + '>0),0,$AA' + r + '*$T' + r + '))'; },
-    AC: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",$U' + r + '="Sim"),0,' +
+    AC: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",LEFT($U' + r + ',3)="Sim"),0,' +
           '($AA' + r + '+$AF' + r + '-IF(EXCLUI_ICMS_CRED="Sim",$AB' + r + ',0))*$V' + r + '))'; },
-    AD: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",$U' + r + '="Sim"),0,' +
+    AD: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",LEFT($U' + r + ',3)="Sim"),0,' +
           '($AA' + r + '+$AF' + r + '-IF(EXCLUI_ICMS_CRED="Sim",$AB' + r + ',0))*$W' + r + '))'; },
     AE: function (r) { return '=IF($A' + r + '="","",IF($Z' + r + '="Débito e Crédito",$AF' + r + ',0))'; },
 
@@ -579,9 +603,9 @@ function montarPrecificacao_formulas(sh) {
 
     // --- Débitos da saída
     AI: function (r) { return '=IF($A' + r + '="","",$I' + r + '*IF($P' + r + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC))'; },
-    AJ: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '="Sim",0,' +
+    AJ: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,' +
           '(($I' + r + '-$AL' + r + ')-IF(EXCLUI_ICMS_PC="Sim",$AI' + r + ',0))*$V' + r + '))'; },
-    AK: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '="Sim",0,' +
+    AK: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,' +
           '(($I' + r + '-$AL' + r + ')-IF(EXCLUI_ICMS_PC="Sim",$AI' + r + ',0))*$W' + r + '))'; },
     // IPI da saída só existe quando você é equiparado a industrial
     AL: function (r) { return '=IF($A' + r + '="","",IF($Z' + r + '="Débito e Crédito",$I' + r + '*$Y' + r + '/(1+$Y' + r + '),0))'; },
@@ -598,8 +622,8 @@ function montarPrecificacao_formulas(sh) {
     //     K e Fixos ficam embutidos aqui para não gastar colunas.
     N:  function (r) {
           var ipi = 'IF($Z' + r + '="Débito e Crédito",$Y' + r + ',0)';
-          var pcI = 'IF($U' + r + '="Sim",0,$V' + r + '+$W' + r + ')';
-          var crT = 'IF($U' + r + '="Sim",0,(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)';
+          var pcI = 'IF($U' + r + '=REVENDEDOR,0,$V' + r + '+$W' + r + ')';
+          var crT = 'IF($U' + r + '=REVENDEDOR,0,(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)';
           var icm = 'IF($P' + r + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC)';
           var dif = 'IF($P' + r + '="Importada",DIFAL_MED_IMP,DIFAL_MED_NAC)';
           var K = '(1-$C' + r + '-' + ipi + '/(1+' + ipi + ')-' + icm + '-' + dif +
@@ -657,6 +681,7 @@ function criarNamedRanges(ss, par, fat) {
     ['BASE_DUPLA',       par, 'B18'],
     ['USA_FCP',          par, 'B19'],
     ['CRED_ICMS_APROV',  par, 'B20'],
+    ['REVENDEDOR',       par, 'B21'],
     ['ICMS_PROP_NAC',    fat, 'B' + r],
     ['DIFAL_MED_NAC',    fat, 'B' + (r + 1)],
     ['ICMS_PROP_IMP',    fat, 'B' + (r + 3)],
