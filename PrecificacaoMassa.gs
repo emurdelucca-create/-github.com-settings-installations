@@ -196,6 +196,11 @@ function criarPlanilha() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   SEP = detectarSeparador(ss);
 
+  // Uma planilha não pode ficar sem nenhuma aba. Se as 4 abas do script forem
+  // as únicas do documento, apagar a última estoura e deixa o arquivo quebrado.
+  // A aba-guarda segura o documento durante a exclusão e sai no fim.
+  var guarda = ss.insertSheet('__guarda__');
+
   ABAS.forEach(function (nome) {
     var s = ss.getSheetByName(nome);
     if (s) ss.deleteSheet(s);
@@ -219,6 +224,7 @@ function criarPlanilha() {
 
   formatarTudo(shPar, shTab, shFat, shPre);
 
+  ss.deleteSheet(guarda);
   SpreadsheetApp.flush();
   ss.setActiveSheet(shPre);
 
@@ -539,31 +545,24 @@ function montarPrecificacao_estatico(sh) {
     }
   }
 
-  // Cores e formatos das linhas de dados
+  // Cores, formatos e validação vão SÓ na linha 5. O copyTo em
+  // montarPrecificacao_formulas replica tudo para as demais linhas — é o que
+  // mantém a execução leve o bastante para o serviço do Sheets aguentar.
   COLS.forEach(function (c, i) {
-    var rg = sh.getRange(LIN_DADOS, i + 1, N_LINHAS, 1);
+    var rg = sh.getRange(LIN_DADOS, i + 1);
     rg.setBackground(c[4] === 'in' ? COR_INPUT : (c[4] === 'res' ? COR_RESULT : COR_AUTO));
     if (c[5] === 'money') rg.setNumberFormat(FMT_MOEDA);
     else if (c[5] === 'pct') rg.setNumberFormat(FMT_PCT);
   });
 
-  // Dropdowns por coluna
   var listaUF = UFS.map(function (u) { return u[0]; });
-  dropCol(sh, 'B',  CANAIS);
-  dropCol(sh, 'P',  ['Nacional', 'Importada']);
-  dropCol(sh, 'Q',  ['Sim', 'Não']);
-  dropCol(sh, 'R',  listaUF);
-  dropCol(sh, 'S',  listaUF);
-  dropCol(sh, 'U',  ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
-  dropCol(sh, 'Z',  ['Só custo', 'Débito e Crédito']);
-
-  // Uma linha de exemplo, para você ver o formato esperado
-  sh.getRange(LIN_DADOS, 1, 1, 27).setValues([[
-    'EXEMPLO-001', 'Mercado Livre', 0.12, 0, 68.95, 0, '', '', 649.99, '', '',
-    0.15, '', '', 2.00,
-    'Nacional', 'Não', 'SP', 'SP', '', 'Não', 0.0165, 0.076, 0, 0.09,
-    'Só custo', 283.87
-  ]]);
+  dropCel(sh, 'B',  CANAIS);
+  dropCel(sh, 'P',  ['Nacional', 'Importada']);
+  dropCel(sh, 'Q',  ['Sim', 'Não']);
+  dropCel(sh, 'R',  listaUF);
+  dropCel(sh, 'S',  listaUF);
+  dropCel(sh, 'U',  ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
+  dropCel(sh, 'Z',  ['Só custo', 'Débito e Crédito']);
 }
 
 function montarPrecificacao_formulas(sh) {
@@ -651,10 +650,34 @@ function montarPrecificacao_formulas(sh) {
     AP: function (r) { return '=IF($A' + r + '="","",IF(CRED_ICMS_APROV="Sim",0,MAX(0,$AB' + r + '-$AI' + r + ')))'; }
   };
 
-  Object.keys(defs).forEach(function (col) {
-    var m = [];
-    for (var i = 0; i < n; i++) m.push([F(defs[col](L + i))]);
-    sh.getRange(L, colNum(col), n, 1).setFormulas(m);
+  // Escreve as fórmulas UMA vez, na linha 5, e replica com copyTo.
+  //
+  // Gerar as 500 linhas uma a uma custava ~11.000 strings de fórmula numa só
+  // execução, e o serviço do Sheets derrubava o script. O copyTo faz o mesmo
+  // trabalho do lado do servidor e ainda leva junto cor, formato numérico e
+  // validação de dados da linha modelo.
+  //
+  // As referências das fórmulas são do tipo $A5: coluna travada, linha solta.
+  // É exatamente o que o copyTo precisa para ajustar 5 -> 6 -> 7 sozinho.
+  var modelo = COLS.map(function (c) {
+    return defs[c[0]] ? F(defs[c[0]](L)) : '';
+  });
+  sh.getRange(L, 1, 1, COLS.length).setFormulas([modelo]);
+  SpreadsheetApp.flush();
+
+  sh.getRange(L, 1, 1, COLS.length)
+    .copyTo(sh.getRange(L + 1, 1, n - 1, COLS.length));
+
+  // A linha de exemplo entra DEPOIS do copyTo, senão 'EXEMPLO-001' seria
+  // replicado nas 499 linhas seguintes.
+  // Só as colunas de entrada recebem valor; as de fórmula ficam intactas.
+  [['A', 'EXEMPLO-001'], ['B', 'Mercado Livre'], ['C', 0.12], ['D', 0],
+   ['E', 68.95], ['F', 0], ['I', 649.99], ['L', 0.15], ['O', 2.00],
+   ['P', 'Nacional'], ['Q', 'Não'], ['R', 'SP'], ['S', 'SP'], ['U', 'Não'],
+   ['V', 0.0165], ['W', 0.076], ['X', 0], ['Y', 0.15], ['Z', 'Só custo'],
+   ['AA', 283.87]
+  ].forEach(function (v) {
+    sh.getRange(L, colNum(v[0])).setValue(v[1]);
   });
 
   // Alertas: margem negativa e crédito de ICMS empoçando
@@ -715,8 +738,8 @@ function dropdown(sh, a1, valores) {
       .requireValueInList(valores, true).setAllowInvalid(false).build());
 }
 
-function dropCol(sh, letra, valores) {
-  sh.getRange(LIN_DADOS, colNum(letra), N_LINHAS, 1).setDataValidation(
+function dropCel(sh, letra, valores) {
+  sh.getRange(LIN_DADOS, colNum(letra)).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInList(valores, true).setAllowInvalid(false).build());
 }
