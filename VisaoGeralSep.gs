@@ -160,9 +160,9 @@ function vg_configurarGatilho() {
   ScriptApp.getProjectTriggers().forEach(t => {
     if (fns.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('vg_atualizar_automatico').timeBased().everyMinutes(5).create();
-  ScriptApp.newTrigger('vg_atualizarEmbalagem_automatico').timeBased().everyMinutes(5).create();
-  SpreadsheetApp.getUi().alert('✅ Atualização automática configurada a cada 5 minutos.');
+  ScriptApp.newTrigger('vg_atualizar_automatico').timeBased().everyMinutes(30).create();
+  ScriptApp.newTrigger('vg_atualizarEmbalagem_automatico').timeBased().everyMinutes(30).create();
+  SpreadsheetApp.getUi().alert('✅ Atualização automática configurada a cada 30 minutos.');
 }
 
 function vg_removerGatilho() {
