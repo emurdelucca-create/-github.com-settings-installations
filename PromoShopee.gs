@@ -34,9 +34,11 @@ function onOpen() {
   const ui   = SpreadsheetApp.getUi();
   const menu = ui.createMenu('📤 Promos Shopee');
   PS_STORES.forEach(s =>
-    menu.addItem('🔑 Autorizar ' + s, 'ps_auth_' + s.toLowerCase())
+    menu.addItem('🔑 Autorizar ' + s + ' (OAuth)', 'ps_auth_' + s.toLowerCase())
   );
   menu.addSeparator()
+      .addItem('📋 Importar tokens existentes (todas as lojas)', 'ps_importarTokens')
+      .addSeparator()
       .addItem('🎯 Configurar IDs de Promoção', 'ps_configurarPromos')
       .addSeparator()
       .addItem('📤 Enviar itens — aba atual', 'ps_enviarAbaAtual')
@@ -215,6 +217,115 @@ function ps_salvarIds(ids) {
   });
   return '✅ IDs salvos: ' +
     PS_STORES.filter(s => ids[s]).map(s => s + '=' + ids[s]).join(', ');
+}
+
+// ============================================================
+// IMPORTAR TOKENS EXISTENTES (sem refazer OAuth)
+// Use quando os tokens já estão salvos em outra planilha.
+// Cole ACCESS_TOKEN, REFRESH_TOKEN e SHOP_ID de cada loja.
+// ============================================================
+function ps_importarTokens() {
+  const props = PropertiesService.getScriptProperties();
+
+  // Monta estado atual para pré-preencher os campos
+  const estado = PS_STORES.map(s => {
+    const p = s.toUpperCase() + '_';
+    const shopId  = props.getProperty(p + 'SHOP_ID')  || '';
+    const expires = parseInt(props.getProperty(p + 'TOKEN_EXPIRES') || '0');
+    const now     = Math.floor(Date.now() / 1000);
+    const ok      = shopId && expires > now;
+    return { s, shopId, ok };
+  });
+
+  const linhas = PS_STORES.map(s =>
+    `<div class="bloco">
+      <div class="titulo">${s}
+        <span id="st_${s}" class="tag"></span>
+      </div>
+      <label>ACCESS_TOKEN</label>
+      <input id="${s}_at" placeholder="cole aqui o SHOPEE_ACCESS_TOKEN da planilha ${s}"/>
+      <label>REFRESH_TOKEN</label>
+      <input id="${s}_rt" placeholder="cole aqui o SHOPEE_REFRESH_TOKEN da planilha ${s}"/>
+      <label>SHOP_ID</label>
+      <input id="${s}_sid" type="number" placeholder="número (ex: 123456789)"/>
+    </div>`
+  ).join('');
+
+  const initScript = PS_STORES.map(s => {
+    const p   = s.toUpperCase() + '_';
+    const sid = props.getProperty(p + 'SHOP_ID') || '';
+    const exp = parseInt(props.getProperty(p + 'TOKEN_EXPIRES') || '0');
+    const now = Math.floor(Date.now() / 1000);
+    const ok  = sid && exp > now;
+    return `document.getElementById('${s}_sid').value='${sid}';` +
+           `document.getElementById('st_${s}').textContent='${ok ? "✅ token ativo" : sid ? "⚠️ expirado" : "❌ não configurado"}';` +
+           `document.getElementById('st_${s}').style.color='${ok ? "#0a6e36" : sid ? "#b85c00" : "#c00"}';`;
+  }).join('');
+
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body{font-family:Arial;font-size:12px;padding:14px;margin:0;overflow-y:auto}
+      .bloco{border:1px solid #ddd;border-radius:6px;padding:10px 12px;margin-bottom:12px}
+      .titulo{font-weight:bold;font-size:13px;margin-bottom:8px;color:#1a1a1a}
+      .tag{font-weight:normal;font-size:11px;margin-left:8px}
+      label{display:block;font-weight:bold;margin-top:8px;margin-bottom:2px;font-size:11px;color:#444}
+      input{width:100%;padding:5px 7px;box-sizing:border-box;font-size:11px;
+            border:1px solid #ccc;border-radius:3px;font-family:monospace}
+      .hint{color:#888;font-size:11px;margin-bottom:10px;line-height:1.5}
+      button{margin-top:12px;background:#1565c0;color:#fff;border:none;
+             padding:9px 24px;font-size:13px;border-radius:4px;cursor:pointer;width:100%}
+    </style>
+    <p class="hint">
+      Cole os valores de <b>SHOPEE_ACCESS_TOKEN</b>, <b>SHOPEE_REFRESH_TOKEN</b> e
+      <b>SHOPEE_SHOP_ID</b> de cada planilha existente.<br>
+      Vá na planilha da loja → Extensões → Apps Script → ⚙️ Configurações → Propriedades do script.
+    </p>
+    ${linhas}
+    <button onclick="salvar()">💾 Salvar tokens das 3 lojas</button>
+    <script>
+      ${initScript}
+      function salvar() {
+        const dados = {};
+        ${PS_STORES.map(s =>
+          `dados['${s}']={at:document.getElementById('${s}_at').value.trim(),` +
+          `rt:document.getElementById('${s}_rt').value.trim(),` +
+          `sid:document.getElementById('${s}_sid').value.trim()};`
+        ).join('')}
+        document.querySelector('button').textContent = '⏳ Salvando...';
+        google.script.run
+          .withSuccessHandler(m => { alert(m); google.script.host.close(); })
+          .withFailureHandler(e => {
+            alert('Erro: ' + e.message);
+            document.querySelector('button').textContent = '💾 Salvar tokens das 3 lojas';
+          })
+          .ps_salvarTokensImportados(dados);
+      }
+    </script>
+  `).setWidth(520).setHeight(580);
+  SpreadsheetApp.getUi().showModalDialog(html, '📋 Importar Tokens Existentes');
+}
+
+function ps_salvarTokensImportados(dados) {
+  const props = PropertiesService.getScriptProperties();
+  // TOKEN_EXPIRES: definimos 4h a partir de agora como estimativa conservadora
+  // O token será renovado automaticamente via refresh_token quando necessário
+  const expires = String(Math.floor(Date.now() / 1000) + 14400);
+  const salvos  = [];
+
+  PS_STORES.forEach(s => {
+    const d = dados[s] || {};
+    const prefix = s.toUpperCase() + '_';
+    if (d.at && d.rt && d.sid) {
+      props.setProperty(prefix + 'ACCESS_TOKEN',  d.at);
+      props.setProperty(prefix + 'REFRESH_TOKEN', d.rt);
+      props.setProperty(prefix + 'SHOP_ID',       d.sid);
+      props.setProperty(prefix + 'TOKEN_EXPIRES', expires);
+      salvos.push(s + ' (shop_id=' + d.sid + ')');
+    }
+  });
+
+  if (!salvos.length) throw new Error('Nenhum token foi preenchido. Informe ao menos ACCESS_TOKEN, REFRESH_TOKEN e SHOP_ID para uma loja.');
+  return '✅ Tokens salvos: ' + salvos.join(', ');
 }
 
 // ============================================================
