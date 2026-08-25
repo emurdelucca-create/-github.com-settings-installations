@@ -1,30 +1,30 @@
 // ============================================================
-// PROMO SHOPEE — Adicionar itens à promoção ativa (multi-conta)
+// PROMO SHOPEE — Adicionar e verificar itens na promoção ativa
 // Contas: Humble | Najumi | Sky — cada uma com app próprio
 //
-// Estrutura da planilha (mesma da "Comparação de Promos Shopee"):
-//   Linha 1: título  |  Linha 2: cabeçalho  |  Linha 3+: dados
-//   Col A: item_id   |  Col D: model_id (vazio = produto simples)
-//   Col H: Preço de desconto (promo)  |  Col I: Limite/pedido
-//   Col J: STATUS — processa "FALTA NA VIGENTE", grava resultado
+// Estrutura das abas (Humble / Najumi / Sky):
+//   Linha 1: cabeçalho  |  Linha 2+: dados
+//   Col A: ID Produto   (item_id)
+//   Col B: ID Variação  (model_id — vazio = produto simples)
+//   Col C: SKU
+//   Col D: Preço Antigo
+//   Col E: Preço Novo   (preço da promoção)
+//   Col F: Verificação Shopee
 //
-// Configuração (Extensões → Apps Script → ⚙️ → Propriedades do script):
-//   Passo 1 — Menu ⚙️ Configurar Partner_id e Partner Key:
-//     HUMBLE_PARTNER_ID  / HUMBLE_PARTNER_KEY   (Live — app Humble)
-//     NAJUMI_PARTNER_ID  / NAJUMI_PARTNER_KEY   (Live — app Najumi)
-//     SKY_PARTNER_ID     / SKY_PARTNER_KEY      (Live — app Sky)
-//   Passo 2 — Menu 🔑 Autorizar [loja] (OAuth) para cada loja:
-//     salva automaticamente ACCESS_TOKEN, REFRESH_TOKEN, SHOP_ID
-//   Passo 3 — Menu 🎯 Configurar IDs de Promoção:
-//     HUMBLE_DISCOUNT_ID / NAJUMI_DISCOUNT_ID / SKY_DISCOUNT_ID
+// Configuração:
+//   Passo 1 — Menu ⚙️ Configurar Partner_id e Partner Key
+//   Passo 2 — Menu 🔑 Autorizar [loja] (OAuth) — repita por loja
+//   Passo 3 — Menu 🎯 Configurar IDs de Promoção
+//   Passo 4 — Menu 🗂️ Criar abas das lojas
 // ============================================================
 
 const PS_BASE    = 'https://partner.shopeemobile.com';
 const PS_STORES  = ['Humble', 'Najumi', 'Sky'];
 
-const PS_COL     = { ITEM: 0, MODEL: 3, PRECO: 7, LIMITE: 8, STATUS: 9 };
-const PS_HDR     = 2;
-const PS_PENDING = 'FALTA NA VIGENTE';
+const PS_COL = { ITEM: 0, MODEL: 1, SKU: 2, PRECO_ANT: 3, PRECO_NOVO: 4, STATUS: 5 };
+const PS_HDR = 1;
+
+const PS_HEADERS = ['ID Produto', 'ID Variação', 'SKU', 'Preço Antigo', 'Preço Novo', 'Verificação Shopee'];
 
 // ── Menu ──────────────────────────────────────────────────────
 function onOpen() {
@@ -38,8 +38,13 @@ function onOpen() {
       .addSeparator()
       .addItem('🎯 Configurar IDs de Promoção', 'ps_configurarPromos')
       .addSeparator()
+      .addItem('🗂️ Criar abas das lojas', 'ps_criarAbas')
+      .addSeparator()
       .addItem('📤 Enviar itens — aba atual',      'ps_enviarAbaAtual')
       .addItem('📤 Enviar itens — TODAS as lojas', 'ps_enviarTodas')
+      .addSeparator()
+      .addItem('🔍 Verificar preços — aba atual',      'ps_verificarAbaAtual')
+      .addItem('🔍 Verificar preços — TODAS as lojas', 'ps_verificarTodas')
       .addToUi();
 }
 
@@ -294,6 +299,53 @@ function ps_salvarIds(ids) {
 }
 
 // ============================================================
+// CRIAR ABAS DAS LOJAS
+// ============================================================
+function ps_criarAbas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const criadas = [], existentes = [];
+
+  PS_STORES.forEach(loja => {
+    let aba = ss.getSheetByName(loja);
+    if (!aba) {
+      aba = ss.insertSheet(loja);
+      criadas.push(loja);
+    } else {
+      existentes.push(loja);
+    }
+    _ps_formatarAba(aba);
+  });
+
+  let msg = '';
+  if (criadas.length)    msg += '✅ Criadas: ' + criadas.join(', ') + '\n';
+  if (existentes.length) msg += 'ℹ️ Já existiam (cabeçalho atualizado): ' + existentes.join(', ');
+  SpreadsheetApp.getUi().alert(msg.trim());
+}
+
+function _ps_formatarAba(aba) {
+  const hdrRange = aba.getRange(1, 1, 1, PS_HEADERS.length);
+  hdrRange.setValues([PS_HEADERS])
+          .setBackground('#37474F')
+          .setFontColor('#FFFFFF')
+          .setFontWeight('bold')
+          .setFontSize(11)
+          .setHorizontalAlignment('center');
+
+  aba.setColumnWidth(1, 130); // ID Produto
+  aba.setColumnWidth(2, 130); // ID Variação
+  aba.setColumnWidth(3, 110); // SKU
+  aba.setColumnWidth(4, 110); // Preço Antigo
+  aba.setColumnWidth(5, 110); // Preço Novo
+  aba.setColumnWidth(6, 220); // Verificação Shopee
+  aba.setRowHeight(1, 30);
+  aba.setFrozenRows(1);
+
+  // Formato moeda nas colunas D e E a partir da linha 2
+  const maxRow = Math.max(aba.getMaxRows(), 100);
+  aba.getRange(2, 4, maxRow - 1, 2).setNumberFormat('R$ #,##0.00');
+}
+
+// ============================================================
 // ENVIAR ITENS À PROMOÇÃO
 // ============================================================
 function ps_enviarAbaAtual() {
@@ -309,7 +361,7 @@ function ps_enviarTodas() {
   const ui   = SpreadsheetApp.getUi();
   const resp = ui.alert(
     '📤 Enviar para todas as lojas',
-    'Vai adicionar itens com status "' + PS_PENDING + '" nas abas Humble, Najumi e Sky.\n\nConfirmar?',
+    'Vai adicionar itens pendentes nas abas Humble, Najumi e Sky.\n\nConfirmar?',
     ui.ButtonSet.YES_NO
   );
   if (resp !== ui.Button.YES) return;
@@ -336,16 +388,20 @@ function _ps_processarLoja(loja) {
   const lastRow = aba.getLastRow();
   if (lastRow <= PS_HDR) { ui.alert(loja + ': sem dados na aba.'); return; }
 
-  const NUM_COLS = Math.max(...Object.values(PS_COL)) + 1;
-  const allData  = aba.getRange(PS_HDR + 1, 1, lastRow - PS_HDR, NUM_COLS).getValues();
+  const allData   = aba.getRange(PS_HDR + 1, 1, lastRow - PS_HDR, PS_HEADERS.length).getValues();
   const statusCol = PS_COL.STATUS + 1;
 
+  // Processa linhas com item_id preenchido e sem ✅ na verificação
   const pendentes = allData
     .map((row, i) => ({ i, row }))
-    .filter(({ row }) => String(row[PS_COL.STATUS] || '').trim() === PS_PENDING);
+    .filter(({ row }) => {
+      const itemId = String(row[PS_COL.ITEM] || '').trim();
+      const status = String(row[PS_COL.STATUS] || '').trim();
+      return itemId && !status.startsWith('✅');
+    });
 
   if (!pendentes.length) {
-    ui.alert(loja + ': nenhum item com status "' + PS_PENDING + '".'); return;
+    ui.alert(loja + ': nenhum item pendente de envio.'); return;
   }
 
   // Agrupa model_ids pelo mesmo item_id
@@ -353,14 +409,13 @@ function _ps_processarLoja(loja) {
   pendentes.forEach(({ i, row }) => {
     const itemId  = String(row[PS_COL.ITEM]  || '').trim();
     const modelId = String(row[PS_COL.MODEL] || '').trim();
-    const preco   = _ps_parsePreco(row[PS_COL.PRECO]);
-    const limite  = Number(row[PS_COL.LIMITE] || 0);
+    const preco   = _ps_parsePreco(row[PS_COL.PRECO_NOVO]);
     if (!itemId || preco <= 0) {
       aba.getRange(PS_HDR + 1 + i, statusCol).setValue('⚠️ item_id ou preço inválido');
       return;
     }
     if (!itemMap[itemId]) {
-      itemMap[itemId] = { purchase_limit: limite, preco, models: [], rowIdxs: [], temModel: false };
+      itemMap[itemId] = { preco, models: [], rowIdxs: [], temModel: false };
     }
     if (modelId) {
       itemMap[itemId].models.push({ model_id: parseInt(modelId), model_promotion_price: preco });
@@ -370,7 +425,7 @@ function _ps_processarLoja(loja) {
   });
 
   const itemList = Object.entries(itemMap).map(([itemId, info]) => {
-    const e = { item_id: parseInt(itemId), purchase_limit: info.purchase_limit, _rowIdxs: info.rowIdxs };
+    const e = { item_id: parseInt(itemId), purchase_limit: 0, _rowIdxs: info.rowIdxs };
     if (info.temModel) e.model_list = info.models;
     else               e.item_promotion_price = info.preco;
     return e;
@@ -390,13 +445,16 @@ function _ps_processarLoja(loja) {
       });
     } catch (e) {
       lote.forEach(({ item_id, _rowIdxs }) =>
-        _rowIdxs.forEach(r => aba.getRange(PS_HDR + 1 + r, statusCol).setValue('❌ Erro API: ' + e.message))
+        (_rowIdxs || rowMap[item_id] || []).forEach(r =>
+          aba.getRange(PS_HDR + 1 + r, statusCol).setValue('❌ Erro API: ' + e.message))
       );
       erros += lote.length; continue;
     }
 
     const erroMap = {};
-    (respData.error_list || []).forEach(e => { erroMap[e.item_id] = e.failed_reason || e.msg || String(e.error_code || 'Erro'); });
+    (respData.error_list || []).forEach(e => {
+      erroMap[e.item_id] = e.failed_reason || e.msg || String(e.error_code || 'Erro');
+    });
 
     payload.forEach(item => {
       const msg = erroMap[item.item_id];
@@ -412,7 +470,113 @@ function _ps_processarLoja(loja) {
   ui.alert(
     '📤 ' + loja + ' — Concluído\n\n' +
     '✅ Adicionados: ' + adicionados + ' item(ns)\n' +
-    (erros > 0 ? '❌ Com erro: ' + erros + ' item(ns)\n(veja coluna STATUS para detalhes)' : '')
+    (erros > 0 ? '❌ Com erro: ' + erros + ' item(ns)\n(veja coluna F para detalhes)' : '')
+  );
+}
+
+// ============================================================
+// VERIFICAR PREÇOS NA SHOPEE
+// ============================================================
+function ps_verificarAbaAtual() {
+  const loja = SpreadsheetApp.getActiveSheet().getName();
+  if (!PS_STORES.includes(loja)) {
+    SpreadsheetApp.getUi().alert('Abra a aba de uma loja antes de verificar.');
+    return;
+  }
+  _ps_verificarLoja(loja);
+}
+
+function ps_verificarTodas() {
+  const ui   = SpreadsheetApp.getUi();
+  const resp = ui.alert(
+    '🔍 Verificar preços — todas as lojas',
+    'Vai consultar a Shopee e verificar se cada item está com o preço correto na promoção.\n\nConfirmar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+  const erros = [];
+  PS_STORES.forEach(s => {
+    try { _ps_verificarLoja(s); }
+    catch(e) { erros.push(s + ': ' + e.message); }
+  });
+  ui.alert(erros.length ? '⚠️ Erros:\n' + erros.join('\n') : '✅ Verificação concluída para todas as lojas!');
+}
+
+function _ps_verificarLoja(loja) {
+  const ui  = SpreadsheetApp.getUi();
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(loja);
+  if (!aba) throw new Error('Aba "' + loja + '" não encontrada.');
+
+  const props      = PropertiesService.getScriptProperties();
+  const discountId = parseInt(props.getProperty(loja.toUpperCase() + '_DISCOUNT_ID') || '0');
+  if (!discountId) throw new Error(
+    'Discount ID da loja ' + loja + ' não configurado.\nUse o menu 🎯 Configurar IDs de Promoção.'
+  );
+
+  // Busca todos os itens da promoção na Shopee (paginado)
+  const discountItems = {}; // item_id -> { price, models: { model_id -> price } }
+  let pageNo = 0, hasMore = true;
+  while (hasMore) {
+    const resp = _ps_get(loja, '/api/v2/discount/get_discount_item', {
+      discount_id: discountId, page_size: 100, page_no: pageNo
+    });
+    const items = resp.item_list || [];
+    items.forEach(item => {
+      const entry = { price: item.item_promotion_price || 0, models: {} };
+      (item.model_list || []).forEach(m => {
+        entry.models[String(m.model_id)] = m.model_promotion_price || 0;
+      });
+      discountItems[String(item.item_id)] = entry;
+    });
+    hasMore = !!(resp.more) && items.length === 100;
+    pageNo++;
+    if (hasMore) Utilities.sleep(300);
+  }
+
+  const lastRow = aba.getLastRow();
+  if (lastRow <= PS_HDR) { ui.alert(loja + ': sem dados.'); return; }
+
+  const allData   = aba.getRange(PS_HDR + 1, 1, lastRow - PS_HDR, PS_HEADERS.length).getValues();
+  const statusCol = PS_COL.STATUS + 1;
+  let ok = 0, diff = 0, missing = 0;
+
+  allData.forEach((row, i) => {
+    const itemId = String(row[PS_COL.ITEM] || '').trim();
+    if (!itemId) return;
+
+    const modelId   = String(row[PS_COL.MODEL] || '').trim();
+    const precoEsp  = _ps_parsePreco(row[PS_COL.PRECO_NOVO]);
+    const entry     = discountItems[itemId];
+    const cell      = aba.getRange(PS_HDR + 1 + i, statusCol);
+
+    if (!entry) {
+      cell.setValue('❌ Não está na promoção');
+      missing++; return;
+    }
+
+    const precoShopee = (modelId && entry.models[modelId] !== undefined)
+      ? entry.models[modelId]
+      : entry.price;
+
+    const fmt = v => 'R$ ' + v.toFixed(2).replace('.', ',');
+
+    if (Math.abs(precoShopee - precoEsp) < 0.01) {
+      cell.setValue('✅ Correto — ' + fmt(precoShopee));
+      cell.setBackground('#B7E1CD');
+      ok++;
+    } else {
+      cell.setValue('❌ Diferente — Shopee: ' + fmt(precoShopee) + ' | Esperado: ' + fmt(precoEsp));
+      cell.setBackground('#F4C7C3');
+      diff++;
+    }
+  });
+
+  ui.alert(
+    '🔍 ' + loja + ' — Verificação concluída\n\n' +
+    '✅ Corretos: ' + ok + '\n' +
+    (diff    > 0 ? '⚠️ Preço diferente: ' + diff + '\n'         : '') +
+    (missing > 0 ? '❌ Não está na promoção: ' + missing + '\n' : '')
   );
 }
 
@@ -469,6 +633,24 @@ function _ps_post(loja, path, body) {
     method: 'post', contentType: 'application/json',
     payload: JSON.stringify(body), muteHttpExceptions: true,
   });
+  const data = JSON.parse(resp.getContentText());
+  if (data.error && data.error !== '') throw new Error('[' + path + '] ' + (data.message || data.error));
+  return data.response || data;
+}
+
+function _ps_get(loja, path, params) {
+  const pid            = _ps_partnerId(loja);
+  const pkey           = _ps_partnerKey(loja);
+  const { token, shopId } = _ps_getToken(loja);
+  const ts   = Math.floor(Date.now() / 1000);
+  const sign = _ps_sign(pid + path + ts + token + parseInt(shopId), pkey);
+
+  const base = PS_BASE + path
+    + '?partner_id=' + pid + '&timestamp=' + ts
+    + '&access_token=' + token + '&shop_id=' + shopId + '&sign=' + sign;
+  const query = Object.entries(params).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+
+  const resp = UrlFetchApp.fetch(base + '&' + query, { muteHttpExceptions: true });
   const data = JSON.parse(resp.getContentText());
   if (data.error && data.error !== '') throw new Error('[' + path + '] ' + (data.message || data.error));
   return data.response || data;
