@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — Movimentação de Estoque</title>
+  <style>
+    :root {
+      --bg:      #080c14;
+      --card:    #0d1421;
+      --card2:   #111827;
+      --border:  #1f2d40;
+      --cyan:    #00e5ff;
+      --orange:  #ff6d00;
+      --green:   #00e676;
+      --yellow:  #ffd600;
+      --red:     #ff4444;
+      --text:    #dde6f0;
+      --muted:   #4e6280;
+      --muted2:  #7a90aa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: linear-gradient(135deg, #0a1628 0%, #0f1f38 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .header-icon {
+      font-size: 22px;
+      filter: drop-shadow(0 0 6px rgba(0,229,255,0.5));
+    }
+
+    .header-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    .header-ts {
+      font-size: 11px;
+      color: var(--muted2);
+      margin-top: 2px;
+    }
+
+    .header-right {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* ── BUTTONS ── */
+    .btn {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    .btn-refresh {
+      background: transparent;
+      color: var(--cyan);
+      border: 1px solid rgba(0,229,255,0.35);
+    }
+    .btn-refresh:hover:not(:disabled) {
+      background: rgba(0,229,255,0.08);
+      border-color: var(--cyan);
+    }
+
+    .btn-run {
+      background: linear-gradient(135deg, #e65100 0%, #bf360c 100%);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(230,81,0,0.3);
+    }
+    .btn-run:hover:not(:disabled) {
+      background: linear-gradient(135deg, #ff6d00 0%, #e65100 100%);
+      box-shadow: 0 0 16px rgba(255,109,0,0.45);
+    }
+
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── STATS BAR ── */
+    .stats-bar {
+      display: flex;
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat-item {
+      flex: 1;
+      background: var(--card);
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 90px;
+    }
+
+    .stat-value {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--muted2);
+      text-transform: uppercase;
+      letter-spacing: 0.9px;
+      margin-top: 5px;
+      white-space: nowrap;
+    }
+
+    .c-cyan   { color: var(--cyan);   text-shadow: 0 0 10px rgba(0,229,255,0.35); }
+    .c-orange { color: var(--orange); text-shadow: 0 0 10px rgba(255,109,0,0.35); }
+    .c-green  { color: var(--green);  }
+    .c-yellow { color: var(--yellow); }
+    .c-red    { color: var(--red);    }
+
+    /* ── FILTERS ── */
+    .filters {
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      background: var(--card2);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding-right: 4px;
+      white-space: nowrap;
+    }
+
+    .fbtn {
+      padding: 5px 13px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted2);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .fbtn:hover { border-color: #3d5068; color: var(--text); }
+
+    .fbtn.ap  { background: rgba(0,229,255,0.1); border-color: var(--cyan);   color: var(--cyan);   }
+    .fbtn.aA  { background: rgba(0,230,118,0.1); border-color: var(--green);  color: var(--green);  }
+    .fbtn.aB  { background: rgba(255,214,0,0.1); border-color: var(--yellow); color: var(--yellow); }
+    .fbtn.aC  { background: rgba(255,68,68,0.1); border-color: var(--red);    color: var(--red);    }
+
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+
+    .count-pill {
+      margin-left: auto;
+      background: rgba(0,229,255,0.08);
+      border: 1px solid rgba(0,229,255,0.25);
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+
+    /* ── TABLE ── */
+    .table-wrap {
+      padding: 0 24px 32px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 16px;
+    }
+
+    thead th {
+      background: #0a1323;
+      color: var(--muted2);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.9px;
+      padding: 9px 14px;
+      text-align: left;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    thead th.r { text-align: right; }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      transition: background 0.1s;
+    }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.013); }
+    tbody tr:hover { background: rgba(0,229,255,0.04); }
+
+    td {
+      padding: 9px 14px;
+      vertical-align: middle;
+    }
+    td.r { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .td-sku {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: var(--cyan);
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .td-loc {
+      font-size: 11px;
+      color: var(--muted2);
+      max-width: 160px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .td-stock { color: var(--text); }
+    .td-zero  { color: var(--muted); }
+
+    .mov-hi {
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--orange);
+    }
+    .mov-lo {
+      font-weight: 600;
+      font-size: 14px;
+      color: #c04a00;
+    }
+    .mov-zero { color: var(--muted); font-size: 12px; }
+
+    .abc-dot {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .abc-dot.A { background: rgba(0,230,118,0.14); color: var(--green); border: 1px solid rgba(0,230,118,0.35); }
+    .abc-dot.B { background: rgba(255,214,0,0.14); color: var(--yellow); border: 1px solid rgba(255,214,0,0.35); }
+    .abc-dot.C { background: rgba(255,68,68,0.14); color: var(--red);    border: 1px solid rgba(255,68,68,0.35); }
+
+    .peds-v { color: var(--orange); font-weight: 600; }
+
+    /* ── EMPTY ── */
+    .empty {
+      text-align: center;
+      padding: 70px 20px;
+      color: var(--muted);
+    }
+    .empty-icon { font-size: 44px; margin-bottom: 12px; opacity: 0.5; }
+    .empty-msg  { font-size: 14px; }
+
+    /* ── LOADING OVERLAY ── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(8,12,20,0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid rgba(0,229,255,0.18);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #overlay-msg {
+      margin-top: 16px;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── TOAST ── */
+    .toast {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      padding: 11px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 1000;
+      animation: slideUp 0.25s ease;
+      max-width: 380px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .toast.ok  { background: #0d2b1a; color: var(--green);  border: 1px solid rgba(0,230,118,0.35); }
+    .toast.err { background: #2a0d0d; color: var(--red);    border: 1px solid rgba(255,68,68,0.35);  }
+    .toast.inf { background: #0d1e35; color: var(--cyan);   border: 1px solid rgba(0,229,255,0.35);  }
+    @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <div id="overlay-msg">Carregando dados...</div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="header-icon">📦</span>
+    <div>
+      <div class="header-title">Movimentação de Estoque</div>
+      <div class="header-ts" id="ts">—</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-refresh" id="btnRefresh" onclick="loadData()" disabled>🔄 Atualizar Dados</button>
+    <button class="btn btn-run"     id="btnRun"     onclick="runScript()" disabled>▶ Gerar Planejada</button>
+  </div>
+</div>
+
+<!-- Stats bar -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <div class="stat-value c-cyan"   id="sTotal">—</div>
+    <div class="stat-label">SKUs visíveis</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value c-orange" id="sMov">—</div>
+    <div class="stat-label" id="sMovLbl">A mover (0-7)</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value c-green"  id="sA">—</div>
+    <div class="stat-label">Curva A</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value c-yellow" id="sB">—</div>
+    <div class="stat-label">Curva B</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value c-red"    id="sC">—</div>
+    <div class="stat-label">Curva C</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filters">
+  <div class="filter-group">
+    <span class="filter-label">Período</span>
+    <button class="fbtn"    id="p5"  onclick="setPeriodo('mov5')">0-5 dias</button>
+    <button class="fbtn ap" id="p7"  onclick="setPeriodo('mov7')">0-7 dias</button>
+    <button class="fbtn"    id="p10" onclick="setPeriodo('mov10')">0-10 dias</button>
+    <button class="fbtn"    id="p15" onclick="setPeriodo('mov15')">0-15 dias</button>
+  </div>
+  <div class="sep"></div>
+  <div class="filter-group">
+    <span class="filter-label">Curva ABC</span>
+    <button class="fbtn aA" id="fA" onclick="toggleAbc('A')">A</button>
+    <button class="fbtn aB" id="fB" onclick="toggleAbc('B')">B</button>
+    <button class="fbtn aC" id="fC" onclick="toggleAbc('C')">C</button>
+  </div>
+  <span class="count-pill" id="pill">0 SKUs</span>
+</div>
+
+<!-- Table -->
+<div class="table-wrap">
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Localização A8</th>
+        <th class="r">Picking atual</th>
+        <th class="r">Bruto A9</th>
+        <th class="r" id="movTh">A Mover 0-7</th>
+        <th>ABC</th>
+        <th class="r">Pedidos</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">
+    <div class="empty-icon">📭</div>
+    <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
+  </div>
+</div>
+
+<script>
+  // ── State ───────────────────────────────────────────────────
+  let allData  = [];
+  let periodo  = 'mov7';
+  let abcSet   = new Set(['A','B','C']);
+
+  const periLabels = { mov5:'0-5', mov7:'0-7', mov10:'0-10', mov15:'0-15' };
+  const periIds    = { mov5:'5',   mov7:'7',   mov10:'10',   mov15:'15'   };
+
+  // ── Boot ────────────────────────────────────────────────────
+  window.onload = loadData;
+
+  // ── Load data from server ───────────────────────────────────
+  function loadData() {
+    setOverlay(true, 'Carregando dados da planilha...');
+    setBtns(false);
+    google.script.run
+      .withSuccessHandler(onData)
+      .withFailureHandler(e => { setOverlay(false); setBtns(true); toast('❌ ' + e.message, 'err'); })
+      .me_dash_getData();
+  }
+
+  function onData(res) {
+    setOverlay(false);
+    setBtns(true);
+    if (res.error) { toast('❌ ' + res.error, 'err'); return; }
+    allData = res.itens || [];
+    document.getElementById('ts').textContent = 'Dados de: ' + res.ts;
+    render();
+  }
+
+  // ── Filter controls ─────────────────────────────────────────
+  function setPeriodo(p) {
+    periodo = p;
+    Object.keys(periIds).forEach(k => {
+      document.getElementById('p' + periIds[k]).className = 'fbtn' + (k === p ? ' ap' : '');
+    });
+    document.getElementById('movTh').textContent  = 'A Mover ' + periLabels[p];
+    document.getElementById('sMovLbl').textContent = 'A mover (' + periLabels[p] + ')';
+    render();
+  }
+
+  function toggleAbc(c) {
+    if (abcSet.has(c) && abcSet.size === 1) return;
+    abcSet.has(c) ? abcSet.delete(c) : abcSet.add(c);
+    ['A','B','C'].forEach(x => {
+      document.getElementById('f' + x).className = 'fbtn' + (abcSet.has(x) ? ' a' + x : '');
+    });
+    render();
+  }
+
+  // ── Render table ────────────────────────────────────────────
+  function render() {
+    const filtered = allData
+      .filter(r => abcSet.has(r.abc) && r[periodo] > 0)
+      .sort((a,b) => b[periodo] - a[periodo]);
+
+    const totMov = filtered.reduce((s,r) => s + r[periodo], 0);
+    document.getElementById('sTotal').textContent = filtered.length;
+    document.getElementById('sMov').textContent   = totMov;
+    document.getElementById('sA').textContent     = filtered.filter(r=>r.abc==='A').length;
+    document.getElementById('sB').textContent     = filtered.filter(r=>r.abc==='B').length;
+    document.getElementById('sC').textContent     = filtered.filter(r=>r.abc==='C').length;
+    document.getElementById('pill').textContent   = filtered.length + ' SKUs';
+
+    const tbody = document.getElementById('tbody');
+    const empty = document.getElementById('empty');
+
+    if (!filtered.length) {
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+
+    tbody.innerHTML = filtered.map(r => {
+      const mov = r[periodo];
+      const movCls = mov >= 20 ? 'mov-hi' : mov > 0 ? 'mov-lo' : 'mov-zero';
+      const movTxt = mov > 0 ? mov : '—';
+
+      const loc = r.locF || '—';
+      const pick = r.pick > 0 ? `<span class="td-stock">${r.pick}</span>` : `<span class="td-zero">0</span>`;
+      const brut = r.bruto > 0 ? `<span class="td-stock">${r.bruto}</span>` : `<span class="td-zero">0</span>`;
+      const abc  = r.abc ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
+      const peds = r.peds > 0 ? `<span class="peds-v">${r.peds}</span>` : `<span class="td-zero">—</span>`;
+
+      return `<tr>
+        <td class="td-sku">${r.sku}</td>
+        <td class="td-loc" title="${r.locF}">${loc}</td>
+        <td class="r">${pick}</td>
+        <td class="r">${brut}</td>
+        <td class="r"><span class="${movCls}">${movTxt}</span></td>
+        <td>${abc}</td>
+        <td class="r">${peds}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Run script ───────────────────────────────────────────────
+  function runScript() {
+    setBtns(false);
+    setOverlay(true, '▶ Gerando aba Planejada... Isso pode levar 1-2 minutos.');
+    google.script.run
+      .withSuccessHandler(res => {
+        setOverlay(false);
+        setBtns(true);
+        if (res.ok) {
+          toast('✅ Planejada gerada — ' + res.count + ' SKUs. Atualizando...', 'ok');
+          setTimeout(loadData, 1800);
+        } else {
+          toast('❌ ' + (res.error || 'Erro desconhecido'), 'err');
+        }
+      })
+      .withFailureHandler(e => {
+        setOverlay(false);
+        setBtns(true);
+        toast('❌ ' + e.message, 'err');
+      })
+      .me_dash_gerarPlanejada();
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────
+  function setOverlay(show, msg) {
+    const el = document.getElementById('overlay');
+    el.style.display = show ? 'flex' : 'none';
+    if (msg) document.getElementById('overlay-msg').textContent = msg;
+  }
+
+  function setBtns(enabled) {
+    document.getElementById('btnRefresh').disabled = !enabled;
+    document.getElementById('btnRun').disabled     = !enabled;
+  }
+
+  function toast(msg, type) {
+    const t = document.createElement('div');
+    t.className = 'toast ' + (type || 'inf');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4500);
+  }
+</script>
+</body>
+</html>
