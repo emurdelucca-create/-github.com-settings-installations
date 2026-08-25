@@ -1,33 +1,31 @@
 // ============================================================
 // PROMO SHOPEE — Adicionar itens à promoção ativa (multi-conta)
-// Contas: Humble | Najumi | Sky
+// Contas: Humble | Najumi | Sky — cada uma com app próprio
 //
 // Estrutura da planilha (mesma da "Comparação de Promos Shopee"):
-//   Linha 1: título da aba  |  Linha 2: cabeçalho  |  Linha 3+: dados
-//   Col A: ID do produto (item_id)
-//   Col D: ID de variação (model_id) — vazio para produto simples
-//   Col H: Preço de desconto (promo a aplicar)
-//   Col I: Limite de compra por pedido (0 = sem limite)
-//   Col J: STATUS — filtra "FALTA NA VIGENTE", grava resultado
+//   Linha 1: título  |  Linha 2: cabeçalho  |  Linha 3+: dados
+//   Col A: item_id   |  Col D: model_id (vazio = produto simples)
+//   Col H: Preço de desconto (promo)  |  Col I: Limite/pedido
+//   Col J: STATUS — processa "FALTA NA VIGENTE", grava resultado
 //
-// Propriedades do script (Extensões → Apps Script → ⚙️ Configurações):
-//   SHOPEE_PARTNER_KEY          → Partner Key do app (shpk6c57...)
-//   HUMBLE_DISCOUNT_ID          → ID da promoção ativa — Humble
-//   NAJUMI_DISCOUNT_ID          → ID da promoção ativa — Najumi
-//   SKY_DISCOUNT_ID             → ID da promoção ativa — Sky
-//   HUMBLE_ACCESS_TOKEN  + _REFRESH_TOKEN + _SHOP_ID + _TOKEN_EXPIRES
-//   NAJUMI_ACCESS_TOKEN  + ...
-//   SKY_ACCESS_TOKEN     + ...     (todos gerados automaticamente pelo menu)
+// Propriedades do script — uma por loja (Extensões → Apps Script
+// → ⚙️ Configurações → Propriedades do script):
+//
+//   HUMBLE_PARTNER_ID    → Live Partner_id   do app Humble
+//   HUMBLE_PARTNER_KEY   → Live API Partner Key do app Humble
+//   HUMBLE_ACCESS_TOKEN  → SHOPEE_ACCESS_TOKEN  da planilha Humble
+//   HUMBLE_REFRESH_TOKEN → SHOPEE_REFRESH_TOKEN da planilha Humble
+//   HUMBLE_SHOP_ID       → SHOPEE_SHOP_ID       da planilha Humble
+//   HUMBLE_DISCOUNT_ID   → ID da promoção ativa — Humble
+//   (idem para NAJUMI_ e SKY_)
 // ============================================================
 
-const PS_PARTNER_ID = 2037491;
-const PS_BASE       = 'https://partner.shopeemobile.com';
-const PS_STORES     = ['Humble', 'Najumi', 'Sky'];
+const PS_BASE    = 'https://partner.shopeemobile.com';
+const PS_STORES  = ['Humble', 'Najumi', 'Sky'];
 
-// Colunas (0-based) — ajuste se a planilha mudar
-const PS_COL = { ITEM: 0, MODEL: 3, PRECO: 7, LIMITE: 8, STATUS: 9 };
-const PS_HDR = 2;                      // linhas de cabeçalho antes dos dados
-const PS_PENDING = 'FALTA NA VIGENTE'; // valor de STATUS que será processado
+const PS_COL     = { ITEM: 0, MODEL: 3, PRECO: 7, LIMITE: 8, STATUS: 9 };
+const PS_HDR     = 2;
+const PS_PENDING = 'FALTA NA VIGENTE';
 
 // ── Menu ──────────────────────────────────────────────────────
 function onOpen() {
@@ -37,36 +35,51 @@ function onOpen() {
     menu.addItem('🔑 Autorizar ' + s + ' (OAuth)', 'ps_auth_' + s.toLowerCase())
   );
   menu.addSeparator()
-      .addItem('📋 Importar tokens existentes (todas as lojas)', 'ps_importarTokens')
+      .addItem('📋 Importar credenciais das planilhas existentes', 'ps_importarCredenciais')
       .addSeparator()
       .addItem('🎯 Configurar IDs de Promoção', 'ps_configurarPromos')
       .addSeparator()
-      .addItem('📤 Enviar itens — aba atual', 'ps_enviarAbaAtual')
+      .addItem('📤 Enviar itens — aba atual',      'ps_enviarAbaAtual')
       .addItem('📤 Enviar itens — TODAS as lojas', 'ps_enviarTodas')
       .addToUi();
 }
 
-// Wrappers necessários pois o menu não aceita parâmetros
 function ps_auth_humble() { _ps_iniciarAuth('Humble'); }
 function ps_auth_najumi() { _ps_iniciarAuth('Najumi'); }
 function ps_auth_sky()    { _ps_iniciarAuth('Sky');    }
 
 // ============================================================
+// CREDENCIAIS POR LOJA
+// ============================================================
+function _ps_partnerId(loja) {
+  const v = PropertiesService.getScriptProperties().getProperty(loja.toUpperCase() + '_PARTNER_ID');
+  if (!v) throw new Error('PARTNER_ID da loja ' + loja + ' não configurado.\nUse o menu 📋 Importar credenciais.');
+  return parseInt(v);
+}
+
+function _ps_partnerKey(loja) {
+  const v = PropertiesService.getScriptProperties().getProperty(loja.toUpperCase() + '_PARTNER_KEY');
+  if (!v) throw new Error('PARTNER_KEY da loja ' + loja + ' não configurada.\nUse o menu 📋 Importar credenciais.');
+  return v;
+}
+
+// ============================================================
 // AUTORIZAÇÃO OAuth por loja
 // ============================================================
 function _ps_iniciarAuth(loja) {
-  const ui   = SpreadsheetApp.getUi();
-  const pkey = PropertiesService.getScriptProperties().getProperty('SHOPEE_PARTNER_KEY');
-  if (!pkey) {
-    ui.alert('❌ SHOPEE_PARTNER_KEY não configurada.\n\n' +
-             'Extensões → Apps Script → ⚙️ Configurações → Propriedades do script');
-    return;
+  const ui  = SpreadsheetApp.getUi();
+  let pid, pkey;
+  try {
+    pid  = _ps_partnerId(loja);
+    pkey = _ps_partnerKey(loja);
+  } catch(e) {
+    ui.alert('❌ ' + e.message); return;
   }
   const ts   = Math.floor(Date.now() / 1000);
   const path = '/api/v2/shop/auth_partner';
-  const sign = _ps_sign(PS_PARTNER_ID + path + ts, pkey);
+  const sign = _ps_sign(pid + path + ts, pkey);
   const url  = PS_BASE + path
-    + '?partner_id=' + PS_PARTNER_ID + '&timestamp=' + ts + '&sign=' + sign
+    + '?partner_id=' + pid + '&timestamp=' + ts + '&sign=' + sign
     + '&redirect=' + encodeURIComponent('https://localhost');
 
   ui.showModalDialog(
@@ -76,82 +89,25 @@ function _ps_iniciarAuth(loja) {
       '<p><a href="' + url + '" target="_blank" style="background:#e65100;color:#fff;' +
       'padding:8px 18px;border-radius:4px;text-decoration:none;font-size:14px">' +
       '👉 Autorizar Shopee ' + loja + '</a></p>' +
-      '<p><b>2.</b> Após autorizar, o browser abrirá página de erro (localhost) — é normal.</p>' +
-      '<p><b>3.</b> Copie a URL completa da barra de endereço e feche esta janela.</p>' +
-      '<p><b>4.</b> No menu: <b>📤 Promos Shopee → 🔑 Autorizar ' + loja + '</b> novamente ' +
-      'e cole a URL na caixa de diálogo seguinte.</p>' +
+      '<p><b>2.</b> Após autorizar, o browser abrirá uma página de erro (localhost) — é normal.</p>' +
+      '<p><b>3.</b> Copie a URL completa da barra de endereço.</p>' +
+      '<p><b>4.</b> No menu clique em <b>📋 Importar credenciais</b> e cole a URL no campo de ' + loja + '.</p>' +
       '</div>'
     ).setWidth(500).setHeight(270),
-    '🔑 Autorizar Shopee ' + loja + ' — Passo 1'
+    '🔑 Autorizar Shopee ' + loja
   );
 }
 
-// Segundo passo: exibe dialog para colar a URL e salvar o token
-function ps_salvarToken() {
-  const loja = SpreadsheetApp.getActiveSheet().getName();
-  if (!PS_STORES.includes(loja)) {
-    SpreadsheetApp.getUi().alert('Abra a aba da loja (Humble, Najumi ou Sky) antes de executar.');
-    return;
-  }
-  _ps_dialogToken(loja);
-}
-
-function _ps_dialogToken(loja) {
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body{font-family:Arial;font-size:13px;padding:14px;margin:0}
-      label{font-weight:bold;display:block;margin-top:12px}
-      input{width:100%;padding:7px;box-sizing:border-box;font-size:13px;
-            border:1px solid #ccc;border-radius:3px}
-      button{margin-top:16px;background:#e65100;color:#fff;border:none;
-             padding:10px 26px;font-size:14px;border-radius:4px;cursor:pointer}
-      .hint{color:#888;font-size:11px;margin-top:3px}
-    </style>
-    <p>Cole a URL que apareceu após autorizar a conta <b>${loja}</b>:</p>
-    <label>URL completa da barra de endereço</label>
-    <input id="url" placeholder="https://localhost/?code=XXXX&shop_id=YYYYY"/>
-    <p class="hint">Os campos abaixo são preenchidos automaticamente ao colar a URL.</p>
-    <label>code</label>
-    <input id="code" placeholder="6f4a1b2c3d..."/>
-    <label>shop_id</label>
-    <input id="sid" placeholder="123456789"/>
-    <button onclick="enviar()">💾 Salvar Token ${loja}</button>
-    <script>
-      document.getElementById('url').addEventListener('input', function() {
-        try {
-          const p = new URL(this.value.trim()).searchParams;
-          const c = p.get('code'), s = p.get('shop_id');
-          if (c) document.getElementById('code').value = c;
-          if (s) document.getElementById('sid').value  = s;
-        } catch(e) {}
-      });
-      function enviar() {
-        const code = document.getElementById('code').value.trim();
-        const sid  = document.getElementById('sid').value.trim();
-        if (!code || !sid) { alert('Preencha o code e o shop_id.'); return; }
-        document.querySelector('button').textContent = '⏳ Salvando...';
-        google.script.run
-          .withSuccessHandler(m => { alert(m); google.script.host.close(); })
-          .withFailureHandler(e => {
-            alert('Erro: ' + e.message);
-            document.querySelector('button').textContent = '💾 Salvar Token ${loja}';
-          })
-          .ps_trocarToken('${loja}', code, parseInt(sid));
-      }
-    </script>
-  `).setWidth(480).setHeight(370);
-  SpreadsheetApp.getUi().showModalDialog(html, '💾 Salvar Token — ' + loja);
-}
-
 function ps_trocarToken(loja, code, shopId) {
-  const pkey   = _ps_partnerKey();
+  const pid    = _ps_partnerId(loja);
+  const pkey   = _ps_partnerKey(loja);
   const path   = '/api/v2/auth/token/get';
   const ts     = Math.floor(Date.now() / 1000);
-  const sign   = _ps_sign(PS_PARTNER_ID + path + ts, pkey);
+  const sign   = _ps_sign(pid + path + ts, pkey);
   const resp   = UrlFetchApp.fetch(
-    PS_BASE + path + '?partner_id=' + PS_PARTNER_ID + '&timestamp=' + ts + '&sign=' + sign,
+    PS_BASE + path + '?partner_id=' + pid + '&timestamp=' + ts + '&sign=' + sign,
     { method:'post', contentType:'application/json', muteHttpExceptions:true,
-      payload: JSON.stringify({ code, shop_id: shopId, partner_id: PS_PARTNER_ID }) }
+      payload: JSON.stringify({ code, shop_id: shopId, partner_id: pid }) }
   );
   const data = JSON.parse(resp.getContentText());
   if (data.error && data.error !== '') throw new Error(data.message || JSON.stringify(data));
@@ -163,6 +119,111 @@ function ps_trocarToken(loja, code, shopId) {
   props.setProperty(prefix + 'SHOP_ID',       String(shopId));
   props.setProperty(prefix + 'TOKEN_EXPIRES', String(Math.floor(Date.now() / 1000) + (data.expire_in || 14400)));
   return '✅ Token da conta ' + loja + ' salvo! Shop ID: ' + shopId;
+}
+
+// ============================================================
+// IMPORTAR CREDENCIAIS (principal fluxo de configuração)
+// ============================================================
+function ps_importarCredenciais() {
+  const props = PropertiesService.getScriptProperties();
+
+  const estado = PS_STORES.map(s => {
+    const p      = s.toUpperCase() + '_';
+    const shopId = props.getProperty(p + 'SHOP_ID') || '';
+    const exp    = parseInt(props.getProperty(p + 'TOKEN_EXPIRES') || '0');
+    const pid    = props.getProperty(p + 'PARTNER_ID') || '';
+    const now    = Math.floor(Date.now() / 1000);
+    const ok     = shopId && exp > now && pid;
+    return { s, shopId, pid, ok, expired: shopId && exp <= now };
+  });
+
+  const blocos = PS_STORES.map(s => {
+    const st = estado.find(e => e.s === s);
+    const badge = st.ok ? '✅ configurado' : st.expired ? '⚠️ token expirado' : '❌ não configurado';
+    const color = st.ok ? '#0a6e36' : st.expired ? '#b85c00' : '#c00';
+    return `
+    <div class="bloco">
+      <div class="titulo">${s} <span style="font-weight:normal;font-size:11px;color:${color}">${badge}</span></div>
+      <label>Live Partner_id <span class="hint">(número — ex: 2037491)</span></label>
+      <input id="${s}_pid" type="number" value="${st.pid}" placeholder="Live Partner_id do app ${s}"/>
+      <label>Live API Partner Key <span class="hint">(começa com shpk...)</span></label>
+      <input id="${s}_pkey" placeholder="Live API Partner Key do app ${s}"/>
+      <label>ACCESS_TOKEN <span class="hint">(SHOPEE_ACCESS_TOKEN da planilha ${s})</span></label>
+      <input id="${s}_at" placeholder="cole o SHOPEE_ACCESS_TOKEN"/>
+      <label>REFRESH_TOKEN <span class="hint">(SHOPEE_REFRESH_TOKEN da planilha ${s})</span></label>
+      <input id="${s}_rt" placeholder="cole o SHOPEE_REFRESH_TOKEN"/>
+      <label>SHOP_ID <span class="hint">(SHOPEE_SHOP_ID da planilha ${s})</span></label>
+      <input id="${s}_sid" type="number" value="${st.shopId}" placeholder="número"/>
+    </div>`;
+  }).join('');
+
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body{font-family:Arial;font-size:12px;padding:12px;margin:0;overflow-y:auto}
+      .bloco{border:1px solid #ddd;border-radius:6px;padding:10px 12px;margin-bottom:10px;background:#fafafa}
+      .titulo{font-weight:bold;font-size:13px;margin-bottom:6px}
+      label{display:block;font-weight:bold;margin-top:8px;margin-bottom:2px;color:#333}
+      .hint{font-weight:normal;color:#999}
+      input{width:100%;padding:5px 7px;box-sizing:border-box;font-size:11px;
+            border:1px solid #ccc;border-radius:3px;font-family:monospace}
+      button{margin-top:10px;background:#1565c0;color:#fff;border:none;
+             padding:9px;font-size:13px;border-radius:4px;cursor:pointer;width:100%}
+      .aviso{background:#fff8e1;border:1px solid #ffe082;border-radius:4px;
+             padding:8px 10px;font-size:11px;margin-bottom:10px;color:#5d4037}
+    </style>
+    <p class="aviso">
+      📌 Preencha os dados de cada loja.<br>
+      <b>Partner_id e Partner Key</b>: página do app Shopee → Live Partner_id / Live API Partner Key.<br>
+      <b>ACCESS_TOKEN, REFRESH_TOKEN, SHOP_ID</b>: planilha existente da loja → Extensões → Apps Script → ⚙️ → Propriedades do script.
+    </p>
+    ${blocos}
+    <button onclick="salvar()">💾 Salvar credenciais das 3 lojas</button>
+    <script>
+      function salvar() {
+        const dados = {};
+        ${PS_STORES.map(s =>
+          `dados['${s}']={` +
+          `pid:document.getElementById('${s}_pid').value.trim(),` +
+          `pkey:document.getElementById('${s}_pkey').value.trim(),` +
+          `at:document.getElementById('${s}_at').value.trim(),` +
+          `rt:document.getElementById('${s}_rt').value.trim(),` +
+          `sid:document.getElementById('${s}_sid').value.trim()};`
+        ).join('')}
+        document.querySelector('button').textContent = '⏳ Salvando...';
+        google.script.run
+          .withSuccessHandler(m => { alert(m); google.script.host.close(); })
+          .withFailureHandler(e => {
+            alert('Erro: ' + e.message);
+            document.querySelector('button').textContent = '💾 Salvar credenciais das 3 lojas';
+          })
+          .ps_salvarCredenciais(dados);
+      }
+    </script>
+  `).setWidth(540).setHeight(650);
+  SpreadsheetApp.getUi().showModalDialog(html, '📋 Importar Credenciais — Shopee');
+}
+
+function ps_salvarCredenciais(dados) {
+  const props   = PropertiesService.getScriptProperties();
+  const expires = String(Math.floor(Date.now() / 1000) + 14400);
+  const salvos  = [];
+
+  PS_STORES.forEach(s => {
+    const d      = dados[s] || {};
+    const prefix = s.toUpperCase() + '_';
+    if (d.pid)  props.setProperty(prefix + 'PARTNER_ID',  d.pid);
+    if (d.pkey) props.setProperty(prefix + 'PARTNER_KEY', d.pkey);
+    if (d.at)   props.setProperty(prefix + 'ACCESS_TOKEN',  d.at);
+    if (d.rt)   props.setProperty(prefix + 'REFRESH_TOKEN', d.rt);
+    if (d.sid)  props.setProperty(prefix + 'SHOP_ID',       d.sid);
+    if (d.at && d.rt && d.sid) {
+      props.setProperty(prefix + 'TOKEN_EXPIRES', expires);
+      salvos.push(s);
+    }
+  });
+
+  if (!salvos.length) throw new Error('Nenhuma loja foi preenchida completamente (AT + RT + SHOP_ID).');
+  return '✅ Credenciais salvas: ' + salvos.join(', ');
 }
 
 // ============================================================
@@ -187,11 +248,10 @@ function ps_configurarPromos() {
             border:1px solid #ccc;border-radius:3px}
       button{margin-top:16px;background:#1565c0;color:#fff;border:none;
              padding:10px 26px;font-size:14px;border-radius:4px;cursor:pointer}
-      .hint{color:#888;font-size:11px;margin-top:6px}
+      .hint{color:#888;font-size:11px;margin-top:6px;line-height:1.5}
     </style>
     <p>Informe o <b>Discount ID</b> da promoção <b>ativa</b> de cada loja.</p>
-    <p class="hint">Onde encontrar: Central de Marketing → sua promoção → a URL contém o ID.<br>
-    Ou use a API: menu → Listar promoções ativas (se disponível).</p>
+    <p class="hint">Onde encontrar: Central de Marketing da Shopee → sua promoção → a URL da página contém o ID numérico.</p>
     ${rows}
     <button onclick="salvar()">💾 Salvar IDs</button>
     <script>
@@ -205,7 +265,7 @@ function ps_configurarPromos() {
           .ps_salvarIds(ids);
       }
     </script>
-  `).setWidth(420).setHeight(340);
+  `).setWidth(420).setHeight(320);
   SpreadsheetApp.getUi().showModalDialog(html, '🎯 IDs de Promoção Ativa');
 }
 
@@ -217,115 +277,6 @@ function ps_salvarIds(ids) {
   });
   return '✅ IDs salvos: ' +
     PS_STORES.filter(s => ids[s]).map(s => s + '=' + ids[s]).join(', ');
-}
-
-// ============================================================
-// IMPORTAR TOKENS EXISTENTES (sem refazer OAuth)
-// Use quando os tokens já estão salvos em outra planilha.
-// Cole ACCESS_TOKEN, REFRESH_TOKEN e SHOP_ID de cada loja.
-// ============================================================
-function ps_importarTokens() {
-  const props = PropertiesService.getScriptProperties();
-
-  // Monta estado atual para pré-preencher os campos
-  const estado = PS_STORES.map(s => {
-    const p = s.toUpperCase() + '_';
-    const shopId  = props.getProperty(p + 'SHOP_ID')  || '';
-    const expires = parseInt(props.getProperty(p + 'TOKEN_EXPIRES') || '0');
-    const now     = Math.floor(Date.now() / 1000);
-    const ok      = shopId && expires > now;
-    return { s, shopId, ok };
-  });
-
-  const linhas = PS_STORES.map(s =>
-    `<div class="bloco">
-      <div class="titulo">${s}
-        <span id="st_${s}" class="tag"></span>
-      </div>
-      <label>ACCESS_TOKEN</label>
-      <input id="${s}_at" placeholder="cole aqui o SHOPEE_ACCESS_TOKEN da planilha ${s}"/>
-      <label>REFRESH_TOKEN</label>
-      <input id="${s}_rt" placeholder="cole aqui o SHOPEE_REFRESH_TOKEN da planilha ${s}"/>
-      <label>SHOP_ID</label>
-      <input id="${s}_sid" type="number" placeholder="número (ex: 123456789)"/>
-    </div>`
-  ).join('');
-
-  const initScript = PS_STORES.map(s => {
-    const p   = s.toUpperCase() + '_';
-    const sid = props.getProperty(p + 'SHOP_ID') || '';
-    const exp = parseInt(props.getProperty(p + 'TOKEN_EXPIRES') || '0');
-    const now = Math.floor(Date.now() / 1000);
-    const ok  = sid && exp > now;
-    return `document.getElementById('${s}_sid').value='${sid}';` +
-           `document.getElementById('st_${s}').textContent='${ok ? "✅ token ativo" : sid ? "⚠️ expirado" : "❌ não configurado"}';` +
-           `document.getElementById('st_${s}').style.color='${ok ? "#0a6e36" : sid ? "#b85c00" : "#c00"}';`;
-  }).join('');
-
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body{font-family:Arial;font-size:12px;padding:14px;margin:0;overflow-y:auto}
-      .bloco{border:1px solid #ddd;border-radius:6px;padding:10px 12px;margin-bottom:12px}
-      .titulo{font-weight:bold;font-size:13px;margin-bottom:8px;color:#1a1a1a}
-      .tag{font-weight:normal;font-size:11px;margin-left:8px}
-      label{display:block;font-weight:bold;margin-top:8px;margin-bottom:2px;font-size:11px;color:#444}
-      input{width:100%;padding:5px 7px;box-sizing:border-box;font-size:11px;
-            border:1px solid #ccc;border-radius:3px;font-family:monospace}
-      .hint{color:#888;font-size:11px;margin-bottom:10px;line-height:1.5}
-      button{margin-top:12px;background:#1565c0;color:#fff;border:none;
-             padding:9px 24px;font-size:13px;border-radius:4px;cursor:pointer;width:100%}
-    </style>
-    <p class="hint">
-      Cole os valores de <b>SHOPEE_ACCESS_TOKEN</b>, <b>SHOPEE_REFRESH_TOKEN</b> e
-      <b>SHOPEE_SHOP_ID</b> de cada planilha existente.<br>
-      Vá na planilha da loja → Extensões → Apps Script → ⚙️ Configurações → Propriedades do script.
-    </p>
-    ${linhas}
-    <button onclick="salvar()">💾 Salvar tokens das 3 lojas</button>
-    <script>
-      ${initScript}
-      function salvar() {
-        const dados = {};
-        ${PS_STORES.map(s =>
-          `dados['${s}']={at:document.getElementById('${s}_at').value.trim(),` +
-          `rt:document.getElementById('${s}_rt').value.trim(),` +
-          `sid:document.getElementById('${s}_sid').value.trim()};`
-        ).join('')}
-        document.querySelector('button').textContent = '⏳ Salvando...';
-        google.script.run
-          .withSuccessHandler(m => { alert(m); google.script.host.close(); })
-          .withFailureHandler(e => {
-            alert('Erro: ' + e.message);
-            document.querySelector('button').textContent = '💾 Salvar tokens das 3 lojas';
-          })
-          .ps_salvarTokensImportados(dados);
-      }
-    </script>
-  `).setWidth(520).setHeight(580);
-  SpreadsheetApp.getUi().showModalDialog(html, '📋 Importar Tokens Existentes');
-}
-
-function ps_salvarTokensImportados(dados) {
-  const props = PropertiesService.getScriptProperties();
-  // TOKEN_EXPIRES: definimos 4h a partir de agora como estimativa conservadora
-  // O token será renovado automaticamente via refresh_token quando necessário
-  const expires = String(Math.floor(Date.now() / 1000) + 14400);
-  const salvos  = [];
-
-  PS_STORES.forEach(s => {
-    const d = dados[s] || {};
-    const prefix = s.toUpperCase() + '_';
-    if (d.at && d.rt && d.sid) {
-      props.setProperty(prefix + 'ACCESS_TOKEN',  d.at);
-      props.setProperty(prefix + 'REFRESH_TOKEN', d.rt);
-      props.setProperty(prefix + 'SHOP_ID',       d.sid);
-      props.setProperty(prefix + 'TOKEN_EXPIRES', expires);
-      salvos.push(s + ' (shop_id=' + d.sid + ')');
-    }
-  });
-
-  if (!salvos.length) throw new Error('Nenhum token foi preenchido. Informe ao menos ACCESS_TOKEN, REFRESH_TOKEN e SHOP_ID para uma loja.');
-  return '✅ Tokens salvos: ' + salvos.join(', ');
 }
 
 // ============================================================
@@ -357,8 +308,8 @@ function ps_enviarTodas() {
 }
 
 function _ps_processarLoja(loja) {
-  const ui = SpreadsheetApp.getUi();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName(loja);
   if (!aba) throw new Error('Aba "' + loja + '" não encontrada.');
 
@@ -371,22 +322,20 @@ function _ps_processarLoja(loja) {
   const lastRow = aba.getLastRow();
   if (lastRow <= PS_HDR) { ui.alert(loja + ': sem dados na aba.'); return; }
 
-  const NUM_COLS  = Math.max(...Object.values(PS_COL)) + 1; // colunas suficientes
-  const allData   = aba.getRange(PS_HDR + 1, 1, lastRow - PS_HDR, NUM_COLS).getValues();
-  const statusCol = PS_COL.STATUS + 1; // 1-based para getRange
+  const NUM_COLS = Math.max(...Object.values(PS_COL)) + 1;
+  const allData  = aba.getRange(PS_HDR + 1, 1, lastRow - PS_HDR, NUM_COLS).getValues();
+  const statusCol = PS_COL.STATUS + 1;
 
-  // Filtra pendentes
   const pendentes = allData
     .map((row, i) => ({ i, row }))
     .filter(({ row }) => String(row[PS_COL.STATUS] || '').trim() === PS_PENDING);
 
   if (!pendentes.length) {
-    ui.alert(loja + ': nenhum item com status "' + PS_PENDING + '".');
-    return;
+    ui.alert(loja + ': nenhum item com status "' + PS_PENDING + '".'); return;
   }
 
-  // Agrupa models pelo mesmo item_id
-  const itemMap = {}; // itemId(string) → { purchase_limit, preco, models, rowIdxs, temModel }
+  // Agrupa model_ids pelo mesmo item_id
+  const itemMap = {};
   pendentes.forEach(({ i, row }) => {
     const itemId  = String(row[PS_COL.ITEM]  || '').trim();
     const modelId = String(row[PS_COL.MODEL] || '').trim();
@@ -406,61 +355,39 @@ function _ps_processarLoja(loja) {
     itemMap[itemId].rowIdxs.push(i);
   });
 
-  // Monta item_list com rastreamento de rowIdxs
   const itemList = Object.entries(itemMap).map(([itemId, info]) => {
-    const entry = {
-      item_id:        parseInt(itemId),
-      purchase_limit: info.purchase_limit,
-      _rowIdxs:       info.rowIdxs,
-    };
-    if (info.temModel) {
-      entry.model_list = info.models;
-    } else {
-      entry.item_promotion_price = info.preco;
-    }
-    return entry;
+    const e = { item_id: parseInt(itemId), purchase_limit: info.purchase_limit, _rowIdxs: info.rowIdxs };
+    if (info.temModel) e.model_list = info.models;
+    else               e.item_promotion_price = info.preco;
+    return e;
   });
 
   let adicionados = 0, erros = 0;
 
-  // Envia em lotes de até 50 items por chamada
   for (let i = 0; i < itemList.length; i += 50) {
-    const lote      = itemList.slice(i, i + 50);
-    const rowMap    = {};
-    const payload   = lote.map(({ _rowIdxs, ...item }) => {
-      rowMap[item.item_id] = _rowIdxs;
-      return item;
-    });
+    const lote    = itemList.slice(i, i + 50);
+    const rowMap  = {};
+    const payload = lote.map(({ _rowIdxs, ...item }) => { rowMap[item.item_id] = _rowIdxs; return item; });
 
     let respData;
     try {
       respData = _ps_post(loja, '/api/v2/discount/add_discount_item', {
-        discount_id: discountId,
-        item_list:   payload,
+        discount_id: discountId, item_list: payload,
       });
     } catch (e) {
-      // Erro de transporte — marca todos do lote
       lote.forEach(({ item_id, _rowIdxs }) =>
-        _rowIdxs.forEach(r =>
-          aba.getRange(PS_HDR + 1 + r, statusCol).setValue('❌ Erro API: ' + e.message)
-        )
+        _rowIdxs.forEach(r => aba.getRange(PS_HDR + 1 + r, statusCol).setValue('❌ Erro API: ' + e.message))
       );
-      erros += lote.length;
-      continue;
+      erros += lote.length; continue;
     }
 
-    // Monta mapa de erros por item_id
     const erroMap = {};
-    (respData.error_list || []).forEach(e => {
-      erroMap[e.item_id] = e.failed_reason || e.msg || String(e.error_code || 'Erro');
-    });
+    (respData.error_list || []).forEach(e => { erroMap[e.item_id] = e.failed_reason || e.msg || String(e.error_code || 'Erro'); });
 
     payload.forEach(item => {
-      const msg    = erroMap[item.item_id];
-      const rowIdxs = rowMap[item.item_id];
-      rowIdxs.forEach(r =>
-        aba.getRange(PS_HDR + 1 + r, statusCol)
-           .setValue(msg ? '❌ ' + msg : '✅ Adicionado')
+      const msg = erroMap[item.item_id];
+      rowMap[item.item_id].forEach(r =>
+        aba.getRange(PS_HDR + 1 + r, statusCol).setValue(msg ? '❌ ' + msg : '✅ Adicionado')
       );
       msg ? erros++ : adicionados++;
     });
@@ -476,7 +403,7 @@ function _ps_processarLoja(loja) {
 }
 
 // ============================================================
-// HELPERS DE AUTENTICAÇÃO MULTI-LOJA
+// HTTP + AUTH POR LOJA
 // ============================================================
 function _ps_getToken(loja) {
   const prefix  = loja.toUpperCase() + '_';
@@ -487,23 +414,22 @@ function _ps_getToken(loja) {
   const expires = parseInt(props.getProperty(prefix + 'TOKEN_EXPIRES') || '0');
   const now     = Math.floor(Date.now() / 1000);
 
-  if (!token) throw new Error(
-    'Token da loja ' + loja + ' não encontrado.\nUse o menu 🔑 Autorizar ' + loja + '.'
-  );
+  if (!token) throw new Error('Token da loja ' + loja + ' não encontrado.\nUse o menu 📋 Importar credenciais.');
   if (now >= expires - 300) return _ps_renovarToken(loja, refresh, parseInt(shopId));
   return { token, shopId };
 }
 
 function _ps_renovarToken(loja, refreshToken, shopId) {
-  const pkey   = _ps_partnerKey();
+  const pid    = _ps_partnerId(loja);
+  const pkey   = _ps_partnerKey(loja);
   const prefix = loja.toUpperCase() + '_';
   const path   = '/api/v2/auth/access_token/get';
   const ts     = Math.floor(Date.now() / 1000);
-  const sign   = _ps_sign(PS_PARTNER_ID + path + ts, pkey);
+  const sign   = _ps_sign(pid + path + ts, pkey);
   const resp   = UrlFetchApp.fetch(
-    PS_BASE + path + '?partner_id=' + PS_PARTNER_ID + '&timestamp=' + ts + '&sign=' + sign,
+    PS_BASE + path + '?partner_id=' + pid + '&timestamp=' + ts + '&sign=' + sign,
     { method:'post', contentType:'application/json', muteHttpExceptions:true,
-      payload: JSON.stringify({ refresh_token: refreshToken, shop_id: shopId, partner_id: PS_PARTNER_ID }) }
+      payload: JSON.stringify({ refresh_token: refreshToken, shop_id: shopId, partner_id: pid }) }
   );
   const data = JSON.parse(resp.getContentText());
   if (data.error && data.error !== '') throw new Error('Falha ao renovar token ' + loja + ': ' + data.message);
@@ -516,12 +442,13 @@ function _ps_renovarToken(loja, refreshToken, shopId) {
 }
 
 function _ps_post(loja, path, body) {
+  const pid            = _ps_partnerId(loja);
+  const pkey           = _ps_partnerKey(loja);
   const { token, shopId } = _ps_getToken(loja);
-  const pkey = _ps_partnerKey();
   const ts   = Math.floor(Date.now() / 1000);
-  const sign = _ps_sign(PS_PARTNER_ID + path + ts + token + parseInt(shopId), pkey);
+  const sign = _ps_sign(pid + path + ts + token + parseInt(shopId), pkey);
   const url  = PS_BASE + path
-    + '?partner_id=' + PS_PARTNER_ID + '&timestamp=' + ts
+    + '?partner_id=' + pid + '&timestamp=' + ts
     + '&access_token=' + token + '&shop_id=' + shopId + '&sign=' + sign;
 
   const resp = UrlFetchApp.fetch(url, {
@@ -531,12 +458,6 @@ function _ps_post(loja, path, body) {
   const data = JSON.parse(resp.getContentText());
   if (data.error && data.error !== '') throw new Error('[' + path + '] ' + (data.message || data.error));
   return data.response || data;
-}
-
-function _ps_partnerKey() {
-  const k = PropertiesService.getScriptProperties().getProperty('SHOPEE_PARTNER_KEY');
-  if (!k) throw new Error('SHOPEE_PARTNER_KEY não configurada nas propriedades do script.');
-  return k;
 }
 
 function _ps_sign(msg, key) {
