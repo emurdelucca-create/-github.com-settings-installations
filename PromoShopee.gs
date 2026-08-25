@@ -64,16 +64,19 @@ function _ps_partnerKey(loja) {
 }
 
 // ============================================================
-// AUTORIZAÇÃO OAuth por loja
+// AUTORIZAÇÃO OAuth por loja (abre link + salva token na mesma tela)
 // ============================================================
 function _ps_iniciarAuth(loja) {
-  const ui  = SpreadsheetApp.getUi();
+  const ui = SpreadsheetApp.getUi();
   let pid, pkey;
   try {
     pid  = _ps_partnerId(loja);
     pkey = _ps_partnerKey(loja);
   } catch(e) {
-    ui.alert('❌ ' + e.message); return;
+    ui.alert('❌ ' + e.message +
+      '\n\nPrimeiro configure o Partner_id e Partner Key da loja ' + loja +
+      '\nusando o menu: 📋 Importar credenciais das planilhas existentes.');
+    return;
   }
   const ts   = Math.floor(Date.now() / 1000);
   const path = '/api/v2/shop/auth_partner';
@@ -82,20 +85,59 @@ function _ps_iniciarAuth(loja) {
     + '?partner_id=' + pid + '&timestamp=' + ts + '&sign=' + sign
     + '&redirect=' + encodeURIComponent('https://localhost');
 
-  ui.showModalDialog(
-    HtmlService.createHtmlOutput(
-      '<div style="font-family:Arial;font-size:13px;padding:12px;line-height:1.9">' +
-      '<p><b>1.</b> Clique no link e faça login com a conta <b>Shopee ' + loja + '</b>:</p>' +
-      '<p><a href="' + url + '" target="_blank" style="background:#e65100;color:#fff;' +
-      'padding:8px 18px;border-radius:4px;text-decoration:none;font-size:14px">' +
-      '👉 Autorizar Shopee ' + loja + '</a></p>' +
-      '<p><b>2.</b> Após autorizar, o browser abrirá uma página de erro (localhost) — é normal.</p>' +
-      '<p><b>3.</b> Copie a URL completa da barra de endereço.</p>' +
-      '<p><b>4.</b> No menu clique em <b>📋 Importar credenciais</b> e cole a URL no campo de ' + loja + '.</p>' +
-      '</div>'
-    ).setWidth(500).setHeight(270),
-    '🔑 Autorizar Shopee ' + loja
-  );
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body{font-family:Arial;font-size:13px;padding:14px;margin:0}
+      .passo{margin-bottom:10px}
+      b{color:#222}
+      label{font-weight:bold;display:block;margin-top:12px;margin-bottom:3px}
+      input{width:100%;padding:7px;box-sizing:border-box;font-size:12px;
+            border:1px solid #ccc;border-radius:3px;font-family:monospace}
+      button{margin-top:14px;background:#e65100;color:#fff;border:none;
+             padding:10px;font-size:14px;border-radius:4px;cursor:pointer;width:100%}
+      .hint{color:#888;font-size:11px;margin-top:3px}
+    </style>
+    <div class="passo"><b>Passo 1.</b> Clique no botão e faça login com a conta <b>Shopee ${loja}</b>:</div>
+    <a href="${url}" target="_blank" style="display:block;background:#e65100;color:#fff;
+       padding:10px;border-radius:4px;text-decoration:none;text-align:center;font-size:14px;font-weight:bold">
+       👉 Autorizar Shopee ${loja}
+    </a>
+    <div class="passo" style="margin-top:10px"><b>Passo 2.</b> Após autorizar, o browser abrirá uma página de erro
+    (localhost) — <b>é normal</b>. Copie a URL completa da barra de endereço.</div>
+    <div class="passo"><b>Passo 3.</b> Cole a URL aqui embaixo e clique em Salvar:</div>
+    <label>URL completa do redirect (localhost/?code=...&shop_id=...)</label>
+    <input id="url" placeholder="https://localhost/?code=XXXX&shop_id=YYYYY"/>
+    <p class="hint">Os campos abaixo são preenchidos automaticamente ao colar a URL.</p>
+    <label>code</label>
+    <input id="code" placeholder="código gerado pela Shopee"/>
+    <label>shop_id</label>
+    <input id="sid" type="number" placeholder="número"/>
+    <button onclick="salvar()">💾 Salvar token ${loja}</button>
+    <script>
+      document.getElementById('url').addEventListener('input', function() {
+        try {
+          const p = new URL(this.value.trim()).searchParams;
+          const c = p.get('code'), s = p.get('shop_id');
+          if (c) document.getElementById('code').value = c;
+          if (s) document.getElementById('sid').value  = s;
+        } catch(e) {}
+      });
+      function salvar() {
+        const code = document.getElementById('code').value.trim();
+        const sid  = document.getElementById('sid').value.trim();
+        if (!code || !sid) { alert('Cole a URL acima ou preencha o code e shop_id.'); return; }
+        document.querySelector('button').textContent = '⏳ Salvando...';
+        google.script.run
+          .withSuccessHandler(m => { alert(m); google.script.host.close(); })
+          .withFailureHandler(e => {
+            alert('Erro: ' + e.message);
+            document.querySelector('button').textContent = '💾 Salvar token ${loja}';
+          })
+          .ps_trocarToken('${loja}', code, parseInt(sid));
+      }
+    </script>
+  `).setWidth(500).setHeight(520);
+  ui.showModalDialog(html, '🔑 Autorizar Shopee ' + loja);
 }
 
 function ps_trocarToken(loja, code, shopId) {
