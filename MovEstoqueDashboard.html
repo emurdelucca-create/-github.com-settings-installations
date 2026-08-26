@@ -196,6 +196,63 @@
 
     .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
+    /* ── SKU SEARCH ── */
+    .sku-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .sku-input {
+      background: #0a1220;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 12px;
+      padding: 5px 10px 5px 30px;
+      width: 200px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+    .sku-input:focus { border-color: var(--cyan); }
+    .sku-input::placeholder { color: var(--muted); }
+    .sku-search-icon {
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+    .sku-search-rel { position: relative; display: flex; align-items: center; }
+    .sku-mode-btn {
+      padding: 5px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted2);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .sku-mode-btn.active { background: rgba(0,229,255,0.08); border-color: var(--cyan); color: var(--cyan); }
+    .sku-clear {
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .sku-clear:hover { color: var(--red); }
+
     .count-pill {
       margin-left: auto;
       background: rgba(0,229,255,0.08);
@@ -415,6 +472,17 @@
     <button class="fbtn aB" id="fB" onclick="toggleAbc('B')">B</button>
     <button class="fbtn aC" id="fC" onclick="toggleAbc('C')">C</button>
   </div>
+  <div class="sep"></div>
+  <div class="sku-search-wrap">
+    <span class="filter-label">SKU</span>
+    <div class="sku-search-rel">
+      <span class="sku-search-icon">🔍</span>
+      <input class="sku-input" id="skuInput" type="text" placeholder="Buscar SKU..." oninput="onSkuInput(this.value)">
+    </div>
+    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')" title="Contém o texto">Contém</button>
+    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')"    title="SKU exato">Exato</button>
+    <button class="sku-clear" id="skuClear" onclick="clearSku()" title="Limpar filtro" style="display:none">✕</button>
+  </div>
   <span class="count-pill" id="pill">0 SKUs</span>
 </div>
 
@@ -425,6 +493,7 @@
       <tr>
         <th>SKU</th>
         <th>Localização A8</th>
+        <th>Localização A9</th>
         <th class="r">Picking atual</th>
         <th class="r">Bruto A9</th>
         <th class="r" id="movTh">A Mover 0-7</th>
@@ -442,9 +511,11 @@
 
 <script>
   // ── State ───────────────────────────────────────────────────
-  let allData  = [];
-  let periodo  = 'mov7';
-  let abcSet   = new Set(['A','B','C']);
+  let allData   = [];
+  let periodo   = 'mov7';
+  let abcSet    = new Set(['A','B','C']);
+  let skuFilter = '';
+  let skuMode   = 'contains'; // 'contains' | 'exact'
 
   const periLabels = { mov5:'0-5', mov7:'0-7', mov10:'0-10', mov15:'0-15' };
   const periIds    = { mov5:'5',   mov7:'7',   mov10:'10',   mov15:'15'   };
@@ -491,10 +562,37 @@
     render();
   }
 
+  // ── SKU search controls ──────────────────────────────────────
+  function onSkuInput(val) {
+    skuFilter = val.trim().toUpperCase();
+    document.getElementById('skuClear').style.display = skuFilter ? '' : 'none';
+    render();
+  }
+
+  function setSkuMode(mode) {
+    skuMode = mode;
+    document.getElementById('skuModeContains').className = 'sku-mode-btn' + (mode === 'contains' ? ' active' : '');
+    document.getElementById('skuModeExact').className    = 'sku-mode-btn' + (mode === 'exact'    ? ' active' : '');
+    render();
+  }
+
+  function clearSku() {
+    skuFilter = '';
+    document.getElementById('skuInput').value = '';
+    document.getElementById('skuClear').style.display = 'none';
+    render();
+  }
+
+  function skuMatch(sku) {
+    if (!skuFilter) return true;
+    const s = String(sku).toUpperCase();
+    return skuMode === 'exact' ? s === skuFilter : s.includes(skuFilter);
+  }
+
   // ── Render table ────────────────────────────────────────────
   function render() {
     const filtered = allData
-      .filter(r => abcSet.has(r.abc) && r[periodo] > 0)
+      .filter(r => abcSet.has(r.abc) && r[periodo] > 0 && skuMatch(r.sku))
       .sort((a,b) => b[periodo] - a[periodo]);
 
     const totMov = filtered.reduce((s,r) => s + r[periodo], 0);
@@ -526,9 +624,12 @@
       const abc  = r.abc ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
       const peds = r.peds > 0 ? `<span class="peds-v">${r.peds}</span>` : `<span class="td-zero">—</span>`;
 
+      const locG = r.locG || '—';
+
       return `<tr>
         <td class="td-sku">${r.sku}</td>
         <td class="td-loc" title="${r.locF}">${loc}</td>
+        <td class="td-loc" title="${r.locG || ''}">${locG}</td>
         <td class="r">${pick}</td>
         <td class="r">${brut}</td>
         <td class="r"><span class="${movCls}">${movTxt}</span></td>

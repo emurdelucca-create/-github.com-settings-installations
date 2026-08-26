@@ -31,7 +31,7 @@ function me_dash_getData() {
   }
 
   // Colunas lidas (1-indexed → valores 0-indexed no array):
-  //   A(1)=SKU  B(2)=picking  C(3)=armPad  F(6)=locF
+  //   A(1)=SKU  B(2)=picking  C(3)=armPad  F(6)=locF  G(7)=locG
   //   P(16)=mov5  Q(17)=mov7  R(18)=mov10  S(19)=mov15
   //   T(20)=abc   AE(31)=pedTotal
   const NCOLS   = 31;
@@ -45,6 +45,7 @@ function me_dash_getData() {
       pick:  Number(r[1]  || 0),
       bruto: Number(r[2]  || 0),
       locF:  String(r[5]  || ''),
+      locG:  String(r[6]  || ''),
       mov5:  Math.max(0, Number(r[15] || 0)),
       mov7:  Math.max(0, Number(r[16] || 0)),
       mov10: Math.max(0, Number(r[17] || 0)),
