@@ -196,37 +196,69 @@
 
     .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
-    /* ── SKU SEARCH ── */
+    /* ── SKU CHIP INPUT ── */
     .sku-search-wrap {
       display: flex;
       align-items: center;
       gap: 6px;
-      margin-left: auto;
+      flex: 1;
+      min-width: 0;
     }
-    .sku-input {
+    .chip-input-box {
       background: #0a1220;
       border: 1px solid var(--border);
       border-radius: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      min-width: 220px;
+      max-width: 520px;
+      cursor: text;
+      transition: border-color 0.15s;
+      flex: 1;
+    }
+    .chip-input-box:focus-within { border-color: var(--cyan); }
+    #chipList { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(0,229,255,0.1);
+      border: 1px solid rgba(0,229,255,0.28);
+      color: var(--cyan);
+      border-radius: 4px;
+      padding: 2px 5px 2px 7px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap;
+      max-width: 170px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chip-x {
+      cursor: pointer;
+      opacity: 0.55;
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+      font-family: sans-serif;
+    }
+    .chip-x:hover { opacity: 1; color: var(--red); }
+    #chipRaw {
+      border: none;
+      background: transparent;
       color: var(--text);
       font-size: 12px;
-      padding: 5px 10px 5px 30px;
-      width: 200px;
       outline: none;
-      transition: border-color 0.15s;
+      min-width: 100px;
+      flex: 1;
+      padding: 2px 0;
       font-family: inherit;
     }
-    .sku-input:focus { border-color: var(--cyan); }
-    .sku-input::placeholder { color: var(--muted); }
-    .sku-search-icon {
-      position: absolute;
-      left: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--muted);
-      font-size: 13px;
-      pointer-events: none;
-    }
-    .sku-search-rel { position: relative; display: flex; align-items: center; }
+    #chipRaw::placeholder { color: var(--muted); }
     .sku-mode-btn {
       padding: 5px 9px;
       border-radius: 6px;
@@ -238,20 +270,23 @@
       cursor: pointer;
       transition: all 0.15s;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     .sku-mode-btn.active { background: rgba(0,229,255,0.08); border-color: var(--cyan); color: var(--cyan); }
     .sku-clear {
-      padding: 5px 8px;
+      padding: 5px 10px;
       border-radius: 6px;
-      border: 1px solid transparent;
+      border: 1px solid rgba(255,68,68,0.25);
       background: transparent;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 11px;
+      font-weight: 600;
       cursor: pointer;
-      line-height: 1;
-      transition: color 0.15s;
+      transition: all 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
-    .sku-clear:hover { color: var(--red); }
+    .sku-clear:hover { color: var(--red); border-color: var(--red); }
 
     .count-pill {
       margin-left: auto;
@@ -475,13 +510,15 @@
   <div class="sep"></div>
   <div class="sku-search-wrap">
     <span class="filter-label">SKU</span>
-    <div class="sku-search-rel">
-      <span class="sku-search-icon">🔍</span>
-      <input class="sku-input" id="skuInput" type="text" placeholder="Buscar SKU..." oninput="onSkuInput(this.value)">
+    <div class="chip-input-box" id="chipBox" onclick="focusChipInput()">
+      <div id="chipList"></div>
+      <input id="chipRaw" type="text" placeholder="Cole ou digite SKUs..."
+             onkeydown="chipKeydown(event)"
+             onpaste="chipPaste(event)">
     </div>
-    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')" title="Contém o texto">Contém</button>
-    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')"    title="SKU exato">Exato</button>
-    <button class="sku-clear" id="skuClear" onclick="clearSku()" title="Limpar filtro" style="display:none">✕</button>
+    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')" title="Cada chip contém o texto no SKU">Contém</button>
+    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')"    title="Chip igual ao SKU exato">Exato</button>
+    <button class="sku-clear" id="skuClear" onclick="clearAllChips()" title="Limpar todos os SKUs" style="display:none">✕ Limpar</button>
   </div>
   <span class="count-pill" id="pill">0 SKUs</span>
 </div>
@@ -511,11 +548,11 @@
 
 <script>
   // ── State ───────────────────────────────────────────────────
-  let allData   = [];
-  let periodo   = 'mov7';
-  let abcSet    = new Set(['A','B','C']);
-  let skuFilter = '';
-  let skuMode   = 'contains'; // 'contains' | 'exact'
+  let allData  = [];
+  let periodo  = 'mov7';
+  let abcSet   = new Set(['A','B','C']);
+  let skuChips = []; // uppercase strings
+  let skuMode  = 'contains'; // 'contains' | 'exact'
 
   const periLabels = { mov5:'0-5', mov7:'0-7', mov10:'0-10', mov15:'0-15' };
   const periIds    = { mov5:'5',   mov7:'7',   mov10:'10',   mov15:'15'   };
@@ -562,11 +599,57 @@
     render();
   }
 
-  // ── SKU search controls ──────────────────────────────────────
-  function onSkuInput(val) {
-    skuFilter = val.trim().toUpperCase();
-    document.getElementById('skuClear').style.display = skuFilter ? '' : 'none';
+  // ── SKU chip controls ────────────────────────────────────────
+  function focusChipInput() { document.getElementById('chipRaw').focus(); }
+
+  function addChips(values) {
+    const fresh = values
+      .map(v => v.trim().toUpperCase())
+      .filter(v => v.length > 0 && !skuChips.includes(v));
+    if (!fresh.length) return;
+    skuChips.push(...fresh);
+    renderChips();
     render();
+  }
+
+  function removeChip(val) {
+    skuChips = skuChips.filter(c => c !== val);
+    renderChips();
+    render();
+  }
+
+  function clearAllChips() {
+    skuChips = [];
+    renderChips();
+    render();
+  }
+
+  function renderChips() {
+    document.getElementById('chipList').innerHTML = skuChips.map(c =>
+      `<span class="chip" title="${c}"><span>${c}</span><span class="chip-x" onclick="removeChip('${c.replace(/'/g,"\\'")}')">×</span></span>`
+    ).join('');
+    document.getElementById('skuClear').style.display = skuChips.length ? '' : 'none';
+    document.getElementById('chipRaw').placeholder = skuChips.length ? '' : 'Cole ou digite SKUs...';
+  }
+
+  function chipKeydown(e) {
+    const inp = e.target;
+    if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+      e.preventDefault();
+      const val = inp.value.trim();
+      if (val) { addChips([val]); inp.value = ''; }
+    } else if (e.key === 'Backspace' && !inp.value && skuChips.length) {
+      removeChip(skuChips[skuChips.length - 1]);
+    }
+  }
+
+  function chipPaste(e) {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    // split on newlines, tabs, commas, semicolons
+    const parts = text.split(/[\n\r\t,;]+/);
+    addChips(parts);
+    e.target.value = '';
   }
 
   function setSkuMode(mode) {
@@ -576,17 +659,10 @@
     render();
   }
 
-  function clearSku() {
-    skuFilter = '';
-    document.getElementById('skuInput').value = '';
-    document.getElementById('skuClear').style.display = 'none';
-    render();
-  }
-
   function skuMatch(sku) {
-    if (!skuFilter) return true;
+    if (!skuChips.length) return true;
     const s = String(sku).toUpperCase();
-    return skuMode === 'exact' ? s === skuFilter : s.includes(skuFilter);
+    return skuChips.some(chip => skuMode === 'exact' ? s === chip : s.includes(chip));
   }
 
   // ── Render table ────────────────────────────────────────────
