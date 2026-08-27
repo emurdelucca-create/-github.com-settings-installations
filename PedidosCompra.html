@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Pedidos de Compra</title>
+<style>
+:root {
+  --bg:     #080c14;
+  --card:   #0d1421;
+  --card2:  #111827;
+  --border: #1f2d40;
+  --cyan:   #00e5ff;
+  --orange: #ff6d00;
+  --green:  #00e676;
+  --yellow: #ffd600;
+  --red:    #ff4444;
+  --blue:   #448aff;
+  --text:   #dde6f0;
+  --muted:  #4e6280;
+  --muted2: #7a90aa;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial, sans-serif; min-height: 100vh; }
+
+/* ── HEADER ── */
+.header {
+  background: linear-gradient(135deg, #0a1628 0%, #0f1f38 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 300;
+  box-shadow: 0 2px 12px rgba(0,0,0,.5);
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.header-icon { font-size: 22px; filter: drop-shadow(0 0 6px rgba(0,229,255,.5)); }
+.header-title { font-size: 16px; font-weight: 700; color: var(--cyan); letter-spacing: 1.5px; text-transform: uppercase; }
+.header-sub { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+.header-right { display: flex; gap: 8px; align-items: center; }
+
+/* ── BUTTONS ── */
+.btn {
+  padding: 7px 16px; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all .18s; letter-spacing: .4px; white-space: nowrap;
+}
+.btn-ghost { background: transparent; color: var(--cyan); border: 1px solid rgba(0,229,255,.3); }
+.btn-ghost:hover:not(:disabled) { background: rgba(0,229,255,.08); border-color: var(--cyan); }
+.btn-danger { background: rgba(255,68,68,.12); color: var(--red); border: 1px solid rgba(255,68,68,.3); }
+.btn-danger:hover:not(:disabled) { background: rgba(255,68,68,.2); }
+.btn-orange { background: linear-gradient(135deg,#e65100,#bf360c); color: #fff; box-shadow: 0 0 10px rgba(230,81,0,.3); }
+.btn-orange:hover:not(:disabled) { background: linear-gradient(135deg,#ff6d00,#e65100); box-shadow: 0 0 18px rgba(255,109,0,.45); }
+.btn-green { background: rgba(0,230,118,.15); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+.btn-green:hover:not(:disabled) { background: rgba(0,230,118,.25); }
+.btn-sm { padding: 5px 12px; font-size: 11px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── EMPTY STATE ── */
+#emptyState {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 100px 20px; gap: 16px;
+}
+.empty-icon { font-size: 56px; opacity: .35; }
+.empty-title { font-size: 18px; font-weight: 700; color: var(--muted2); }
+.empty-sub { font-size: 13px; color: var(--muted); text-align: center; max-width: 360px; }
+
+/* ── TAB BAR ── */
+.tab-bar-wrap {
+  background: var(--card2);
+  border-bottom: 1px solid var(--border);
+  display: none;
+  position: sticky; top: 60px; z-index: 200;
+}
+.tab-bar {
+  display: flex; overflow-x: auto; gap: 2px; padding: 8px 16px 0;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-item {
+  flex-shrink: 0; padding: 8px 18px 9px;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent; border-bottom: none;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+  color: var(--muted2); background: transparent;
+  white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+}
+.tab-item:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.tab-item.active {
+  color: var(--cyan); background: var(--card);
+  border-color: var(--border); border-bottom-color: var(--card);
+  margin-bottom: -1px;
+}
+
+/* ── TAB CONTENT ── */
+#tabContent { display: none; }
+
+.tab-panel { padding: 20px 24px 40px; }
+
+/* ── TAB HEADER CARD ── */
+.tab-hdr-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.tab-hdr-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.tab-hdr-row + .tab-hdr-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+.field-group { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: 10px; color: var(--muted2); text-transform: uppercase; letter-spacing: .9px; }
+
+/* Autocomplete fornecedor */
+.ac-wrap { position: relative; }
+.ac-input {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 13px; padding: 7px 10px; width: 280px;
+  outline: none; transition: border-color .15s; font-family: inherit;
+}
+.ac-input:focus { border-color: var(--cyan); }
+.ac-input::placeholder { color: var(--muted); }
+.ac-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #0d1929; border: 1px solid var(--border); border-radius: 8px;
+  max-height: 220px; overflow-y: auto; z-index: 400;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6); display: none;
+}
+.ac-option {
+  padding: 8px 12px; font-size: 12px; cursor: pointer;
+  transition: background .1s; border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.ac-option:last-child { border-bottom: none; }
+.ac-option:hover, .ac-option.focused { background: rgba(0,229,255,.07); color: var(--cyan); }
+.ac-empty { padding: 10px 12px; font-size: 12px; color: var(--muted); font-style: italic; }
+
+/* Number / percent inputs */
+.num-input {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 13px; padding: 7px 10px; width: 100px;
+  outline: none; transition: border-color .15s; font-family: inherit;
+  -moz-appearance: textfield;
+}
+.num-input::-webkit-outer-spin-button, .num-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.num-input:focus { border-color: var(--cyan); }
+
+/* Sim/Não toggle */
+.toggle-wrap { display: flex; gap: 6px; }
+.toggle-btn {
+  padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted2); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.toggle-btn.on  { background: rgba(0,230,118,.12); border-color: var(--green); color: var(--green); }
+.toggle-btn.off { background: rgba(255,68,68,.1);  border-color: var(--red);   color: var(--red);   }
+
+/* Clone suppliers row */
+.clone-fornecs { display: flex; flex-wrap: wrap; gap: 14px; }
+
+/* ── TABLE ── */
+.table-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.table-toolbar {
+  padding: 12px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.table-title { font-size: 12px; font-weight: 700; color: var(--muted2); text-transform: uppercase; letter-spacing: .9px; }
+.table-total { font-size: 13px; font-weight: 700; color: var(--orange); }
+
+.table-scroll { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  background: #0a1323; color: var(--muted2); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .8px;
+  padding: 8px 10px; text-align: left;
+  border-bottom: 2px solid var(--border); white-space: nowrap;
+}
+thead th.r { text-align: right; }
+thead th.clone-hdr { border-left: 2px solid rgba(68,138,255,.3); color: var(--blue); }
+
+tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .1s; }
+tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
+tbody tr:hover { background: rgba(0,229,255,.03); }
+
+td { padding: 5px 6px; vertical-align: middle; }
+td.r { text-align: right; }
+td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
+
+.td-num { color: var(--muted); font-size: 11px; text-align: center; min-width: 28px; }
+.td-sku { font-family: 'Courier New', monospace; color: var(--cyan); font-size: 11px; font-weight: 600; }
+.td-nome { color: var(--text); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-nome.loading { color: var(--muted); font-style: italic; }
+.td-total { font-weight: 700; color: var(--orange); font-variant-numeric: tabular-nums; }
+.td-total-zero { color: var(--muted); }
+
+/* Table inputs */
+.td-inp {
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text); font-size: 12px; padding: 4px 6px; width: 100%;
+  outline: none; transition: border-color .15s; font-family: inherit;
+  -moz-appearance: textfield;
+}
+.td-inp::-webkit-outer-spin-button, .td-inp::-webkit-inner-spin-button { -webkit-appearance: none; }
+.td-inp:hover { border-color: var(--border); }
+.td-inp:focus { border-color: var(--cyan); background: rgba(0,229,255,.04); }
+.td-inp.w60  { width: 60px; }
+.td-inp.w80  { width: 80px; }
+.td-inp.w90  { width: 90px; }
+.td-inp.w110 { width: 110px; }
+.td-inp.w130 { width: 130px; }
+
+/* ── OVERLAY / LOADING ── */
+#overlay {
+  position: fixed; inset: 0; background: rgba(8,12,20,.9);
+  display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 900;
+}
+.spinner { width: 44px; height: 44px; border: 3px solid rgba(0,229,255,.18); border-top-color: var(--cyan); border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#overlayMsg { margin-top: 16px; color: var(--cyan); font-size: 13px; font-weight: 600; }
+
+/* ── MODAL ── */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(8,12,20,.85);
+  display: none; align-items: center; justify-content: center; z-index: 800;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 28px 32px; max-width: 500px; width: 90%; box-shadow: 0 16px 48px rgba(0,0,0,.7);
+}
+.modal-title { font-size: 16px; font-weight: 700; color: var(--cyan); margin-bottom: 12px; }
+.modal-body  { font-size: 13px; color: var(--text); line-height: 1.6; margin-bottom: 20px; white-space: pre-wrap; }
+.modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* Resultado pedidos */
+.result-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;
+}
+.result-item.ok  { background: rgba(0,230,118,.08); border: 1px solid rgba(0,230,118,.25); }
+.result-item.err { background: rgba(255,68,68,.08);  border: 1px solid rgba(255,68,68,.25); }
+.result-icon { font-size: 18px; flex-shrink: 0; }
+.result-text { flex: 1; }
+.result-forn { font-size: 13px; font-weight: 700; }
+.result-detail { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+.result-pedido { font-size: 12px; color: var(--green); font-weight: 600; margin-top: 4px; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 20px; right: 20px; padding: 10px 16px;
+  border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 1000;
+  animation: slideUp .25s ease; max-width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.toast.ok  { background: #0d2b1a; color: var(--green); border: 1px solid rgba(0,230,118,.35); }
+.toast.err { background: #2a0d0d; color: var(--red);   border: 1px solid rgba(255,68,68,.35); }
+.toast.inf { background: #0d1e35; color: var(--cyan);  border: 1px solid rgba(0,229,255,.35); }
+@keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="header-icon">🛒</span>
+    <div>
+      <div class="header-title">Pedidos de Compra</div>
+      <div class="header-sub" id="hdrSub">Nenhuma aba criada</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()">▶ Criar Abas</button>
+    <button class="btn btn-danger btn-sm" id="btnApagar" onclick="apagarDados()" disabled>🗑 Apagar Dados</button>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar-wrap" id="tabBarWrap">
+  <div class="tab-bar" id="tabBar"></div>
+</div>
+
+<!-- Tab content -->
+<div id="tabContent"></div>
+
+<!-- Empty state -->
+<div id="emptyState">
+  <div class="empty-icon">📋</div>
+  <div class="empty-title">Nenhuma aba criada</div>
+  <div class="empty-sub">Clique em <strong>▶ Criar Abas</strong> para carregar os pedidos agrupados por fornecedor com base na planilha Base Compras 2026.</div>
+</div>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <div id="overlayMsg">Carregando...</div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <div class="modal-title" id="confirmTitle">Confirmação</div>
+    <div class="modal-body"  id="confirmBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('confirmModal')">Cancelar</button>
+      <button class="btn btn-orange btn-sm" id="confirmOk" onclick="">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Result modal -->
+<div class="modal-bg" id="resultModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title">Resultado — Criar Pedidos</div>
+    <div id="resultBody"></div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('resultModal')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Estado global ─────────────────────────────────────────────
+const S = {
+  tabs:        [],    // array de objetos de aba
+  activeTab:   -1,
+  fornBling:   [],    // [{id, nome}] fornecedores do Bling
+  fornLoaded:  false,
+};
+
+// Estrutura de uma aba:
+// { id, nomeFornec, blingId, blingNome, desconto, clonar, numPedidos,
+//   itens: [{sku, nome, produtoId, codForn, qtd, preco, ipi, precos:[], codsForn:[]}] }
+
+// ── Boot ─────────────────────────────────────────────────────
+window.onload = () => {
+  setOverlay(true, 'Conectando à API do Bling...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) { toast('⚠ Bling: ' + res.error, 'err'); return; }
+      S.fornBling  = res.fornecedores || [];
+      S.fornLoaded = true;
+      toast('✅ ' + S.fornBling.length + ' fornecedores carregados do Bling', 'ok');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .pc_buscarFornecedoresBling();
+};
+
+// ── Criar abas ───────────────────────────────────────────────
+function criarAbas() {
+  setOverlay(true, 'Lendo dados da planilha Base Compras...');
+  document.getElementById('btnCriar').disabled = true;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.ok) {
+        setOverlay(false);
+        document.getElementById('btnCriar').disabled = false;
+        toast('❌ ' + res.error, 'err');
+        return;
+      }
+      const fornKeys = Object.keys(res.fornecedores || {});
+      if (!fornKeys.length) {
+        setOverlay(false);
+        document.getElementById('btnCriar').disabled = false;
+        toast('ℹ Nenhum item com quantidade preenchida encontrado', 'inf');
+        return;
+      }
+
+      // Montar tabs
+      S.tabs = fornKeys.map((nome, i) => ({
+        id:         'tab_' + i,
+        nomeFornec: nome,
+        blingId:    null,
+        blingNome:  '',
+        desconto:   0,
+        clonar:     false,
+        numPedidos: 1,
+        itens: (res.fornecedores[nome] || []).map(it => ({
+          sku:       it.sku,
+          nome:      '⏳ carregando...',
+          produtoId: null,
+          codForn:   '',
+          qtd:       it.qtd,
+          preco:     it.preco,
+          ipi:       0,
+          precos:    [it.preco, it.preco, it.preco, it.preco, it.preco],
+          codsForn:  ['', '', '', '', ''],
+        })),
+      }));
+
+      S.activeTab = 0;
+      renderAll();
+      document.getElementById('btnCriar').disabled = false;
+      document.getElementById('btnApagar').disabled = false;
+
+      // Buscar nomes dos produtos no Bling
+      const allSkus = [...new Set(S.tabs.flatMap(t => t.itens.map(i => i.sku)))];
+      setOverlay(true, 'Buscando nomes no Bling (' + allSkus.length + ' SKUs)...');
+
+      google.script.run
+        .withSuccessHandler(nr => {
+          setOverlay(false);
+          if (nr.ok && nr.produtos) {
+            S.tabs.forEach(tab => {
+              tab.itens.forEach(item => {
+                const p = nr.produtos[item.sku];
+                item.nome      = p ? p.nome : '— não encontrado —';
+                item.produtoId = p ? p.id   : null;
+              });
+            });
+          }
+          renderTabContent(S.activeTab);
+          toast('✅ Abas criadas: ' + S.tabs.length + ' fornecedor(es)', 'ok');
+        })
+        .withFailureHandler(e => {
+          setOverlay(false);
+          toast('⚠ Nomes não carregados: ' + e.message, 'err');
+        })
+        .pc_buscarProdutosBling(allSkus);
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      document.getElementById('btnCriar').disabled = false;
+      toast('❌ ' + e.message, 'err');
+    })
+    .pc_carregarDados();
+}
+
+// ── Apagar dados ─────────────────────────────────────────────
+function apagarDados() {
+  confirm2('Apagar todos os dados?', 'Todas as abas e itens serão removidos da tela. Os dados nas planilhas não são alterados.', () => {
+    S.tabs = []; S.activeTab = -1;
+    renderAll();
+    document.getElementById('btnApagar').disabled = true;
+    toast('🗑 Dados apagados', 'inf');
+  });
+}
+
+// ── Render geral ─────────────────────────────────────────────
+function renderAll() {
+  const hasTabs = S.tabs.length > 0;
+  document.getElementById('emptyState').style.display    = hasTabs ? 'none' : '';
+  document.getElementById('tabBarWrap').style.display    = hasTabs ? '' : 'none';
+  document.getElementById('tabContent').style.display    = hasTabs ? '' : 'none';
+  document.getElementById('hdrSub').textContent = hasTabs
+    ? S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '')
+    : 'Nenhuma aba criada';
+
+  renderTabBar();
+  if (hasTabs) renderTabContent(S.activeTab);
+}
+
+// ── Tab bar ───────────────────────────────────────────────────
+function renderTabBar() {
+  document.getElementById('tabBar').innerHTML = S.tabs.map((t, i) =>
+    `<div class="tab-item${i === S.activeTab ? ' active' : ''}" onclick="switchTab(${i})" title="${t.nomeFornec}">
+      ${t.nomeFornec}
+    </div>`
+  ).join('');
+}
+
+function switchTab(idx) {
+  S.activeTab = idx;
+  renderTabBar();
+  renderTabContent(idx);
+  document.getElementById('hdrSub').textContent =
+    S.tabs.length + ' fornecedor(es) | aba: ' + S.tabs[idx].nomeFornec;
+}
+
+// ── Tab content ───────────────────────────────────────────────
+function renderTabContent(idx) {
+  const tab = S.tabs[idx];
+  if (!tab) return;
+
+  const cloneCount = tab.clonar ? tab.numPedidos : 0;
+
+  // Clone fornecedor selectors
+  let cloneFornHtml = '';
+  if (tab.clonar) {
+    const selectors = Array.from({length: cloneCount}, (_, ci) => {
+      const sel = tab['fornClone' + ci] || { blingId: null, blingNome: '' };
+      return `<div class="field-group">
+        <span class="field-label">Fornecedor ${ci + 2}</span>
+        <div class="ac-wrap" id="acClone${idx}_${ci}">
+          <input class="ac-input" style="width:220px" placeholder="Buscar fornecedor..."
+            value="${escHtml(sel.blingNome)}"
+            onfocus="acOpen(this,'acClone${idx}_${ci}')"
+            oninput="acFilter(this,'acClone${idx}_${ci}')"
+            onblur="acBlur('acClone${idx}_${ci}')">
+          <div class="ac-dropdown" id="acClone${idx}_${ci}_dd"></div>
+        </div>
+      </div>`;
+    }).join('');
+    cloneFornHtml = `<div class="tab-hdr-row"><div class="clone-fornecs">${selectors}</div></div>`;
+  }
+
+  // Clone col headers
+  const cloneThHtml = Array.from({length: cloneCount}, (_, ci) => {
+    const n = ci + 2;
+    return `<th class="clone-hdr">Cód. Forn. ${n}</th><th class="clone-hdr r">Preço Unit. ${n}</th><th class="clone-hdr r">Preço Total ${n}</th>`;
+  }).join('');
+
+  // Rows
+  const rowsHtml = tab.itens.map((item, ri) => {
+    const total = (item.preco * item.qtd).toFixed(2);
+    const nomeClass = item.nome.startsWith('⏳') ? 'td-nome loading' : 'td-nome';
+
+    const cloneTdHtml = Array.from({length: cloneCount}, (_, ci) => {
+      const p     = item.precos[ci] || 0;
+      const pTot  = (p * item.qtd).toFixed(2);
+      return `<td class="clone-cell"><input class="td-inp w110" type="number" step="0.01" value="${p}" oninput="updatePreco(${idx},${ri},${ci},this.value)"></td>
+              <td class="clone-cell r td-total">${fmt(pTot)}</td>`;
+    }).join('');
+
+    const codfHtml = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
+    const precoHtml = `<input class="td-inp w110" type="number" step="0.01" value="${item.preco}" oninput="updatePrecoMain(${idx},${ri},this.value)">`;
+    const ipiHtml   = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
+
+    return `<tr>
+      <td class="td-num">${ri + 1}</td>
+      <td class="td-nome ${nomeClass}" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>
+      <td>${codfHtml}</td>
+      <td class="td-sku">${escHtml(item.sku)}</td>
+      <td class="r"><input class="td-inp w60" type="number" min="0" value="${item.qtd}" oninput="updateField(${idx},${ri},'qtd',this.value)"></td>
+      <td>${precoHtml}</td>
+      <td>${ipiHtml}</td>
+      <td class="r td-total" id="tot_${idx}_${ri}">${fmt(total)}</td>
+      ${cloneTdHtml}
+    </tr>`;
+  }).join('');
+
+  const grandTotal = tab.itens.reduce((s, it) => s + it.preco * it.qtd, 0);
+
+  document.getElementById('tabContent').innerHTML = `
+  <div class="tab-panel">
+
+    <!-- Header card -->
+    <div class="tab-hdr-card">
+      <!-- Row 1: Fornecedor + desconto -->
+      <div class="tab-hdr-row">
+        <div class="field-group">
+          <span class="field-label">Fornecedor no Bling</span>
+          <div class="ac-wrap" id="acMain${idx}">
+            <input class="ac-input" placeholder="Buscar fornecedor..."
+              value="${escHtml(tab.blingNome)}"
+              onfocus="acOpen(this,'acMain${idx}')"
+              oninput="acFilter(this,'acMain${idx}')"
+              onblur="acBlur('acMain${idx}')">
+            <div class="ac-dropdown" id="acMain${idx}_dd"></div>
+          </div>
+        </div>
+        <div class="field-group">
+          <span class="field-label">Desconto %</span>
+          <input class="num-input" type="number" min="0" max="100" step="0.1"
+            value="${tab.desconto || 0}"
+            oninput="S.tabs[${idx}].desconto = parseFloat(this.value)||0"
+            placeholder="0">
+        </div>
+        <div class="field-group" style="justify-content:flex-end">
+          <span class="field-label">&nbsp;</span>
+          <button class="btn btn-ghost btn-sm" onclick="executarDesconto(${idx})">
+            🏷 Executar Desconto
+          </button>
+        </div>
+        <div style="flex:1"></div>
+        <div class="field-group" style="justify-content:flex-end">
+          <span class="field-label">&nbsp;</span>
+          <button class="btn btn-orange btn-sm" onclick="criarPedidosAba(${idx})">
+            ✅ Criar Pedidos no Bling
+          </button>
+        </div>
+      </div>
+
+      <!-- Row 2: Clonar -->
+      <div class="tab-hdr-row">
+        <div class="field-group">
+          <span class="field-label">Clonar Pedido</span>
+          <div class="toggle-wrap">
+            <button class="toggle-btn ${tab.clonar ? 'on' : ''}" id="btnSim${idx}" onclick="setClonar(${idx},true)">Sim</button>
+            <button class="toggle-btn ${!tab.clonar ? 'off' : ''}" id="btnNao${idx}" onclick="setClonar(${idx},false)">Não</button>
+          </div>
+        </div>
+        ${tab.clonar ? `
+        <div class="field-group">
+          <span class="field-label">Quantos pedidos extras</span>
+          <input class="num-input" type="number" min="1" max="5" value="${tab.numPedidos}"
+            oninput="setNumPedidos(${idx},this.value)" style="width:70px">
+        </div>` : ''}
+      </div>
+
+      <!-- Clone supplier selectors -->
+      ${cloneFornHtml}
+    </div>
+
+    <!-- Table card -->
+    <div class="table-card">
+      <div class="table-toolbar">
+        <span class="table-title">Itens do Pedido de Compra · ${tab.itens.length} SKUs</span>
+        <span class="table-total" id="grandTot${idx}">Total: ${fmt(grandTotal.toFixed(2))}</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:32px">Nº</th>
+              <th>Item</th>
+              <th>Cód. Fornecedor</th>
+              <th>SKU</th>
+              <th class="r">Qtd</th>
+              <th class="r">Preço Unit.</th>
+              <th class="r">IPI %</th>
+              <th class="r">Preço Total</th>
+              ${cloneThHtml}
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>`;
+}
+
+// ── Autocomplete ──────────────────────────────────────────────
+function acOpen(input, wrapperId) {
+  acFilter(input, wrapperId);
+  document.getElementById(wrapperId + '_dd').style.display = 'block';
+}
+
+function acFilter(input, wrapperId) {
+  const q   = input.value.trim().toLowerCase();
+  const dd  = document.getElementById(wrapperId + '_dd');
+  const hit = q ? S.fornBling.filter(f => f.nome.toLowerCase().includes(q)) : S.fornBling;
+  if (!hit.length) {
+    dd.innerHTML = '<div class="ac-empty">Nenhum fornecedor encontrado</div>';
+  } else {
+    dd.innerHTML = hit.slice(0, 50).map(f =>
+      `<div class="ac-option" onmousedown="acSelect('${wrapperId}',${f.id},'${escJs(f.nome)}')">${escHtml(f.nome)}</div>`
+    ).join('');
+  }
+}
+
+function acSelect(wrapperId, id, nome) {
+  document.querySelector('#' + wrapperId + ' .ac-input').value = nome;
+  document.getElementById(wrapperId + '_dd').style.display = 'none';
+  // Determine which tab/clone to update
+  const parts = wrapperId.split('_');
+  if (wrapperId.startsWith('acMain')) {
+    const idx = parseInt(parts[0].replace('acMain', ''));
+    S.tabs[idx].blingId   = id;
+    S.tabs[idx].blingNome = nome;
+  } else if (wrapperId.startsWith('acClone')) {
+    const rest = wrapperId.replace('acClone', '');
+    const [tabIdx, ci] = rest.split('_').map(Number);
+    S.tabs[tabIdx]['fornClone' + ci] = { blingId: id, blingNome: nome };
+  }
+}
+
+function acBlur(wrapperId) {
+  setTimeout(() => {
+    const dd = document.getElementById(wrapperId + '_dd');
+    if (dd) dd.style.display = 'none';
+  }, 180);
+}
+
+// ── Clonar toggle ─────────────────────────────────────────────
+function setClonar(idx, val) {
+  S.tabs[idx].clonar = val;
+  if (!val) S.tabs[idx].numPedidos = 1;
+  renderTabContent(idx);
+}
+
+function setNumPedidos(idx, val) {
+  S.tabs[idx].numPedidos = Math.min(5, Math.max(1, parseInt(val) || 1));
+  renderTabContent(idx);
+}
+
+// ── Executar desconto ─────────────────────────────────────────
+function executarDesconto(idx) {
+  const tab = S.tabs[idx];
+  const d   = parseFloat(tab.desconto) || 0;
+  if (d <= 0) { toast('ℹ Informe um percentual de desconto maior que 0', 'inf'); return; }
+
+  confirm2(
+    '🏷 Executar Desconto de ' + d + '%?',
+    'O desconto será aplicado em todos os preços unitários desta aba (incluindo colunas de cópia).\nOs valores ficam editáveis após a aplicação.',
+    () => {
+      tab.itens.forEach(item => {
+        const novo = parseFloat((item.preco * (1 - d / 100)).toFixed(2));
+        item.preco = novo;
+        item.precos = item.precos.map(() => novo);
+      });
+      renderTabContent(idx);
+      toast('✅ Desconto de ' + d + '% aplicado em ' + tab.itens.length + ' itens', 'ok');
+    }
+  );
+}
+
+// ── Atualizar valores ─────────────────────────────────────────
+function updateField(tabIdx, rowIdx, field, val) {
+  const item = S.tabs[tabIdx].itens[rowIdx];
+  item[field] = (field === 'codForn') ? val : (parseFloat(val) || 0);
+  if (field === 'qtd' || field === 'preco') recalcTotal(tabIdx, rowIdx);
+}
+
+function updatePrecoMain(tabIdx, rowIdx, val) {
+  const item = S.tabs[tabIdx].itens[rowIdx];
+  item.preco = parseFloat(val) || 0;
+  recalcTotal(tabIdx, rowIdx);
+}
+
+function updatePreco(tabIdx, rowIdx, cloneIdx, val) {
+  S.tabs[tabIdx].itens[rowIdx].precos[cloneIdx] = parseFloat(val) || 0;
+}
+
+function recalcTotal(tabIdx, rowIdx) {
+  const item  = S.tabs[tabIdx].itens[rowIdx];
+  const total = (item.preco * item.qtd).toFixed(2);
+  const el    = document.getElementById('tot_' + tabIdx + '_' + rowIdx);
+  if (el) el.textContent = fmt(total);
+  recalcGrand(tabIdx);
+}
+
+function recalcGrand(tabIdx) {
+  const tab   = S.tabs[tabIdx];
+  const grand = tab.itens.reduce((s, it) => s + it.preco * it.qtd, 0);
+  const el    = document.getElementById('grandTot' + tabIdx);
+  if (el) el.textContent = 'Total: ' + fmt(grand.toFixed(2));
+}
+
+// ── Criar pedidos (aba específica) ───────────────────────────
+function criarPedidosAba(idx) {
+  const tab  = S.tabs[idx];
+  const errs = validarAba(tab);
+  if (errs.length) { toast('❌ ' + errs[0], 'err'); return; }
+
+  const pedidos = montarPedidos(tab);
+  const nomes   = pedidos.map(p => '• ' + p.fornecedorNome).join('\n');
+
+  confirm2(
+    '✅ Criar ' + pedidos.length + ' pedido(s) no Bling?',
+    'Serão criados:\n' + nomes + '\n\nDeseja continuar?',
+    () => enviarPedidos(pedidos)
+  );
+}
+
+function validarAba(tab) {
+  const errs = [];
+  if (!tab.blingId) errs.push('Selecione o Fornecedor no Bling para esta aba');
+  if (tab.clonar) {
+    for (let ci = 0; ci < tab.numPedidos; ci++) {
+      if (!tab['fornClone' + ci]?.blingId) errs.push('Selecione o Fornecedor ' + (ci + 2));
+    }
+  }
+  const semProduto = tab.itens.filter(it => !it.produtoId);
+  if (semProduto.length) errs.push(semProduto.length + ' item(s) sem ID de produto no Bling');
+  return errs;
+}
+
+function montarPedidos(tab) {
+  const pedidos = [];
+
+  // Pedido principal
+  pedidos.push({
+    fornecedorId:   tab.blingId,
+    fornecedorNome: tab.blingNome,
+    itens: tab.itens.map(it => ({
+      produtoId: it.produtoId, sku: it.sku,
+      codFornecedor: it.codForn,
+      qtd: it.qtd, preco: it.preco, ipi: it.ipi,
+    })),
+  });
+
+  // Pedidos clonados
+  if (tab.clonar) {
+    for (let ci = 0; ci < tab.numPedidos; ci++) {
+      const forn = tab['fornClone' + ci];
+      pedidos.push({
+        fornecedorId:   forn.blingId,
+        fornecedorNome: forn.blingNome,
+        itens: tab.itens.map(it => ({
+          produtoId: it.produtoId, sku: it.sku,
+          codFornecedor: it.codsForn[ci] || '',
+          qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
+        })),
+      });
+    }
+  }
+  return pedidos;
+}
+
+function enviarPedidos(pedidos) {
+  setOverlay(true, 'Criando pedidos no Bling...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      mostrarResultado(res.resultados);
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      toast('❌ ' + e.message, 'err');
+    })
+    .pc_criarPedidos(pedidos);
+}
+
+function mostrarResultado(resultados) {
+  const html = resultados.map(r => {
+    if (r.ok) {
+      return `<div class="result-item ok">
+        <div class="result-icon">✅</div>
+        <div class="result-text">
+          <div class="result-forn">${escHtml(r.fornecedor)}</div>
+          <div class="result-pedido">Pedido criado — Nº ${r.idPedido}</div>
+          <div class="result-detail">${r.numItens} iten(s)</div>
+        </div>
+      </div>`;
+    } else {
+      return `<div class="result-item err">
+        <div class="result-icon">❌</div>
+        <div class="result-text">
+          <div class="result-forn">${escHtml(r.fornecedor)}</div>
+          <div class="result-detail">${escHtml(r.error)}</div>
+        </div>
+      </div>`;
+    }
+  }).join('');
+
+  document.getElementById('resultBody').innerHTML = html;
+  document.getElementById('resultModal').classList.add('open');
+}
+
+// ── Confirm modal ─────────────────────────────────────────────
+function confirm2(title, body, onOk) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmBody').textContent  = body;
+  const btn = document.getElementById('confirmOk');
+  btn.onclick = () => { closeModal('confirmModal'); onOk(); };
+  document.getElementById('confirmModal').classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ── Helpers UI ────────────────────────────────────────────────
+function setOverlay(show, msg) {
+  document.getElementById('overlay').style.display = show ? 'flex' : 'none';
+  if (msg) document.getElementById('overlayMsg').textContent = msg;
+}
+
+function toast(msg, type) {
+  const t = document.createElement('div');
+  t.className   = 'toast ' + (type || 'inf');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function fmt(v) {
+  return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escJs(s) {
+  return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+</script>
+</body>
+</html>
