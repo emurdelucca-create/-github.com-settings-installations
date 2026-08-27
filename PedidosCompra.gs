@@ -23,7 +23,7 @@ const PC_CTRL_PREC  = 16;  // col Q
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('PedidosCompra')
+  return HtmlService.createHtmlOutputFromFile('PedidosCompraView')
     .setTitle('Pedidos de Compra')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
