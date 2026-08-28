@@ -253,13 +253,31 @@ function pc_buscarProdutosBling(skus) {
 }
 
 // ── Bling — Fornecedores ─────────────────────────────────────
-function pc_buscarFornecedoresBling() {
+const PC_PROP_FORN_CACHE = 'BLING_FORNECEDORES_CACHE';
+const PC_PROP_FORN_DATA  = 'BLING_FORNECEDORES_DATA';
+
+// Carrega fornecedores do cache (Script Properties) — não bate na API
+function pc_carregarFornecedoresCache() {
+  const p     = _pc_props();
+  const raw   = p.getProperty(PC_PROP_FORN_CACHE);
+  const data  = p.getProperty(PC_PROP_FORN_DATA) || '';
+  if (!raw) return { ok: true, fornecedores: [], dataAtualizacao: null };
+  try {
+    return { ok: true, fornecedores: JSON.parse(raw), dataAtualizacao: data };
+  } catch(e) {
+    return { ok: true, fornecedores: [], dataAtualizacao: null };
+  }
+}
+
+// Busca todos os contatos no Bling, salva no cache e retorna a lista
+function pc_atualizarFornecedores() {
   try {
     const todos  = [];
     let pagina   = 1;
     let continua = true;
     while (continua) {
-      const res   = _pc_blingGet('/contatos', { criterio: 2, pagina, limite: 100 });
+      // Sem filtro de criterio: retorna todos os contatos cadastrados
+      const res   = _pc_blingGet('/contatos', { pagina, limite: 100 });
       const items = res.data || [];
       items.forEach(c => {
         const nome = (c.nome || c.fantasia || '').trim();
@@ -267,13 +285,23 @@ function pc_buscarFornecedoresBling() {
       });
       continua = items.length === 100;
       pagina++;
-      if (continua) Utilities.sleep(220);
+      if (continua) Utilities.sleep(250);
     }
     todos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
-    return { ok: true, fornecedores: todos };
+
+    const dataStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const p = _pc_props();
+    p.setProperty(PC_PROP_FORN_CACHE, JSON.stringify(todos));
+    p.setProperty(PC_PROP_FORN_DATA,  dataStr);
+    return { ok: true, fornecedores: todos, dataAtualizacao: dataStr };
   } catch(e) {
     return { ok: false, error: e.message };
   }
+}
+
+// Mantido para compatibilidade — agora chama pc_atualizarFornecedores
+function pc_buscarFornecedoresBling() {
+  return pc_atualizarFornecedores();
 }
 
 // ── Bling — Criar pedidos ────────────────────────────────────

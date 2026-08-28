@@ -276,6 +276,7 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
   </div>
   <div class="header-right">
     <button class="btn btn-ghost btn-sm" id="btnBling"  onclick="document.getElementById('setupModal').classList.add('open')" title="Configurar autenticação Bling">🔗 Bling</button>
+    <button class="btn btn-ghost btn-sm" id="btnAtualizarForn" onclick="atualizarFornecedores()" title="Busca todos os contatos do Bling e salva no cache">↺ Fornecedores</button>
     <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()" disabled>▶ Criar Abas</button>
     <button class="btn btn-danger btn-sm" id="btnApagar" onclick="apagarDados()" disabled>🗑 Apagar Dados</button>
   </div>
@@ -384,23 +385,42 @@ window.onload = () => {
 };
 
 function carregarFornecedores() {
-  setOverlay(true, 'Carregando fornecedores do Bling...');
+  // Lê do cache local (Script Properties) — sem chamada à API do Bling
   google.script.run
     .withSuccessHandler(res => {
-      setOverlay(false);
-      if (!res.ok) {
-        toast('⚠ Bling: ' + res.error, 'err');
-        document.getElementById('hdrSub').textContent = 'Erro ao conectar — clique em 🔗 Bling';
-        return;
-      }
       S.fornBling  = res.fornecedores || [];
       S.fornLoaded = true;
       document.getElementById('btnCriar').disabled = false;
-      document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores';
-      toast('✅ ' + S.fornBling.length + ' fornecedores carregados do Bling', 'ok');
+      if (S.fornBling.length === 0) {
+        document.getElementById('hdrSub').textContent = 'Fornecedores não carregados — clique em ↺ Fornecedores';
+        toast('ℹ Cache vazio — clique em ↺ Fornecedores para buscar do Bling', 'inf');
+      } else {
+        const dataStr = res.dataAtualizacao ? ' · atualizado ' + res.dataAtualizacao : '';
+        document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores' + dataStr;
+      }
     })
-    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-    .pc_buscarFornecedoresBling();
+    .withFailureHandler(e => { toast('❌ ' + e.message, 'err'); })
+    .pc_carregarFornecedoresCache();
+}
+
+function atualizarFornecedores() {
+  const btn = document.getElementById('btnAtualizarForn');
+  btn.disabled = true;
+  setOverlay(true, 'Buscando todos os contatos no Bling...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      btn.disabled = false;
+      if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+      S.fornBling  = res.fornecedores || [];
+      S.fornLoaded = true;
+      document.getElementById('btnCriar').disabled = false;
+      const dataStr = res.dataAtualizacao ? ' · atualizado ' + res.dataAtualizacao : '';
+      document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores' + dataStr;
+      toast('✅ ' + S.fornBling.length + ' fornecedores salvos no cache', 'ok');
+    })
+    .withFailureHandler(e => { setOverlay(false); btn.disabled = false; toast('❌ ' + e.message, 'err'); })
+    .pc_atualizarFornecedores();
 }
 
 // ── Setup OAuth Bling ─────────────────────────────────────────
@@ -435,7 +455,7 @@ function confirmarCodigo() {
       }
       closeModal('setupModal');
       document.getElementById('codigoInput').value = '';
-      toast('✅ Bling autorizado com sucesso! Carregando fornecedores...', 'ok');
+      toast('✅ Bling autorizado! Clique em ↺ Fornecedores para carregar a lista.', 'ok');
       carregarFornecedores();
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
