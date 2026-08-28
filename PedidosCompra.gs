@@ -100,8 +100,14 @@ function pc_getAuthUrl() {
 }
 
 // Troca o código de autorização por access_token + refresh_token
-function pc_trocarCodigo(code) {
+function pc_trocarCodigo(rawInput) {
   try {
+    // Aceita tanto o código puro quanto a URL completa
+    let code = String(rawInput || '').trim();
+    const match = code.match(/[?&]code=([^&]+)/);
+    if (match) code = decodeURIComponent(match[1]);
+    if (!code) throw new Error('Código inválido');
+
     const p           = _pc_props();
     const clientId    = p.getProperty('BLING_CLIENT_ID');
     const clientSecret = p.getProperty('BLING_CLIENT_SECRET');
