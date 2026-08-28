@@ -4,9 +4,14 @@
 // Deploy: Extensões → Apps Script → Implantar → Nova implantação
 //   Tipo: App da Web | Executar como: Eu | Acesso: Organização
 //
-// Propriedades do Script necessárias:
-//   BLING_API_KEY — API key do usuário API (Bling → Usuários → API key)
-//                   Essa chave não expira, diferente do token OAuth v3.
+// Propriedades do Script necessárias (Configurações ⚙ → Propriedades):
+//   BLING_CLIENT_ID     — Client ID do app em developer.bling.com.br
+//   BLING_CLIENT_SECRET — Client Secret do app
+//
+// Os tokens abaixo são gerenciados automaticamente pelo código:
+//   BLING_ACCESS_TOKEN  — renovado automaticamente via refresh
+//   BLING_REFRESH_TOKEN — salvo após primeira autorização
+//   BLING_TOKEN_EXPIRES — timestamp de expiração
 // ============================================================
 
 const PC_SS_COMPRAS_ID  = '1GG6EenKiOO1K8XN0JrnD8W_PicQxzxkhsyDrU4yJa4w';
@@ -14,13 +19,16 @@ const PC_SS_CONTROLE_ID = '1eNMjC-iGBCAdVbJYSnP_Y4p7hJAzF6Gx';
 const PC_ABA_COMPRAS    = 'Com Desmembramento';
 const PC_GID_CONTROLE   = 1005476335;
 
-// Índices 0-based em getValues()
-const PC_IDX_SKU    = 0;   // col A — Base Compras
+const PC_IDX_SKU    = 0;   // col A
 const PC_IDX_FORNEC = 54;  // col BC
 const PC_IDX_QTD    = 56;  // col BE
 
-const PC_CTRL_SKU   = 11;  // col L — Controle de Compras
+const PC_CTRL_SKU   = 11;  // col L
 const PC_CTRL_PREC  = 16;  // col Q
+
+const BLING_REDIRECT = 'https://www.google.com';
+const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
+const BLING_API_BASE  = 'https://www.bling.com.br/Api/v3';
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
@@ -30,61 +38,142 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ── Helpers internos ─────────────────────────────────────────
-function _pc_abaByGid(ss, gid) {
-  return ss.getSheets().find(s => s.getSheetId() === gid) || ss.getSheets()[0];
+// ── OAuth 2.0 — Bling v3 ─────────────────────────────────────
+
+function _pc_props() {
+  return PropertiesService.getScriptProperties();
 }
 
-function _pc_apiKey() {
-  const k = PropertiesService.getScriptProperties().getProperty('BLING_API_KEY');
-  if (!k) throw new Error('BLING_API_KEY não configurado nas Propriedades do Script');
-  return k;
-}
+// Retorna access_token válido; renova automaticamente se expirado
+function _pc_getToken() {
+  const p       = _pc_props();
+  const access  = p.getProperty('BLING_ACCESS_TOKEN');
+  const refresh = p.getProperty('BLING_REFRESH_TOKEN');
+  const expires = parseInt(p.getProperty('BLING_TOKEN_EXPIRES') || '0');
 
-// GET para a API v2 do Bling — retorna body.retorno
-function _pc_blingGet(path, params) {
-  const qs = Object.entries(Object.assign({ apikey: _pc_apiKey() }, params || {}))
-    .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
-    .join('&');
+  if (!refresh) throw new Error('Bling não autorizado. Use o botão "Conectar ao Bling" no app.');
 
-  const res  = UrlFetchApp.fetch('https://bling.com.br/Api/v2' + path + '?' + qs,
-    { muteHttpExceptions: true });
-  const code = res.getResponseCode();
-  const body = JSON.parse(res.getContentText() || '{}');
-
-  if (body.retorno?.erros) {
-    const e = body.retorno.erros;
-    throw new Error('Bling: ' + (Array.isArray(e) ? e.map(x => x.erro || JSON.stringify(x)).join('; ') : JSON.stringify(e)));
+  // Renova se faltam menos de 5 minutos para expirar
+  if (!access || Date.now() >= expires - 300_000) {
+    return _pc_refreshToken(refresh);
   }
-  if (code < 200 || code >= 300) throw new Error('Bling HTTP ' + code);
-  return body.retorno;
+  return access;
 }
 
-// POST para a API v2 do Bling — payload é uma string XML
-function _pc_blingPost(path, xml) {
-  const url = 'https://bling.com.br/Api/v2' + path + '?apikey=' + encodeURIComponent(_pc_apiKey());
+function _pc_refreshToken(refreshToken) {
+  const p           = _pc_props();
+  const clientId    = p.getProperty('BLING_CLIENT_ID');
+  const clientSecret = p.getProperty('BLING_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('BLING_CLIENT_ID / BLING_CLIENT_SECRET não configurados');
+
+  const cred = Utilities.base64Encode(clientId + ':' + clientSecret);
+  const res  = UrlFetchApp.fetch(BLING_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Authorization': 'Basic ' + cred, 'Content-Type': 'application/x-www-form-urlencoded' },
+    payload: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken),
+    muteHttpExceptions: true,
+  });
+  const body = JSON.parse(res.getContentText() || '{}');
+  if (res.getResponseCode() !== 200) throw new Error('Refresh falhou: ' + (body.error_description || JSON.stringify(body)));
+
+  const newAccess   = body.access_token;
+  const newRefresh  = body.refresh_token || refreshToken;
+  const newExpires  = Date.now() + (body.expires_in || 3600) * 1000;
+
+  p.setProperty('BLING_ACCESS_TOKEN',  newAccess);
+  p.setProperty('BLING_REFRESH_TOKEN', newRefresh);
+  p.setProperty('BLING_TOKEN_EXPIRES', String(newExpires));
+  return newAccess;
+}
+
+// Retorna a URL de autorização para o usuário abrir no navegador
+function pc_getAuthUrl() {
+  const clientId = _pc_props().getProperty('BLING_CLIENT_ID');
+  if (!clientId) return { ok: false, error: 'BLING_CLIENT_ID não configurado nas Propriedades do Script' };
+
+  const url = 'https://www.bling.com.br/Api/v3/oauth/authorize' +
+    '?response_type=code' +
+    '&client_id=' + encodeURIComponent(clientId) +
+    '&redirect_uri=' + encodeURIComponent(BLING_REDIRECT) +
+    '&state=' + Date.now();
+  return { ok: true, url };
+}
+
+// Troca o código de autorização por access_token + refresh_token
+function pc_trocarCodigo(code) {
+  try {
+    const p           = _pc_props();
+    const clientId    = p.getProperty('BLING_CLIENT_ID');
+    const clientSecret = p.getProperty('BLING_CLIENT_SECRET');
+    if (!clientId || !clientSecret) throw new Error('BLING_CLIENT_ID / BLING_CLIENT_SECRET não configurados');
+
+    const cred = Utilities.base64Encode(clientId + ':' + clientSecret);
+    const res  = UrlFetchApp.fetch(BLING_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Authorization': 'Basic ' + cred, 'Content-Type': 'application/x-www-form-urlencoded' },
+      payload: 'grant_type=authorization_code' +
+               '&code='         + encodeURIComponent(code) +
+               '&redirect_uri=' + encodeURIComponent(BLING_REDIRECT),
+      muteHttpExceptions: true,
+    });
+    const body = JSON.parse(res.getContentText() || '{}');
+    if (res.getResponseCode() !== 200) throw new Error(body.error_description || JSON.stringify(body));
+
+    p.setProperty('BLING_ACCESS_TOKEN',  body.access_token);
+    p.setProperty('BLING_REFRESH_TOKEN', body.refresh_token);
+    p.setProperty('BLING_TOKEN_EXPIRES', String(Date.now() + (body.expires_in || 3600) * 1000));
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Verifica se já está autorizado
+function pc_checkAuth() {
+  const refresh = _pc_props().getProperty('BLING_REFRESH_TOKEN');
+  return { autorizado: !!refresh };
+}
+
+// ── Helpers de API ────────────────────────────────────────────
+function _pc_blingGet(path, params) {
+  const token = _pc_getToken();
+  let url = BLING_API_BASE + path;
+  if (params && Object.keys(params).length) {
+    url += '?' + Object.entries(params).map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+  }
   const res  = UrlFetchApp.fetch(url, {
-    method:      'POST',
-    contentType: 'application/x-www-form-urlencoded',
-    payload:     'xml=' + encodeURIComponent(xml),
+    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
     muteHttpExceptions: true,
   });
   const code = res.getResponseCode();
   const body = JSON.parse(res.getContentText() || '{}');
-
-  if (body.retorno?.erros) {
-    const e = body.retorno.erros;
-    throw new Error('Bling: ' + (Array.isArray(e) ? e.map(x => x.erro || JSON.stringify(x)).join('; ') : JSON.stringify(e)));
+  if (code < 200 || code >= 300) {
+    throw new Error('Bling ' + code + ': ' + (body?.error?.message || JSON.stringify(body).slice(0, 250)));
   }
-  if (code < 200 || code >= 300) throw new Error('Bling HTTP ' + code);
-  return body.retorno;
+  return body;
 }
 
-function _pc_escXml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function _pc_blingPost(path, payload) {
+  const token = _pc_getToken();
+  const res   = UrlFetchApp.fetch(BLING_API_BASE + path, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  const body = JSON.parse(res.getContentText() || '{}');
+  if (code < 200 || code >= 300) {
+    throw new Error('Bling ' + code + ': ' + (body?.error?.message || JSON.stringify(body).slice(0, 250)));
+  }
+  return body;
 }
 
-// ── Carregar dados das planilhas ─────────────────────────────
+// ── Planilhas ────────────────────────────────────────────────
+function _pc_abaByGid(ss, gid) {
+  return ss.getSheets().find(s => s.getSheetId() === gid) || ss.getSheets()[0];
+}
+
 function pc_carregarDados() {
   try {
     const ssCompras  = SpreadsheetApp.openById(PC_SS_COMPRAS_ID);
@@ -96,7 +185,6 @@ function pc_carregarDados() {
 
     const raw = abaCompras.getRange(2, 1, lastRow - 1, 57).getValues();
 
-    // Último preço por SKU — Controle de Compras col Q
     const ssCtrl   = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
     const abaCtrl  = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
     const ctrlLast = abaCtrl.getLastRow();
@@ -109,7 +197,6 @@ function pc_carregarDados() {
       });
     }
 
-    // Agrupar por fornecedor — apenas linhas com BE > 0
     const fornecedores = {};
     raw.forEach(r => {
       const sku  = String(r[PC_IDX_SKU]    || '').trim();
@@ -126,43 +213,36 @@ function pc_carregarDados() {
   }
 }
 
-// ── Buscar nomes e IDs de produtos no Bling (API v2) ─────────
+// ── Bling — Produtos ─────────────────────────────────────────
 function pc_buscarProdutosBling(skus) {
   const produtos = {};
   for (const sku of skus) {
     try {
-      const ret  = _pc_blingGet('/produtos/json/', { codigo: sku });
-      const list = ret?.produtos || [];
-      // v2 pode retornar produto com match parcial — filtra pelo código exato
-      const match = list.find(p => String(p.produto?.codigo || '').trim().toUpperCase() === sku.toUpperCase());
-      const prod  = match ? match.produto : (list[0]?.produto || null);
-      produtos[sku] = prod ? { id: String(prod.id), nome: prod.descricao || sku } : null;
+      const res  = _pc_blingGet('/produtos', { codigo: sku, pagina: 1, limite: 1 });
+      const prod = (res.data || [])[0];
+      produtos[sku] = prod ? { id: String(prod.id), nome: prod.nome || prod.descricao || sku } : null;
     } catch(e) {
       produtos[sku] = null;
     }
-    Utilities.sleep(220);
+    Utilities.sleep(200);
   }
   return { ok: true, produtos };
 }
 
-// ── Buscar fornecedores cadastrados no Bling (API v2) ─────────
+// ── Bling — Fornecedores ─────────────────────────────────────
 function pc_buscarFornecedoresBling() {
   try {
     const todos  = [];
     let pagina   = 1;
     let continua = true;
     while (continua) {
-      // tipo[]=F → somente fornecedores
-      const ret  = _pc_blingGet('/contatos/json/', { 'tipo[]': 'F', pagina });
-      const list = ret?.contatos || [];
-      list.forEach(item => {
-        const c = item.contato;
-        if (!c) return;
+      const res   = _pc_blingGet('/contatos', { criterio: 4, pagina, limite: 100 });
+      const items = res.data || [];
+      items.forEach(c => {
         const nome = (c.nome || c.fantasia || '').trim();
         if (c.id && nome) todos.push({ id: String(c.id), nome });
       });
-      // v2 retorna até 25 por página por padrão
-      continua = list.length >= 25;
+      continua = items.length === 100;
       pagina++;
       if (continua) Utilities.sleep(220);
     }
@@ -173,51 +253,36 @@ function pc_buscarFornecedoresBling() {
   }
 }
 
-// ── Criar pedidos no Bling (API v2 — XML) ────────────────────
+// ── Bling — Criar pedidos ────────────────────────────────────
 function pc_criarPedidos(pedidos) {
-  const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const resultados = [];
 
   for (const ped of pedidos) {
     try {
-      if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado no Bling');
+      if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
 
-      const itensXml = ped.itens.map(it =>
-        `<item>` +
-        `<idproduto>${_pc_escXml(it.produtoId)}</idproduto>` +
-        `<quantidade>${Number(it.qtd) || 0}</quantidade>` +
-        `<valor>${Number(it.preco || 0).toFixed(2)}</valor>` +
-        `<ipi>${Number(it.ipi || 0).toFixed(2)}</ipi>` +
-        (it.codFornecedor ? `<codigofornecedor>${_pc_escXml(it.codFornecedor)}</codigofornecedor>` : '') +
-        `</item>`
-      ).join('');
+      const payload = {
+        data:       hoje,
+        fornecedor: { id: Number(ped.fornecedorId) },
+        situacao:   { id: 1 },
+        itens: ped.itens.map(it => ({
+          produto:    { id: Number(it.produtoId) },
+          quantidade: Number(it.qtd)   || 0,
+          valor:      Number(it.preco) || 0,
+          ipi:        Number(it.ipi)   || 0,
+          ...(it.codFornecedor ? { codigo: String(it.codFornecedor) } : {}),
+        })),
+      };
 
-      const xml =
-        `<?xml version="1.0" encoding="UTF-8"?>` +
-        `<pedidocompra>` +
-        `<data>${hoje}</data>` +
-        `<fornecedor><id>${_pc_escXml(ped.fornecedorId)}</id></fornecedor>` +
-        `<itens>${itensXml}</itens>` +
-        `</pedidocompra>`;
-
-      const ret     = _pc_blingPost('/pedidocompra/json/', xml);
-      const pedList = ret?.pedidocompra || [];
-      const pedData = pedList[0]?.pedidocompra || pedList[0] || {};
-      const idPed   = pedData.id     || '?';
-      const numPed  = pedData.numero || pedData.numeroOrdem || '';
-
-      resultados.push({
-        ok:        true,
-        fornecedor: ped.fornecedorNome,
-        idPedido:  idPed,
-        numero:    numPed,
-        numItens:  ped.itens.length,
-      });
+      const res      = _pc_blingPost('/pedidos/compras', payload);
+      const idPedido = res.data?.id || res.id || '?';
+      const numero   = res.data?.numero || res.data?.numeroOrdem || '';
+      resultados.push({ ok: true, fornecedor: ped.fornecedorNome, idPedido, numero, numItens: ped.itens.length });
     } catch(e) {
       resultados.push({ ok: false, fornecedor: ped.fornecedorNome, error: e.message });
     }
     Utilities.sleep(300);
   }
-
   return { resultados };
 }

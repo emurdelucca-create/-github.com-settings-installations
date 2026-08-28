@@ -275,7 +275,8 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
     </div>
   </div>
   <div class="header-right">
-    <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()">▶ Criar Abas</button>
+    <button class="btn btn-ghost btn-sm" id="btnBling"  onclick="document.getElementById('setupModal').classList.add('open')" title="Configurar autenticação Bling">🔗 Bling</button>
+    <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()" disabled>▶ Criar Abas</button>
     <button class="btn btn-danger btn-sm" id="btnApagar" onclick="apagarDados()" disabled>🗑 Apagar Dados</button>
   </div>
 </div>
@@ -293,6 +294,35 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
   <div class="empty-icon">📋</div>
   <div class="empty-title">Nenhuma aba criada</div>
   <div class="empty-sub">Clique em <strong>▶ Criar Abas</strong> para carregar os pedidos agrupados por fornecedor com base na planilha Base Compras 2026.</div>
+</div>
+
+<!-- Setup Bling modal -->
+<div class="modal-bg" id="setupModal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title">🔗 Conectar ao Bling</div>
+    <div style="font-size:12px;color:var(--muted2);line-height:1.7;margin-bottom:16px">
+      <strong style="color:var(--cyan)">Passo 1:</strong> Acesse
+      <a href="https://developer.bling.com.br" target="_blank" style="color:var(--cyan)">developer.bling.com.br</a>,
+      crie um app e registre o <strong>Redirect URI</strong> como:<br>
+      <code style="background:#0a1220;padding:2px 8px;border-radius:4px;color:var(--green);display:inline-block;margin:4px 0">https://www.google.com</code><br>
+      Copie o <strong>Client ID</strong> e <strong>Client Secret</strong> e salve nas
+      <em>Propriedades do Script</em> como <code>BLING_CLIENT_ID</code> e <code>BLING_CLIENT_SECRET</code>.<br><br>
+      <strong style="color:var(--cyan)">Passo 2:</strong> Clique no botão abaixo. Uma nova aba vai abrir no Bling para autorizar.
+      Após autorizar, você será redirecionado ao Google — copie o valor de <code>code=</code> que aparece na URL.<br><br>
+      <strong style="color:var(--cyan)">Passo 3:</strong> Cole o código abaixo e clique em <strong>Confirmar</strong>.
+      Feito isso, o token se renova automaticamente para sempre.
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <button class="btn btn-ghost btn-sm" id="btnAbrirBling" onclick="abrirBling()">🔗 Abrir Bling para autorizar</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="codigoInput" type="text" placeholder="Cole aqui o code=... da URL"
+        style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px 10px;outline:none;font-family:monospace">
+      <button class="btn btn-green btn-sm" onclick="confirmarCodigo()">Confirmar</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('setupModal')">Cancelar</button>
+    </div>
+    <div id="setupErr" style="margin-top:10px;font-size:12px;color:var(--red);display:none"></div>
+  </div>
 </div>
 
 <!-- Loading overlay -->
@@ -339,18 +369,78 @@ const S = {
 
 // ── Boot ─────────────────────────────────────────────────────
 window.onload = () => {
-  setOverlay(true, 'Conectando à API do Bling...');
+  // Primeiro verifica se já tem autorização
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.autorizado) {
+        carregarFornecedores();
+      } else {
+        document.getElementById('hdrSub').textContent = 'Não conectado ao Bling';
+        document.getElementById('setupModal').classList.add('open');
+      }
+    })
+    .withFailureHandler(() => { carregarFornecedores(); })
+    .pc_checkAuth();
+};
+
+function carregarFornecedores() {
+  setOverlay(true, 'Carregando fornecedores do Bling...');
   google.script.run
     .withSuccessHandler(res => {
       setOverlay(false);
-      if (!res.ok) { toast('⚠ Bling: ' + res.error, 'err'); return; }
+      if (!res.ok) {
+        toast('⚠ Bling: ' + res.error, 'err');
+        document.getElementById('hdrSub').textContent = 'Erro ao conectar — clique em 🔗 Bling';
+        return;
+      }
       S.fornBling  = res.fornecedores || [];
       S.fornLoaded = true;
+      document.getElementById('btnCriar').disabled = false;
+      document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores';
       toast('✅ ' + S.fornBling.length + ' fornecedores carregados do Bling', 'ok');
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
     .pc_buscarFornecedoresBling();
-};
+}
+
+// ── Setup OAuth Bling ─────────────────────────────────────────
+let _blingAuthWindow = null;
+
+function abrirBling() {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.ok) {
+        document.getElementById('setupErr').textContent = res.error;
+        document.getElementById('setupErr').style.display = '';
+        return;
+      }
+      _blingAuthWindow = window.open(res.url, '_blank');
+      toast('ℹ Autorize no Bling e copie o code= da URL do Google', 'inf');
+    })
+    .withFailureHandler(e => toast('❌ ' + e.message, 'err'))
+    .pc_getAuthUrl();
+}
+
+function confirmarCodigo() {
+  const code = document.getElementById('codigoInput').value.trim();
+  if (!code) { toast('ℹ Cole o código primeiro', 'inf'); return; }
+  setOverlay(true, 'Trocando código por tokens Bling...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) {
+        document.getElementById('setupErr').textContent = 'Erro: ' + res.error;
+        document.getElementById('setupErr').style.display = '';
+        return;
+      }
+      closeModal('setupModal');
+      document.getElementById('codigoInput').value = '';
+      toast('✅ Bling autorizado com sucesso! Carregando fornecedores...', 'ok');
+      carregarFornecedores();
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .pc_trocarCodigo(code);
+}
 
 // ── Criar abas ───────────────────────────────────────────────
 function criarAbas() {
