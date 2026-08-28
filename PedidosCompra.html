@@ -817,7 +817,7 @@ function mostrarResultado(resultados) {
         <div class="result-icon">✅</div>
         <div class="result-text">
           <div class="result-forn">${escHtml(r.fornecedor)}</div>
-          <div class="result-pedido">Pedido criado — Nº ${r.idPedido}</div>
+          <div class="result-pedido">Pedido criado — ID: ${r.idPedido}${r.numero ? ' · Nº ' + r.numero : ''}</div>
           <div class="result-detail">${r.numItens} iten(s)</div>
         </div>
       </div>`;
