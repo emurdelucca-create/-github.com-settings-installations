@@ -536,9 +536,9 @@ function apagarDados() {
 // ── Render geral ─────────────────────────────────────────────
 function renderAll() {
   const hasTabs = S.tabs.length > 0;
-  document.getElementById('emptyState').style.display    = hasTabs ? 'none' : '';
-  document.getElementById('tabBarWrap').style.display    = hasTabs ? '' : 'none';
-  document.getElementById('tabContent').style.display    = hasTabs ? '' : 'none';
+  document.getElementById('emptyState').style.display    = hasTabs ? 'none' : 'flex';
+  document.getElementById('tabBarWrap').style.display    = hasTabs ? 'block' : 'none';
+  document.getElementById('tabContent').style.display    = hasTabs ? 'block' : 'none';
   document.getElementById('hdrSub').textContent = hasTabs
     ? S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '')
     : 'Nenhuma aba criada';
