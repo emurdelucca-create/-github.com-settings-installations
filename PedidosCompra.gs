@@ -304,25 +304,64 @@ function pc_buscarFornecedoresBling() {
   return pc_atualizarFornecedores();
 }
 
+// ── Cache de IDs de produto ───────────────────────────────────
+const PC_PROP_PROD_CACHE = 'BLING_PRODUTO_IDS_CACHE';
+
+function _pc_lerCacheProdutos() {
+  const raw = _pc_props().getProperty(PC_PROP_PROD_CACHE);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch(e) { return {}; }
+}
+
+function _pc_salvarCacheProdutos(mapa) {
+  _pc_props().setProperty(PC_PROP_PROD_CACHE, JSON.stringify(mapa));
+}
+
 // ── Bling — Criar pedidos ────────────────────────────────────
 function pc_criarPedidos(pedidos) {
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const resultados = [];
 
+  // Carrega cache de IDs de produto uma vez só
+  const idCache = _pc_lerCacheProdutos();
+  let cacheModificado = false;
+
+  // Coleta todos os SKUs sem ID entre todos os pedidos
+  const skusSemId = [];
+  pedidos.forEach(ped => ped.itens.forEach(it => {
+    if (!it.produtoId && idCache[it.sku]) {
+      it.produtoId = idCache[it.sku];  // resolve pelo cache
+    } else if (!it.produtoId) {
+      skusSemId.push(it.sku);
+    }
+  }));
+
+  // Busca no Bling apenas os SKUs ainda sem ID (deduplicados)
+  const skusUnicos = [...new Set(skusSemId)];
+  for (const sku of skusUnicos) {
+    try {
+      const r = _pc_blingGet('/produtos', { codigo: sku, pagina: 1, limite: 1 });
+      const p = (r.data || [])[0];
+      if (p) {
+        idCache[sku]     = String(p.id);
+        cacheModificado  = true;
+        // Aplica de volta nos itens
+        pedidos.forEach(ped => ped.itens.forEach(it => {
+          if (it.sku === sku && !it.produtoId) it.produtoId = idCache[sku];
+        }));
+      }
+    } catch(e) { /* ignora; vai falhar abaixo no item sem ID */ }
+    Utilities.sleep(180);
+  }
+
+  if (cacheModificado) _pc_salvarCacheProdutos(idCache);
+
   for (const ped of pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
 
-      // Resolve IDs de produto no Bling para itens que não têm ID ainda
+      // Verifica se todos os itens têm ID
       for (const it of ped.itens) {
-        if (!it.produtoId) {
-          try {
-            const r = _pc_blingGet('/produtos', { codigo: it.sku, pagina: 1, limite: 1 });
-            const p = (r.data || [])[0];
-            if (p) it.produtoId = String(p.id);
-          } catch(e) { /* lança erro mais abaixo se ficar nulo */ }
-          Utilities.sleep(200);
-        }
         if (!it.produtoId) throw new Error('Produto não encontrado no Bling para SKU: ' + it.sku);
       }
 
