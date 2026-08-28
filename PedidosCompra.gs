@@ -54,7 +54,7 @@ function _pc_getToken() {
   if (!refresh) throw new Error('Bling não autorizado. Use o botão "Conectar ao Bling" no app.');
 
   // Renova se faltam menos de 5 minutos para expirar
-  if (!access || Date.now() >= expires - 300_000) {
+  if (!access || Date.now() >= expires - 300000) {
     return _pc_refreshToken(refresh);
   }
   return access;
