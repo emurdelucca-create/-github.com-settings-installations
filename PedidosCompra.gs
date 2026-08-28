@@ -219,20 +219,37 @@ function pc_carregarDados() {
   }
 }
 
-// ── Bling — Produtos ─────────────────────────────────────────
+// ── Produtos — nomes via planilha BaseLinker ─────────────────
+const PC_SS_BASELINKER_ID = '1wy-tJoDxGDjfnd0AXQfdQ0bw9qmTtxz7wV4UKDlQrik';
+const PC_ABA_ESTOQUE      = 'estoque';
+const PC_BL_COL_SKU       = 1;  // col B
+const PC_BL_COL_NOME      = 8;  // col I
+
 function pc_buscarProdutosBling(skus) {
-  const produtos = {};
-  for (const sku of skus) {
-    try {
-      const res  = _pc_blingGet('/produtos', { codigo: sku, pagina: 1, limite: 1 });
-      const prod = (res.data || [])[0];
-      produtos[sku] = prod ? { id: String(prod.id), nome: prod.nome || prod.descricao || sku } : null;
-    } catch(e) {
-      produtos[sku] = null;
+  try {
+    const ss  = SpreadsheetApp.openById(PC_SS_BASELINKER_ID);
+    const aba = ss.getSheetByName(PC_ABA_ESTOQUE);
+    if (!aba) throw new Error('Aba "' + PC_ABA_ESTOQUE + '" não encontrada na planilha BaseLinker');
+
+    const last   = aba.getLastRow();
+    const nomeMap = {};
+    if (last > 1) {
+      aba.getRange(2, 1, last - 1, PC_BL_COL_NOME + 1).getValues().forEach(r => {
+        const sku  = String(r[PC_BL_COL_SKU]  || '').trim();
+        const nome = String(r[PC_BL_COL_NOME] || '').trim();
+        if (sku) nomeMap[sku] = nome || sku;
+      });
     }
-    Utilities.sleep(200);
+
+    const produtos = {};
+    for (const sku of skus) {
+      // id = null aqui; será resolvido no Bling só ao criar o pedido
+      produtos[sku] = { id: null, nome: nomeMap[sku] || sku };
+    }
+    return { ok: true, produtos };
+  } catch(e) {
+    return { ok: false, error: e.message };
   }
-  return { ok: true, produtos };
 }
 
 // ── Bling — Fornecedores ─────────────────────────────────────
@@ -242,7 +259,7 @@ function pc_buscarFornecedoresBling() {
     let pagina   = 1;
     let continua = true;
     while (continua) {
-      const res   = _pc_blingGet('/contatos', { criterio: 4, pagina, limite: 100 });
+      const res   = _pc_blingGet('/contatos', { criterio: 2, pagina, limite: 100 });
       const items = res.data || [];
       items.forEach(c => {
         const nome = (c.nome || c.fantasia || '').trim();
@@ -267,6 +284,19 @@ function pc_criarPedidos(pedidos) {
   for (const ped of pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
+
+      // Resolve IDs de produto no Bling para itens que não têm ID ainda
+      for (const it of ped.itens) {
+        if (!it.produtoId) {
+          try {
+            const r = _pc_blingGet('/produtos', { codigo: it.sku, pagina: 1, limite: 1 });
+            const p = (r.data || [])[0];
+            if (p) it.produtoId = String(p.id);
+          } catch(e) { /* lança erro mais abaixo se ficar nulo */ }
+          Utilities.sleep(200);
+        }
+        if (!it.produtoId) throw new Error('Produto não encontrado no Bling para SKU: ' + it.sku);
+      }
 
       const payload = {
         data:       hoje,
