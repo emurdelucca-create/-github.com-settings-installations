@@ -370,12 +370,12 @@ function pc_criarPedidos(pedidos) {
         if (!it.produtoId) throw new Error('Produto não encontrado no Bling para SKU: ' + it.sku);
       }
 
-      // Payload mínimo necessário para Bling v3 — situacao omitida (usa padrão do Bling)
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
         itens: ped.itens.map(it => ({
           produto:    { id: Number(it.produtoId) },
+          descricao:  String(it.nome  || it.sku),  // obrigatório no Bling v3
           quantidade: Number(it.qtd)   || 0,
           valor:      Number(it.preco) || 0,
         })),

@@ -1008,7 +1008,7 @@ function montarPedidos(tab) {
     fornecedorId:   tab.blingId,
     fornecedorNome: tab.blingNome,
     itens: tab.itens.map(it => ({
-      produtoId: it.produtoId, sku: it.sku,
+      produtoId: it.produtoId, sku: it.sku, nome: it.nome,
       codFornecedor: it.codForn,
       qtd: it.qtd, preco: it.preco, ipi: it.ipi,
     })),
@@ -1022,7 +1022,7 @@ function montarPedidos(tab) {
         fornecedorId:   forn.blingId,
         fornecedorNome: forn.blingNome,
         itens: tab.itens.map(it => ({
-          produtoId: it.produtoId, sku: it.sku,
+          produtoId: it.produtoId, sku: it.sku, nome: it.nome,
           codFornecedor: it.codsForn[ci] || '',
           qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
         })),
