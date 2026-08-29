@@ -548,6 +548,7 @@ function criarAbas() {
         desconto:   0,
         clonar:     false,
         numPedidos: 1,
+        filtro:     '',
         itens: (res.fornecedores[nome] || []).map(it => ({
           sku:       it.sku,
           nome:      '⏳ carregando...',
@@ -678,24 +679,34 @@ function renderTabContent(idx) {
     return `<th class="clone-hdr">Cód. Forn. ${n}</th><th class="clone-hdr r">Preço Unit. ${n}</th><th class="clone-hdr r">Preço Total ${n}</th>`;
   }).join('');
 
-  // Rows
-  const rowsHtml = tab.itens.map((item, ri) => {
+  // Filtro de linha
+  const filtroQ = (tab.filtro || '').toLowerCase().trim();
+  const visRows = tab.itens
+    .map((item, ri) => ({ item, ri }))
+    .filter(({ item }) => !filtroQ ||
+      item.nome.toLowerCase().includes(filtroQ) ||
+      item.sku.toLowerCase().includes(filtroQ) ||
+      (item.codForn || '').toLowerCase().includes(filtroQ));
+
+  const rowsHtml = visRows.map(({ item, ri }, visIdx) => {
     const total = (item.preco * item.qtd).toFixed(2);
     const nomeClass = item.nome.startsWith('⏳') ? 'td-nome loading' : 'td-nome';
 
     const cloneTdHtml = Array.from({length: cloneCount}, (_, ci) => {
-      const p     = item.precos[ci] || 0;
-      const pTot  = (p * item.qtd).toFixed(2);
-      return `<td class="clone-cell"><input class="td-inp w110" type="number" step="0.01" value="${p}" oninput="updatePreco(${idx},${ri},${ci},this.value)"></td>
+      const codF = escHtml(item.codsForn[ci] || '');
+      const p    = item.precos[ci] || 0;
+      const pTot = (p * item.qtd).toFixed(2);
+      return `<td class="clone-cell"><input class="td-inp w90" type="text" value="${codF}" oninput="updateCodForn(${idx},${ri},${ci},this.value)" placeholder="—"></td>
+              <td class="clone-cell"><input class="td-inp w110" type="number" step="0.01" value="${p}" oninput="updatePreco(${idx},${ri},${ci},this.value)"></td>
               <td class="clone-cell r td-total">${fmt(pTot)}</td>`;
     }).join('');
 
-    const codfHtml = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
+    const codfHtml  = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
     const precoHtml = `<input class="td-inp w110" type="number" step="0.01" value="${item.preco}" oninput="updatePrecoMain(${idx},${ri},this.value)">`;
     const ipiHtml   = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
 
     return `<tr>
-      <td class="td-num">${ri + 1}</td>
+      <td class="td-num">${visIdx + 1}</td>
       <td class="td-nome ${nomeClass}" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>
       <td>${codfHtml}</td>
       <td class="td-sku">${escHtml(item.sku)}</td>
@@ -708,6 +719,7 @@ function renderTabContent(idx) {
   }).join('');
 
   const grandTotal = tab.itens.reduce((s, it) => s + it.preco * it.qtd, 0);
+  const filtroInfo = filtroQ ? ` · ${visRows.length} de ${tab.itens.length} visíveis` : ` · ${tab.itens.length} SKUs`;
 
   document.getElementById('tabContent').innerHTML = `
   <div class="tab-panel">
@@ -779,7 +791,11 @@ function renderTabContent(idx) {
     <!-- Table card -->
     <div class="table-card">
       <div class="table-toolbar">
-        <span class="table-title">Itens do Pedido de Compra · ${tab.itens.length} SKUs</span>
+        <span class="table-title">Itens do Pedido de Compra${filtroInfo}</span>
+        <input id="filtroInput${idx}" type="text" placeholder="Filtrar por nome, SKU, cód. fornecedor..."
+          value="${escHtml(tab.filtro || '')}"
+          oninput="filtrarTabela(${idx},this.value)"
+          style="flex:1;max-width:320px;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 10px;outline:none;margin:0 12px;font-family:inherit">
         <span class="table-total" id="grandTot${idx}">Total: ${fmt(grandTotal.toFixed(2))}</span>
       </div>
       <div class="table-scroll">
@@ -867,15 +883,31 @@ function preencherPrecosPlanilha(idx) {
   const tab = S.tabs[idx];
   let count = 0;
   tab.itens.forEach(item => {
-    if ((item.precoBase || 0) > 0) {
-      item.preco  = item.precoBase;
-      item.precos = item.precos.map(() => item.precoBase);
+    // precoBase é o valor original da planilha; se não existir no estado antigo,
+    // não faz nada (o usuário precisa recriar as abas para obter o precoBase)
+    const base = item.precoBase;
+    if (base !== undefined && base !== null && base > 0) {
+      item.preco  = base;
+      item.precos = item.precos.map(() => base);
       count++;
     }
   });
+  if (count === 0) {
+    toast('ℹ Nenhum preço base encontrado — clique em 🗑 Apagar Dados e depois ▶ Criar Abas para recarregar', 'inf');
+    return;
+  }
   renderTabContent(idx);
   salvarEstado();
   toast('✅ Preços da planilha aplicados em ' + count + ' iten(s)', 'ok');
+}
+
+// ── Filtro de tabela ──────────────────────────────────────────
+function filtrarTabela(idx, q) {
+  S.tabs[idx].filtro = q;
+  renderTabContent(idx);
+  // Reposiciona foco no input após re-render
+  const inp = document.getElementById('filtroInput' + idx);
+  if (inp) { inp.focus(); inp.setSelectionRange(q.length, q.length); }
 }
 
 // ── Executar desconto ─────────────────────────────────────────
@@ -917,6 +949,11 @@ function updatePrecoMain(tabIdx, rowIdx, val) {
 
 function updatePreco(tabIdx, rowIdx, cloneIdx, val) {
   S.tabs[tabIdx].itens[rowIdx].precos[cloneIdx] = parseFloat(val) || 0;
+  salvarEstado();
+}
+
+function updateCodForn(tabIdx, rowIdx, cloneIdx, val) {
+  S.tabs[tabIdx].itens[rowIdx].codsForn[cloneIdx] = val;
   salvarEstado();
 }
 
