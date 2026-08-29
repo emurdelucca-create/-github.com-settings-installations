@@ -183,6 +183,8 @@ thead th {
 }
 thead th.r { text-align: right; }
 thead th.clone-hdr { border-left: 2px solid rgba(68,138,255,.3); color: var(--blue); }
+thead th.emp-hdr   { border-left: 2px solid rgba(0,230,118,.3);  color: var(--green); }
+td.emp-cell        { border-left: 2px solid rgba(0,230,118,.15); }
 
 tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .1s; }
 tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
@@ -357,6 +359,9 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 </div>
 
 <script>
+// ── Constantes ────────────────────────────────────────────────
+const EMPRESAS = ['HUMBLE', 'NAJUMI', 'SKY', 'EDMOTOS', 'MOTO VIBE'];
+
 // ── Estado global ─────────────────────────────────────────────
 const S = {
   tabs:        [],
@@ -543,23 +548,25 @@ function criarAbas() {
       S.tabs = fornKeys.map((nome, i) => ({
         id:         'tab_' + i,
         nomeFornec: nome,
-        blingId:    null,
-        blingNome:  '',
-        desconto:   0,
-        clonar:     false,
-        numPedidos: 1,
-        filtro:     '',
+        blingId:         null,
+        blingNome:       '',
+        desconto:        0,
+        clonar:          false,
+        numPedidos:      1,
+        separarEmpresas: false,
+        filtro:          '',
         itens: (res.fornecedores[nome] || []).map(it => ({
           sku:       it.sku,
           nome:      '⏳ carregando...',
           produtoId: null,
           codForn:   '',
           qtd:       it.qtd,
-          precoBase: it.preco,   // preço original da planilha (imutável)
-          preco:     it.preco,
-          ipi:       0,
-          precos:    [it.preco, it.preco, it.preco, it.preco, it.preco],
-          codsForn:  ['', '', '', '', ''],
+          precoBase:    it.preco,
+          preco:        it.preco,
+          ipi:          0,
+          precos:       [it.preco, it.preco, it.preco, it.preco, it.preco],
+          codsForn:     ['', '', '', '', ''],
+          qtdEmpresas:  it.qtdEmpresas || { HUMBLE:0, NAJUMI:0, SKY:0, EDMOTOS:0, 'MOTO VIBE':0 },
         })),
       }));
 
@@ -679,6 +686,11 @@ function renderTabContent(idx) {
     return `<th class="clone-hdr">Cód. Forn. ${n}</th><th class="clone-hdr r">Preço Unit. ${n}</th><th class="clone-hdr r">Preço Total ${n}</th>`;
   }).join('');
 
+  // Empresa column headers (only when separarEmpresas)
+  const empThHtml = tab.separarEmpresas
+    ? EMPRESAS.map(e => `<th class="emp-hdr r">${e}</th>`).join('')
+    : '';
+
   // Filtro de linha
   const filtroQ = (tab.filtro || '').toLowerCase().trim();
   const visRows = tab.itens
@@ -701,6 +713,14 @@ function renderTabContent(idx) {
               <td class="clone-cell r td-total">${fmt(pTot)}</td>`;
     }).join('');
 
+    // Empresa qty cells
+    const empTdHtml = tab.separarEmpresas
+      ? EMPRESAS.map(e => {
+          const q = (item.qtdEmpresas && item.qtdEmpresas[e]) || 0;
+          return `<td class="emp-cell"><input class="td-inp w60" type="number" min="0" value="${q}" oninput="updateQtdEmpresa(${idx},${ri},'${e}',this.value)"></td>`;
+        }).join('')
+      : '';
+
     const codfHtml  = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
     const precoHtml = `<input class="td-inp w110" type="number" step="0.01" value="${item.preco}" oninput="updatePrecoMain(${idx},${ri},this.value)">`;
     const ipiHtml   = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
@@ -714,6 +734,7 @@ function renderTabContent(idx) {
       <td>${precoHtml}</td>
       <td>${ipiHtml}</td>
       <td class="r td-total" id="tot_${idx}_${ri}">${fmt(total)}</td>
+      ${empTdHtml}
       ${cloneTdHtml}
     </tr>`;
   }).join('');
@@ -767,21 +788,28 @@ function renderTabContent(idx) {
         </div>
       </div>
 
-      <!-- Row 2: Clonar -->
+      <!-- Row 2: Clonar + Separar por empresa -->
       <div class="tab-hdr-row">
         <div class="field-group">
           <span class="field-label">Clonar Pedido</span>
           <div class="toggle-wrap">
-            <button class="toggle-btn ${tab.clonar ? 'on' : ''}" id="btnSim${idx}" onclick="setClonar(${idx},true)">Sim</button>
-            <button class="toggle-btn ${!tab.clonar ? 'off' : ''}" id="btnNao${idx}" onclick="setClonar(${idx},false)">Não</button>
+            <button class="toggle-btn ${tab.clonar ? 'on' : ''}" onclick="setClonar(${idx},true)">Sim</button>
+            <button class="toggle-btn ${!tab.clonar ? 'off' : ''}" onclick="setClonar(${idx},false)">Não</button>
           </div>
         </div>
         ${tab.clonar ? `
         <div class="field-group">
-          <span class="field-label">Quantos pedidos extras</span>
+          <span class="field-label">Qtd. pedidos extras</span>
           <input class="num-input" type="number" min="1" max="5" value="${tab.numPedidos}"
             oninput="setNumPedidos(${idx},this.value)" style="width:70px">
         </div>` : ''}
+        <div class="field-group" style="margin-left:24px">
+          <span class="field-label" style="color:var(--green)">Separar por empresa</span>
+          <div class="toggle-wrap">
+            <button class="toggle-btn ${tab.separarEmpresas ? 'on' : ''}" onclick="setSepararEmpresas(${idx},true)">Sim</button>
+            <button class="toggle-btn ${!tab.separarEmpresas ? 'off' : ''}" onclick="setSepararEmpresas(${idx},false)">Não</button>
+          </div>
+        </div>
       </div>
 
       <!-- Clone supplier selectors -->
@@ -810,6 +838,7 @@ function renderTabContent(idx) {
               <th class="r">Preço Unit.</th>
               <th class="r">IPI %</th>
               <th class="r">Preço Total</th>
+              ${empThHtml}
               ${cloneThHtml}
             </tr>
           </thead>
@@ -875,6 +904,20 @@ function setClonar(idx, val) {
 function setNumPedidos(idx, val) {
   S.tabs[idx].numPedidos = Math.min(5, Math.max(1, parseInt(val) || 1));
   renderTabContent(idx);
+  salvarEstado();
+}
+
+// ── Separar por empresa ───────────────────────────────────────
+function setSepararEmpresas(idx, val) {
+  S.tabs[idx].separarEmpresas = val;
+  renderTabContent(idx);
+  salvarEstado();
+}
+
+function updateQtdEmpresa(tabIdx, rowIdx, empresa, val) {
+  const item = S.tabs[tabIdx].itens[rowIdx];
+  if (!item.qtdEmpresas) item.qtdEmpresas = { HUMBLE:0, NAJUMI:0, SKY:0, EDMOTOS:0, 'MOTO VIBE':0 };
+  item.qtdEmpresas[empresa] = parseInt(val) || 0;
   salvarEstado();
 }
 
@@ -996,37 +1039,86 @@ function validarAba(tab) {
       if (!tab['fornClone' + ci]?.blingId) errs.push('Selecione o Fornecedor ' + (ci + 2));
     }
   }
-  // produtoId é resolvido no servidor (GAS) via cache; não valida aqui
+  if (tab.separarEmpresas) {
+    const temAlguma = EMPRESAS.some(emp =>
+      tab.itens.some(it => (it.qtdEmpresas && it.qtdEmpresas[emp] > 0))
+    );
+    if (!temAlguma) errs.push('Nenhuma empresa possui quantidade preenchida nas colunas de empresa');
+  }
   return errs;
 }
 
 function montarPedidos(tab) {
   const pedidos = [];
 
-  // Pedido principal
-  pedidos.push({
-    fornecedorId:   tab.blingId,
-    fornecedorNome: tab.blingNome,
-    itens: tab.itens.map(it => ({
-      produtoId: it.produtoId, sku: it.sku, nome: it.nome,
-      codFornecedor: it.codForn,
-      qtd: it.qtd, preco: it.preco, ipi: it.ipi,
-    })),
-  });
-
-  // Pedidos clonados
-  if (tab.clonar) {
-    for (let ci = 0; ci < tab.numPedidos; ci++) {
-      const forn = tab['fornClone' + ci];
-      pedidos.push({
-        fornecedorId:   forn.blingId,
-        fornecedorNome: forn.blingNome,
-        itens: tab.itens.map(it => ({
+  if (!tab.separarEmpresas) {
+    // Modo normal: pedido principal + clones
+    pedidos.push({
+      fornecedorId:   tab.blingId,
+      fornecedorNome: tab.blingNome,
+      itens: tab.itens.map(it => ({
+        produtoId: it.produtoId, sku: it.sku, nome: it.nome,
+        codFornecedor: it.codForn,
+        qtd: it.qtd, preco: it.preco, ipi: it.ipi,
+      })),
+    });
+    if (tab.clonar) {
+      for (let ci = 0; ci < tab.numPedidos; ci++) {
+        const forn = tab['fornClone' + ci];
+        pedidos.push({
+          fornecedorId:   forn.blingId,
+          fornecedorNome: forn.blingNome,
+          itens: tab.itens.map(it => ({
+            produtoId: it.produtoId, sku: it.sku, nome: it.nome,
+            codFornecedor: it.codsForn[ci] || '',
+            qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
+          })),
+        });
+      }
+    }
+  } else {
+    // Modo empresa: um pedido por empresa (onde há qty > 0)
+    for (const emp of EMPRESAS) {
+      const itensEmp = tab.itens
+        .map(it => ({
           produtoId: it.produtoId, sku: it.sku, nome: it.nome,
-          codFornecedor: it.codsForn[ci] || '',
-          qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
-        })),
+          codFornecedor: it.codForn,
+          qtd: (it.qtdEmpresas && it.qtdEmpresas[emp]) || 0,
+          preco: it.preco, ipi: it.ipi,
+        }))
+        .filter(it => it.qtd > 0);
+
+      if (!itensEmp.length) continue;
+
+      // Pedido principal para esta empresa
+      pedidos.push({
+        fornecedorId:   tab.blingId,
+        fornecedorNome: tab.blingNome + ' · ' + emp,
+        empresa:        emp,
+        itens:          itensEmp,
       });
+
+      // Pedidos clonados para esta empresa
+      if (tab.clonar) {
+        for (let ci = 0; ci < tab.numPedidos; ci++) {
+          const forn = tab['fornClone' + ci];
+          const itensClone = tab.itens
+            .map(it => ({
+              produtoId: it.produtoId, sku: it.sku, nome: it.nome,
+              codFornecedor: it.codsForn[ci] || '',
+              qtd: (it.qtdEmpresas && it.qtdEmpresas[emp]) || 0,
+              preco: it.precos[ci] || it.preco, ipi: it.ipi,
+            }))
+            .filter(it => it.qtd > 0);
+          if (!itensClone.length) continue;
+          pedidos.push({
+            fornecedorId:   forn.blingId,
+            fornecedorNome: forn.blingNome + ' · ' + emp,
+            empresa:        emp,
+            itens:          itensClone,
+          });
+        }
+      }
     }
   }
   return pedidos;

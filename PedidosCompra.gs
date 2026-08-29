@@ -23,6 +23,16 @@ const PC_IDX_SKU    = 0;   // col A
 const PC_IDX_FORNEC = 54;  // col BC
 const PC_IDX_QTD    = 56;  // col BE
 
+// Colunas de quantidade por empresa (0-indexed)
+const PC_EMPRESAS = [
+  { nome: 'HUMBLE',    col: 57 },  // col BF
+  { nome: 'NAJUMI',    col: 59 },  // col BH
+  { nome: 'SKY',       col: 61 },  // col BJ
+  { nome: 'EDMOTOS',   col: 63 },  // col BL
+  { nome: 'MOTO VIBE', col: 65 },  // col BN
+];
+const PC_NCOLS_COMP = 66;  // lê até col BN (1-indexed)
+
 const PC_CTRL_SKU   = 11;  // col L
 const PC_CTRL_PREC  = 16;  // col Q
 
@@ -194,7 +204,7 @@ function pc_carregarDados() {
     const lastRow = abaCompras.getLastRow();
     if (lastRow < 2) return { ok: true, fornecedores: {} };
 
-    const raw = abaCompras.getRange(2, 1, lastRow - 1, 57).getValues();
+    const raw = abaCompras.getRange(2, 1, lastRow - 1, PC_NCOLS_COMP).getValues();
 
     const ssCtrl   = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
     const abaCtrl  = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
@@ -214,8 +224,11 @@ function pc_carregarDados() {
       const forn = String(r[PC_IDX_FORNEC] || '').trim();
       const qtd  = Number(r[PC_IDX_QTD]   || 0);
       if (!sku || !forn || !(qtd > 0)) return;
+      // Quantidade por empresa
+      const qtdEmpresas = {};
+      PC_EMPRESAS.forEach(e => { qtdEmpresas[e.nome] = Number(r[e.col] || 0); });
       if (!fornecedores[forn]) fornecedores[forn] = [];
-      fornecedores[forn].push({ sku, qtd, preco: precoMap[sku] || 0 });
+      fornecedores[forn].push({ sku, qtd, preco: precoMap[sku] || 0, qtdEmpresas });
     });
 
     return { ok: true, fornecedores };
@@ -375,11 +388,16 @@ function pc_criarPedidos(pedidos) {
         fornecedor: { id: Number(ped.fornecedorId) },
         itens: ped.itens.map(it => ({
           produto:    { id: Number(it.produtoId) },
-          descricao:  String(it.nome  || it.sku),  // obrigatório no Bling v3
+          descricao:  String(it.nome  || it.sku),
           quantidade: Number(it.qtd)   || 0,
           valor:      Number(it.preco) || 0,
         })),
       };
+      // Quando separado por empresa, grava o nome nos campos de observação
+      if (ped.empresa) {
+        payload.observacoes         = ped.empresa;
+        payload.observacoesInternas = ped.empresa;
+      }
 
       Logger.log('Payload pedido (%s): %s', ped.fornecedorNome, JSON.stringify(payload).slice(0, 800));
       const res      = _pc_blingPost('/pedidos/compras', payload);
