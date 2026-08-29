@@ -276,7 +276,8 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
   </div>
   <div class="header-right">
     <button class="btn btn-ghost btn-sm" id="btnBling"  onclick="document.getElementById('setupModal').classList.add('open')" title="Configurar autenticação Bling">🔗 Bling</button>
-    <button class="btn btn-ghost btn-sm" id="btnAtualizarForn" onclick="atualizarFornecedores()" title="Busca todos os contatos do Bling e salva no cache">↺ Fornecedores</button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('csvInput').click()" title="Importe o CSV exportado pelo Bling (Cadastros → Clientes e Fornecedores → Exportar)">📂 CSV Fornecedores</button>
+    <input type="file" id="csvInput" accept=".csv,.txt" style="display:none" onchange="onCsvUpload(this)">
     <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()" disabled>▶ Criar Abas</button>
     <button class="btn btn-danger btn-sm" id="btnApagar" onclick="apagarDados()" disabled>🗑 Apagar Dados</button>
   </div>
@@ -358,70 +359,126 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 <script>
 // ── Estado global ─────────────────────────────────────────────
 const S = {
-  tabs:        [],    // array de objetos de aba
+  tabs:        [],
   activeTab:   -1,
-  fornBling:   [],    // [{id, nome}] fornecedores do Bling
+  fornBling:   [],
   fornLoaded:  false,
 };
 
-// Estrutura de uma aba:
-// { id, nomeFornec, blingId, blingNome, desconto, clonar, numPedidos,
-//   itens: [{sku, nome, produtoId, codForn, qtd, preco, ipi, precos:[], codsForn:[]}] }
+// ── LocalStorage ──────────────────────────────────────────────
+const LS_STATE = 'pc_estado_v3';
+const LS_FORN  = 'pc_forn_v3';
+
+let _saveTimer = null;
+function salvarEstado() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    try { localStorage.setItem(LS_STATE, JSON.stringify({ tabs: S.tabs, activeTab: S.activeTab })); } catch(e) {}
+  }, 400);
+}
+
+function _carregarEstado() {
+  try {
+    const raw = localStorage.getItem(LS_STATE);
+    if (!raw) return false;
+    const st  = JSON.parse(raw);
+    if (!st.tabs || !st.tabs.length) return false;
+    S.tabs      = st.tabs;
+    S.activeTab = Math.min(st.activeTab || 0, st.tabs.length - 1);
+    return true;
+  } catch(e) { return false; }
+}
+
+function _salvarFornLS(lista) {
+  try { localStorage.setItem(LS_FORN, JSON.stringify(lista)); } catch(e) {}
+}
+
+function _carregarFornLS() {
+  try { const r = localStorage.getItem(LS_FORN); return r ? JSON.parse(r) : []; } catch(e) { return []; }
+}
+
+// ── CSV Fornecedores ──────────────────────────────────────────
+function onCsvUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const lista = parsearCSVFornecedores(e.target.result);
+      if (!lista.length) { toast('⚠ Nenhum fornecedor encontrado no CSV', 'err'); return; }
+      S.fornBling  = lista;
+      S.fornLoaded = true;
+      _salvarFornLS(lista);
+      document.getElementById('btnCriar').disabled = false;
+      document.getElementById('hdrSub').textContent = lista.length + ' fornecedores carregados do CSV';
+      toast('✅ ' + lista.length + ' fornecedores importados do CSV', 'ok');
+    } catch(e) { toast('❌ Erro ao ler CSV: ' + e.message, 'err'); }
+    input.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function parsearCSVFornecedores(text) {
+  const linhas = text.split(/\r?\n/);
+  const lista  = [];
+  for (let i = 1; i < linhas.length; i++) {
+    const cols = _parsarLinhaCsv(linhas[i]);
+    if (!cols || cols.length < 3) continue;
+    const id      = (cols[0] || '').trim();
+    const codigo  = (cols[1] || '').trim();
+    const nome    = (cols[2] || '').trim();
+    const fantasia = (cols[3] || '').trim();
+    if (!id || !nome) continue;
+    // Monta nome de exibição: prefere Código (apelido curto) se diferente do nome
+    const display = (codigo && codigo !== nome) ? codigo + ' — ' + nome :
+                    (fantasia && fantasia !== nome) ? fantasia + ' — ' + nome : nome;
+    lista.push({ id, nome: display });
+  }
+  lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  return lista;
+}
+
+function _parsarLinhaCsv(linha) {
+  const cols = [];
+  let cur = '', inQ = false;
+  for (const ch of linha) {
+    if (ch === '"')      { inQ = !inQ; }
+    else if (ch === ';' && !inQ) { cols.push(cur); cur = ''; }
+    else                { cur += ch; }
+  }
+  cols.push(cur);
+  return cols;
+}
 
 // ── Boot ─────────────────────────────────────────────────────
 window.onload = () => {
-  // Primeiro verifica se já tem autorização
+  // 1. Carrega fornecedores do localStorage (CSV importado anteriormente)
+  const forn = _carregarFornLS();
+  if (forn.length) {
+    S.fornBling  = forn;
+    S.fornLoaded = true;
+    document.getElementById('hdrSub').textContent = forn.length + ' fornecedores · use 📂 CSV para atualizar';
+  } else {
+    document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
+  }
+  document.getElementById('btnCriar').disabled = false;
+
+  // 2. Restaura estado salvo (abas, itens, preços, fornecedores selecionados)
+  if (_carregarEstado()) {
+    renderAll();
+    document.getElementById('btnApagar').disabled = false;
+    toast('✅ Estado anterior restaurado — aba: ' + (S.tabs[S.activeTab]?.nomeFornec || ''), 'ok');
+    return;
+  }
+
+  // 3. Sem estado salvo: verifica autenticação Bling (apenas para poder criar pedidos)
   google.script.run
     .withSuccessHandler(res => {
-      if (res.autorizado) {
-        carregarFornecedores();
-      } else {
-        document.getElementById('hdrSub').textContent = 'Não conectado ao Bling';
-        document.getElementById('setupModal').classList.add('open');
-      }
+      if (!res.autorizado) document.getElementById('setupModal').classList.add('open');
     })
-    .withFailureHandler(() => { carregarFornecedores(); })
+    .withFailureHandler(() => {})
     .pc_checkAuth();
 };
-
-function carregarFornecedores() {
-  // Lê do cache local (Script Properties) — sem chamada à API do Bling
-  google.script.run
-    .withSuccessHandler(res => {
-      S.fornBling  = res.fornecedores || [];
-      S.fornLoaded = true;
-      document.getElementById('btnCriar').disabled = false;
-      if (S.fornBling.length === 0) {
-        document.getElementById('hdrSub').textContent = 'Fornecedores não carregados — clique em ↺ Fornecedores';
-        toast('ℹ Cache vazio — clique em ↺ Fornecedores para buscar do Bling', 'inf');
-      } else {
-        const dataStr = res.dataAtualizacao ? ' · atualizado ' + res.dataAtualizacao : '';
-        document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores' + dataStr;
-      }
-    })
-    .withFailureHandler(e => { toast('❌ ' + e.message, 'err'); })
-    .pc_carregarFornecedoresCache();
-}
-
-function atualizarFornecedores() {
-  const btn = document.getElementById('btnAtualizarForn');
-  btn.disabled = true;
-  setOverlay(true, 'Buscando todos os contatos no Bling...');
-  google.script.run
-    .withSuccessHandler(res => {
-      setOverlay(false);
-      btn.disabled = false;
-      if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
-      S.fornBling  = res.fornecedores || [];
-      S.fornLoaded = true;
-      document.getElementById('btnCriar').disabled = false;
-      const dataStr = res.dataAtualizacao ? ' · atualizado ' + res.dataAtualizacao : '';
-      document.getElementById('hdrSub').textContent = 'Conectado · ' + S.fornBling.length + ' fornecedores' + dataStr;
-      toast('✅ ' + S.fornBling.length + ' fornecedores salvos no cache', 'ok');
-    })
-    .withFailureHandler(e => { setOverlay(false); btn.disabled = false; toast('❌ ' + e.message, 'err'); })
-    .pc_atualizarFornecedores();
-}
 
 // ── Setup OAuth Bling ─────────────────────────────────────────
 let _blingAuthWindow = null;
@@ -455,8 +512,7 @@ function confirmarCodigo() {
       }
       closeModal('setupModal');
       document.getElementById('codigoInput').value = '';
-      toast('✅ Bling autorizado! Clique em ↺ Fornecedores para carregar a lista.', 'ok');
-      carregarFornecedores();
+      toast('✅ Bling autorizado com sucesso!', 'ok');
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
     .pc_trocarCodigo(code);
@@ -498,6 +554,7 @@ function criarAbas() {
           produtoId: null,
           codForn:   '',
           qtd:       it.qtd,
+          precoBase: it.preco,   // preço original da planilha (imutável)
           preco:     it.preco,
           ipi:       0,
           precos:    [it.preco, it.preco, it.preco, it.preco, it.preco],
@@ -527,11 +584,13 @@ function criarAbas() {
             });
           }
           renderTabContent(S.activeTab);
+          salvarEstado();
           toast('✅ Abas criadas: ' + S.tabs.length + ' fornecedor(es)', 'ok');
         })
         .withFailureHandler(e => {
           setOverlay(false);
-          toast('⚠ Nomes não carregados: ' + e.message, 'err');
+          salvarEstado();
+          toast('⚠ Nomes parcialmente carregados: ' + e.message, 'err');
         })
         .pc_buscarProdutosBling(allSkus);
     })
@@ -547,6 +606,7 @@ function criarAbas() {
 function apagarDados() {
   confirm2('Apagar todos os dados?', 'Todas as abas e itens serão removidos da tela. Os dados nas planilhas não são alterados.', () => {
     S.tabs = []; S.activeTab = -1;
+    try { localStorage.removeItem(LS_STATE); } catch(e) {}
     renderAll();
     document.getElementById('btnApagar').disabled = true;
     toast('🗑 Dados apagados', 'inf');
@@ -582,6 +642,7 @@ function switchTab(idx) {
   renderTabContent(idx);
   document.getElementById('hdrSub').textContent =
     S.tabs.length + ' fornecedor(es) | aba: ' + S.tabs[idx].nomeFornec;
+  salvarEstado();
 }
 
 // ── Tab content ───────────────────────────────────────────────
@@ -670,13 +731,19 @@ function renderTabContent(idx) {
           <span class="field-label">Desconto %</span>
           <input class="num-input" type="number" min="0" max="100" step="0.1"
             value="${tab.desconto || 0}"
-            oninput="S.tabs[${idx}].desconto = parseFloat(this.value)||0"
+            oninput="S.tabs[${idx}].desconto = parseFloat(this.value)||0; salvarEstado()"
             placeholder="0">
         </div>
         <div class="field-group" style="justify-content:flex-end">
           <span class="field-label">&nbsp;</span>
           <button class="btn btn-ghost btn-sm" onclick="executarDesconto(${idx})">
             🏷 Executar Desconto
+          </button>
+        </div>
+        <div class="field-group" style="justify-content:flex-end">
+          <span class="field-label">&nbsp;</span>
+          <button class="btn btn-ghost btn-sm" onclick="preencherPrecosPlanilha(${idx})" title="Preenche todos os preços unitários com o valor da planilha Base Compras">
+            ↓ Preços planilha
           </button>
         </div>
         <div style="flex:1"></div>
@@ -771,6 +838,7 @@ function acSelect(wrapperId, id, nome) {
     const [tabIdx, ci] = rest.split('_').map(Number);
     S.tabs[tabIdx]['fornClone' + ci] = { blingId: id, blingNome: nome };
   }
+  salvarEstado();
 }
 
 function acBlur(wrapperId) {
@@ -785,11 +853,29 @@ function setClonar(idx, val) {
   S.tabs[idx].clonar = val;
   if (!val) S.tabs[idx].numPedidos = 1;
   renderTabContent(idx);
+  salvarEstado();
 }
 
 function setNumPedidos(idx, val) {
   S.tabs[idx].numPedidos = Math.min(5, Math.max(1, parseInt(val) || 1));
   renderTabContent(idx);
+  salvarEstado();
+}
+
+// ── Preencher preços da planilha ──────────────────────────────
+function preencherPrecosPlanilha(idx) {
+  const tab = S.tabs[idx];
+  let count = 0;
+  tab.itens.forEach(item => {
+    if ((item.precoBase || 0) > 0) {
+      item.preco  = item.precoBase;
+      item.precos = item.precos.map(() => item.precoBase);
+      count++;
+    }
+  });
+  renderTabContent(idx);
+  salvarEstado();
+  toast('✅ Preços da planilha aplicados em ' + count + ' iten(s)', 'ok');
 }
 
 // ── Executar desconto ─────────────────────────────────────────
@@ -808,6 +894,7 @@ function executarDesconto(idx) {
         item.precos = item.precos.map(() => novo);
       });
       renderTabContent(idx);
+      salvarEstado();
       toast('✅ Desconto de ' + d + '% aplicado em ' + tab.itens.length + ' itens', 'ok');
     }
   );
@@ -818,16 +905,19 @@ function updateField(tabIdx, rowIdx, field, val) {
   const item = S.tabs[tabIdx].itens[rowIdx];
   item[field] = (field === 'codForn') ? val : (parseFloat(val) || 0);
   if (field === 'qtd' || field === 'preco') recalcTotal(tabIdx, rowIdx);
+  salvarEstado();
 }
 
 function updatePrecoMain(tabIdx, rowIdx, val) {
   const item = S.tabs[tabIdx].itens[rowIdx];
   item.preco = parseFloat(val) || 0;
   recalcTotal(tabIdx, rowIdx);
+  salvarEstado();
 }
 
 function updatePreco(tabIdx, rowIdx, cloneIdx, val) {
   S.tabs[tabIdx].itens[rowIdx].precos[cloneIdx] = parseFloat(val) || 0;
+  salvarEstado();
 }
 
 function recalcTotal(tabIdx, rowIdx) {
@@ -869,8 +959,7 @@ function validarAba(tab) {
       if (!tab['fornClone' + ci]?.blingId) errs.push('Selecione o Fornecedor ' + (ci + 2));
     }
   }
-  const semProduto = tab.itens.filter(it => !it.produtoId);
-  if (semProduto.length) errs.push(semProduto.length + ' item(s) sem ID de produto no Bling');
+  // produtoId é resolvido no servidor (GAS) via cache; não valida aqui
   return errs;
 }
 
