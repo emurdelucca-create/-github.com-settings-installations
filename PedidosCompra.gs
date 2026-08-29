@@ -270,6 +270,34 @@ function pc_buscarProdutosBling(skus) {
   }
 }
 
+// ── Carregar qtd por empresa (para atualizar abas existentes) ─
+function pc_carregarQtdEmpresas(skus) {
+  try {
+    const ssCompras  = SpreadsheetApp.openById(PC_SS_COMPRAS_ID);
+    const abaCompras = ssCompras.getSheetByName(PC_ABA_COMPRAS);
+    if (!abaCompras) throw new Error('Aba "' + PC_ABA_COMPRAS + '" não encontrada');
+
+    const lastRow = abaCompras.getLastRow();
+    if (lastRow < 2) return { ok: true, qtds: {} };
+
+    const raw     = abaCompras.getRange(2, 1, lastRow - 1, PC_NCOLS_COMP).getValues();
+    const skuSet  = new Set(skus.map(s => String(s).trim()));
+    const qtds    = {};
+
+    raw.forEach(r => {
+      const sku = String(r[PC_IDX_SKU] || '').trim();
+      if (!sku || !skuSet.has(sku)) return;
+      const qtdEmpresas = {};
+      PC_EMPRESAS.forEach(e => { qtdEmpresas[e.nome] = Number(r[e.col] || 0); });
+      qtds[sku] = qtdEmpresas;
+    });
+
+    return { ok: true, qtds };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // ── Bling — Fornecedores ─────────────────────────────────────
 const PC_PROP_FORN_CACHE = 'BLING_FORNECEDORES_CACHE';
 const PC_PROP_FORN_DATA  = 'BLING_FORNECEDORES_DATA';

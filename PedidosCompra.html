@@ -912,6 +912,37 @@ function setSepararEmpresas(idx, val) {
   S.tabs[idx].separarEmpresas = val;
   renderTabContent(idx);
   salvarEstado();
+
+  if (!val) return;
+
+  // Verifica se as qtds já estão preenchidas (dado carregado recentemente)
+  const tab = S.tabs[idx];
+  const jaTemDados = tab.itens.some(it =>
+    it.qtdEmpresas && EMPRESAS.some(e => it.qtdEmpresas[e] > 0)
+  );
+  if (jaTemDados) return;
+
+  // Busca qtds da planilha automaticamente
+  const skus = tab.itens.map(it => it.sku);
+  setOverlay(true, 'Buscando quantidades por empresa na planilha...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) { toast('❌ Erro ao buscar qtds: ' + res.error, 'err'); return; }
+      tab.itens.forEach(it => {
+        if (res.qtds[it.sku]) {
+          it.qtdEmpresas = res.qtds[it.sku];
+        }
+      });
+      renderTabContent(idx);
+      salvarEstado();
+      toast('✅ Quantidades por empresa carregadas da planilha', 'ok');
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      toast('❌ ' + e.message, 'err');
+    })
+    .pc_carregarQtdEmpresas(skus);
 }
 
 function updateQtdEmpresa(tabIdx, rowIdx, empresa, val) {
