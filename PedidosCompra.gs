@@ -170,7 +170,12 @@ function _pc_blingPost(path, payload) {
   const code = res.getResponseCode();
   const body = JSON.parse(res.getContentText() || '{}');
   if (code < 200 || code >= 300) {
-    throw new Error('Bling ' + code + ': ' + (body?.error?.message || JSON.stringify(body).slice(0, 250)));
+    // Monta mensagem de erro com o máximo de detalhe possível
+    const err   = body?.error || body;
+    const msg   = err?.message || '';
+    const fields = (err?.fields || []).map(f => f.msg || f.message || JSON.stringify(f)).join('; ');
+    const detail = [msg, fields].filter(Boolean).join(' | ') || JSON.stringify(body).slice(0, 400);
+    throw new Error('Bling ' + code + ': ' + detail);
   }
   return body;
 }
@@ -365,19 +370,18 @@ function pc_criarPedidos(pedidos) {
         if (!it.produtoId) throw new Error('Produto não encontrado no Bling para SKU: ' + it.sku);
       }
 
+      // Payload mínimo necessário para Bling v3 — situacao omitida (usa padrão do Bling)
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
-        situacao:   { id: 1 },
         itens: ped.itens.map(it => ({
           produto:    { id: Number(it.produtoId) },
           quantidade: Number(it.qtd)   || 0,
           valor:      Number(it.preco) || 0,
-          ipi:        Number(it.ipi)   || 0,
-          ...(it.codFornecedor ? { codigo: String(it.codFornecedor) } : {}),
         })),
       };
 
+      Logger.log('Payload pedido (%s): %s', ped.fornecedorNome, JSON.stringify(payload).slice(0, 800));
       const res      = _pc_blingPost('/pedidos/compras', payload);
       const idPedido = res.data?.id || res.id || '?';
       const numero   = res.data?.numero || res.data?.numeroOrdem || '';
