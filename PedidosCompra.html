@@ -551,10 +551,11 @@ function criarAbas() {
         blingId:         null,
         blingNome:       '',
         desconto:        0,
-        clonar:          false,
-        numPedidos:      1,
-        separarEmpresas: false,
-        filtro:          '',
+        clonar:            false,
+        numPedidos:        1,
+        separarEmpresas:   false,
+        incluirSemCodForn: true,
+        filtro:            '',
         itens: (res.fornecedores[nome] || []).map(it => ({
           sku:       it.sku,
           nome:      '⏳ carregando...',
@@ -810,6 +811,13 @@ function renderTabContent(idx) {
             <button class="toggle-btn ${!tab.separarEmpresas ? 'off' : ''}" onclick="setSepararEmpresas(${idx},false)">Não</button>
           </div>
         </div>
+        <div class="field-group" style="margin-left:24px">
+          <span class="field-label" style="color:var(--yellow)">Sem cód. fornecedor</span>
+          <div class="toggle-wrap">
+            <button class="toggle-btn ${tab.incluirSemCodForn !== false ? 'on' : ''}" onclick="setIncluirSemCodForn(${idx},true)">Incluir</button>
+            <button class="toggle-btn ${tab.incluirSemCodForn === false ? 'off' : ''}" onclick="setIncluirSemCodForn(${idx},false)">Excluir</button>
+          </div>
+        </div>
       </div>
 
       <!-- Clone supplier selectors -->
@@ -943,6 +951,12 @@ function setSepararEmpresas(idx, val) {
       toast('❌ ' + e.message, 'err');
     })
     .pc_carregarQtdEmpresas(skus);
+}
+
+function setIncluirSemCodForn(idx, val) {
+  S.tabs[idx].incluirSemCodForn = val;
+  renderTabContent(idx);
+  salvarEstado();
 }
 
 function updateQtdEmpresa(tabIdx, rowIdx, empresa, val) {
@@ -1081,13 +1095,19 @@ function validarAba(tab) {
 
 function montarPedidos(tab) {
   const pedidos = [];
+  const inclSem = tab.incluirSemCodForn !== false;
+
+  // Filtra itens sem cód. fornecedor se a opção estiver como "Excluir"
+  const itensBase = inclSem
+    ? tab.itens
+    : tab.itens.filter(it => it.codForn && it.codForn.trim() !== '');
 
   if (!tab.separarEmpresas) {
     // Modo normal: pedido principal + clones
     pedidos.push({
       fornecedorId:   tab.blingId,
       fornecedorNome: tab.blingNome,
-      itens: tab.itens.map(it => ({
+      itens: itensBase.map(it => ({
         produtoId: it.produtoId, sku: it.sku, nome: it.nome,
         codFornecedor: it.codForn,
         qtd: it.qtd, preco: it.preco, ipi: it.ipi,
@@ -1096,10 +1116,14 @@ function montarPedidos(tab) {
     if (tab.clonar) {
       for (let ci = 0; ci < tab.numPedidos; ci++) {
         const forn = tab['fornClone' + ci];
+        // Para clone, filtra pelo codsForn[ci] se "Excluir"
+        const itensClone = inclSem
+          ? tab.itens
+          : tab.itens.filter(it => it.codsForn[ci] && it.codsForn[ci].trim() !== '');
         pedidos.push({
           fornecedorId:   forn.blingId,
           fornecedorNome: forn.blingNome,
-          itens: tab.itens.map(it => ({
+          itens: itensClone.map(it => ({
             produtoId: it.produtoId, sku: it.sku, nome: it.nome,
             codFornecedor: it.codsForn[ci] || '',
             qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
@@ -1111,6 +1135,7 @@ function montarPedidos(tab) {
     // Modo empresa: um pedido por empresa (onde há qty > 0)
     for (const emp of EMPRESAS) {
       const itensEmp = tab.itens
+        .filter(it => inclSem || (it.codForn && it.codForn.trim() !== ''))
         .map(it => ({
           produtoId: it.produtoId, sku: it.sku, nome: it.nome,
           codFornecedor: it.codForn,
@@ -1134,6 +1159,7 @@ function montarPedidos(tab) {
         for (let ci = 0; ci < tab.numPedidos; ci++) {
           const forn = tab['fornClone' + ci];
           const itensClone = tab.itens
+            .filter(it => inclSem || (it.codsForn[ci] && it.codsForn[ci].trim() !== ''))
             .map(it => ({
               produtoId: it.produtoId, sku: it.sku, nome: it.nome,
               codFornecedor: it.codsForn[ci] || '',
