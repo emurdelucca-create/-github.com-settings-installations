@@ -385,9 +385,9 @@ td.r { text-align: right; }
             <span class="stat-chip stat-err"  id="cntErr">0 sem SKU</span>
           </div>
         </div>
-        <p style="font-size:11px;color:var(--yellow);margin:8px 0 14px">
-          ⚠ Alguns itens não foram conciliados automaticamente. Atribua o SKU manualmente nos itens
-          marcados em vermelho e ajuste os amarelos se necessário, depois salve.
+        <p style="font-size:11px;color:var(--muted2);margin:8px 0 14px">
+          Confirme as quantidades e a conciliação dos itens. Itens em verde foram conciliados automaticamente.
+          Ajuste o SKU nos marcados em amarelo ou vermelho antes de salvar.
         </p>
         <div class="tbl-wrap">
           <table>
@@ -776,20 +776,12 @@ function _conciliar() {
   renderConciliacao();
 }
 
-// Salva direto quando tudo concilia; só abre passo 3 se houver itens sem SKU
+// Sempre mostra passo 3 para confirmação de quantidades e conciliação
 function _aposConciiliar() {
-  const none = CE.concItens.filter(it => !it.sku).length;
-
-  if (none === 0 && CE.concItens.length > 0) {
-    // Todos conciliados — salva sem mostrar passo 3
-    salvarNF();
-  } else {
-    // Itens sem SKU — abre passo 3 para ajuste manual
-    document.getElementById('passo2').style.display = 'none';
-    document.getElementById('passo3').style.display = 'block';
-    document.getElementById('step2').className = 'step done';
-    document.getElementById('step3').className = 'step active';
-  }
+  document.getElementById('passo2').style.display = 'none';
+  document.getElementById('passo3').style.display = 'block';
+  document.getElementById('step2').className = 'step done';
+  document.getElementById('step3').className = 'step active';
 }
 
 function renderConciliacao() {
