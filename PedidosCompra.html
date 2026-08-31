@@ -416,7 +416,15 @@ function onCsvUpload(input) {
       _salvarFornLS(lista);
       document.getElementById('btnCriar').disabled = false;
       document.getElementById('hdrSub').textContent = lista.length + ' fornecedores carregados do CSV';
-      toast('✅ ' + lista.length + ' fornecedores importados do CSV', 'ok');
+      toast('✅ ' + lista.length + ' fornecedores importados — salvando no servidor...', 'ok');
+      // Salva também no servidor para persistir entre browsers/sessões
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res.ok) toast('✅ Fornecedores salvos no servidor (' + lista.length + ')', 'ok');
+          else        toast('⚠ Salvo local mas erro no servidor: ' + res.error, 'err');
+        })
+        .withFailureHandler(e => toast('⚠ Salvo local mas erro no servidor: ' + e.message, 'err'))
+        .pc_salvarFornecedoresCSV(lista);
     } catch(e) { toast('❌ Erro ao ler CSV: ' + e.message, 'err'); }
     input.value = '';
   };
@@ -463,9 +471,32 @@ window.onload = () => {
     S.fornBling  = forn;
     S.fornLoaded = true;
     document.getElementById('hdrSub').textContent = forn.length + ' fornecedores · use 📂 CSV para atualizar';
+    document.getElementById('btnCriar').disabled = false;
   } else {
-    document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
+    // localStorage vazio — tenta recuperar do servidor
+    document.getElementById('hdrSub').textContent = 'Recuperando fornecedores do servidor...';
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.ok && res.fornecedores.length) {
+          S.fornBling  = res.fornecedores;
+          S.fornLoaded = true;
+          _salvarFornLS(res.fornecedores);  // repopula localStorage
+          const data = res.dataAtualizacao ? ' (importado em ' + res.dataAtualizacao + ')' : '';
+          document.getElementById('hdrSub').textContent = res.fornecedores.length + ' fornecedores recuperados do servidor' + data;
+          toast('✅ ' + res.fornecedores.length + ' fornecedores recuperados do servidor', 'ok');
+        } else {
+          document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
+        }
+        document.getElementById('btnCriar').disabled = false;
+      })
+      .withFailureHandler(() => {
+        document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
+        document.getElementById('btnCriar').disabled = false;
+      })
+      .pc_carregarFornecedoresCSV();
   }
+
+  // Botão criar sempre habilitado (fornecedores podem ser carregados depois)
   document.getElementById('btnCriar').disabled = false;
 
   // 2. Restaura estado salvo (abas, itens, preços, fornecedores selecionados)

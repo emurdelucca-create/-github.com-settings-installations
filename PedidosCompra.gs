@@ -298,6 +298,49 @@ function pc_carregarQtdEmpresas(skus) {
   }
 }
 
+// ── CSV Fornecedores — persistência no servidor ───────────────
+// Salva a lista de fornecedores (importada via CSV) nas Script Properties.
+// Divide em chunks de 8 KB para respeitar o limite de 9 KB por propriedade.
+function pc_salvarFornecedoresCSV(lista) {
+  try {
+    const p    = _pc_props();
+    const json = JSON.stringify(lista);
+    const CHUNK = 8000;
+    const total = Math.ceil(json.length / CHUNK);
+    for (let i = 0; i < total; i++) {
+      p.setProperty('CSV_FORN_' + i, json.slice(i * CHUNK, (i + 1) * CHUNK));
+    }
+    // Apaga chunks antigos que possam ter sobrado
+    for (let i = total; i < total + 20; i++) {
+      if (p.getProperty('CSV_FORN_' + i) !== null) p.deleteProperty('CSV_FORN_' + i);
+      else break;
+    }
+    p.setProperty('CSV_FORN_COUNT', String(total));
+    p.setProperty('CSV_FORN_DATA',  Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'));
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Carrega a lista de fornecedores salva pelo CSV import
+function pc_carregarFornecedoresCSV() {
+  try {
+    const p     = _pc_props();
+    const total = parseInt(p.getProperty('CSV_FORN_COUNT') || '0');
+    if (!total) return { ok: true, fornecedores: [], dataAtualizacao: null };
+    let json = '';
+    for (let i = 0; i < total; i++) {
+      json += (p.getProperty('CSV_FORN_' + i) || '');
+    }
+    const lista = JSON.parse(json);
+    const data  = p.getProperty('CSV_FORN_DATA') || '';
+    return { ok: true, fornecedores: lista, dataAtualizacao: data };
+  } catch(e) {
+    return { ok: true, fornecedores: [], dataAtualizacao: null };
+  }
+}
+
 // ── Bling — Fornecedores ─────────────────────────────────────
 const PC_PROP_FORN_CACHE = 'BLING_FORNECEDORES_CACHE';
 const PC_PROP_FORN_DATA  = 'BLING_FORNECEDORES_DATA';
