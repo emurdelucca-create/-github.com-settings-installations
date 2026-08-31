@@ -33,7 +33,7 @@ const CE_NCOLS = 13;
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('ControleEntregas')
+  return HtmlService.createHtmlOutputFromFile('ControleEntregas.html')
     .setTitle('Controle de Entregas')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
