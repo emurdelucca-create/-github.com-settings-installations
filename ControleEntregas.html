@@ -1817,7 +1817,7 @@ function _renderConfNFSection(nf) {
         placeholder="0" style="width:60px" value="${rascMap[it.cProd]?.caixas ?? ''}"></td>` : '';
 
     const saldoCells = mostrarSomenteFaltantes ? `
-      <td class="r" style="color:var(--blue);font-size:11px;font-weight:600">${prevQtd}</td>
+      <td class="r" style="color:${prevQtd > 0 ? 'var(--blue)' : 'var(--muted2)'};font-size:11px;font-weight:600">${prevQtd > 0 ? prevQtd : '—'}</td>
       <td class="r" style="color:var(--orange);font-weight:700">${faltante}</td>` : '';
 
     return `<tr>
@@ -1882,7 +1882,7 @@ function _renderHistorico(entregas, nfItens, prevTotais) {
   let rows = '';
   entregas.forEach(ent => {
     const totalPcs = ent.totalPecas || (ent.itens||[]).reduce((a, ei) => a + (ei.qtdConferida||0), 0);
-    const itensHtml = (ent.itens||[]).map(ei => {
+    const itensHtml = (ent.itens||[]).filter(ei => (ei.qtdConferida || 0) > 0).map(ei => {
       const nfItem = nfItens.find(x => x.cProd === ei.cProd);
       return `<span style="background:rgba(68,138,255,.08);border:1px solid rgba(68,138,255,.18);border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
         <span style="color:var(--orange);font-family:monospace">${escHtml(ei.cProd)}</span>
