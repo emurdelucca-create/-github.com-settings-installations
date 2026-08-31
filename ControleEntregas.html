@@ -397,6 +397,9 @@ td.r { text-align: right; }
                 <th>Cód. Forn. (NF)</th>
                 <th>Descrição NF</th>
                 <th class="r">Qtd NF</th>
+                <th title="A unidade do fornecedor é igual à nossa?">Múltiplo</th>
+                <th title="Quantas unidades nossas equivalem a 1 un. do fornecedor">1 un. forn. =</th>
+                <th class="r" title="Qtd convertida para nossa unidade">Qtd Nossa</th>
                 <th>SKU</th>
                 <th>Nome SKU</th>
                 <th class="r">Qtd Pedido</th>
@@ -462,6 +465,7 @@ td.r { text-align: right; }
     <div class="tbl-toolbar">
       <span class="tbl-info" id="porItem_info">0 itens</span>
       <input class="filter-inp" id="filtroItem" placeholder="Filtrar por SKU, NF, fornecedor, empresa..." oninput="renderPorItem()">
+      <button class="btn btn-ghost btn-sm" id="btnConferir" onclick="toggleConferir()" title="Bater quantidade recebida vs pedida">⚖️ Conferir Qtd.</button>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -475,8 +479,9 @@ td.r { text-align: right; }
             <th>Cód. Forn. (NF)</th>
             <th>SKU</th>
             <th>Descrição</th>
-            <th class="r">Qtd NF</th>
+            <th class="r">Qtd Recebida</th>
             <th class="r">Qtd Pedido</th>
+            <th id="thConferir" style="display:none" class="r">Diferença</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -763,6 +768,8 @@ function _conciliar() {
       nomeSKU:   nome,
       qtdPedido: bling ? bling.qtd : 0,
       matched:   auto,
+      multiplo:  true,
+      fator:     1,
     };
   });
 
@@ -796,6 +803,26 @@ function renderConciliacao() {
     else if (it.sku && !it.matched) { warn++; rowClass = 'match-warn'; }
     else                             { none++;  rowClass = 'match-none'; }
 
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator||1)).toFixed(3);
+
+    const multCell = `<div class="yn-toggle">
+      <button class="yn-btn ${it.multiplo?'sim-on':''}" onmousedown="setMultiplo(${i},true)">Sim</button>
+      <button class="yn-btn ${!it.multiplo?'nao-on':''}" onmousedown="setMultiplo(${i},false)">Não</button>
+    </div>`;
+
+    const fatorCell = it.multiplo
+      ? '<span style="color:var(--muted);font-size:10px">—</span>'
+      : `<div style="display:flex;align-items:center;gap:4px">
+          <input type="number" min="0.001" step="0.001" value="${it.fator||1}"
+            style="width:58px;background:#0a1220;border:1px solid var(--border);border-radius:4px;color:var(--cyan);font-size:11px;padding:3px 5px;outline:none;font-family:monospace"
+            oninput="setFator(${i},this.value)">
+          <span style="font-size:10px;color:var(--muted2)">un.</span>
+        </div>`;
+
+    const qtdConvCell = it.multiplo
+      ? `<span class="r" style="color:var(--muted2);font-size:11px">=</span>`
+      : `<span style="font-weight:700;color:var(--green);font-size:11px">${qtdConv}</span>`;
+
     const skuCell = `
       <div class="sku-wrap" id="skuWrap${i}">
         <input class="sku-inp" id="skuInp${i}" value="${escHtml(it.sku)}" placeholder="Buscar SKU..."
@@ -813,6 +840,9 @@ function renderConciliacao() {
       <td><code style="font-size:11px;color:var(--cyan)">${escHtml(it.cProd)}</code></td>
       <td class="td-nome" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
       <td class="r" style="font-weight:700;color:var(--orange)">${it.qtdNF}</td>
+      <td>${multCell}</td>
+      <td>${fatorCell}</td>
+      <td class="r">${qtdConvCell}</td>
       <td>${skuCell}</td>
       <td class="td-nome td-muted" id="nomeSKU${i}">${escHtml(it.nomeSKU)}</td>
       <td class="r td-muted">${it.qtdPedido || '—'}</td>
@@ -820,7 +850,7 @@ function renderConciliacao() {
     </tr>`;
   }).join('');
 
-  document.getElementById('concilBody').innerHTML = html || '<tr><td colspan="8" class="td-muted" style="text-align:center;padding:20px">Nenhum item no XML</td></tr>';
+  document.getElementById('concilBody').innerHTML = html || '<tr><td colspan="11" class="td-muted" style="text-align:center;padding:20px">Nenhum item no XML</td></tr>';
   document.getElementById('cntOk').textContent   = ok   + ' conciliados';
   document.getElementById('cntWarn').textContent = warn + ' manuais';
   document.getElementById('cntErr').textContent  = none + ' sem SKU';
@@ -866,15 +896,18 @@ function skuSelect(i, sku, nome) {
   document.getElementById('cntErr').textContent  = none + ' sem SKU';
 }
 
+function setMultiplo(i, val) {
+  CE.concItens[i].multiplo = val;
+  if (val) CE.concItens[i].fator = 1;
+  renderConciliacao();
+}
+function setFator(i, val) {
+  const v = parseFloat(val);
+  CE.concItens[i].fator = (isNaN(v) || v <= 0) ? 1 : v;
+}
+
 // ── Salvar NF ─────────────────────────────────────────────
 function salvarNF() {
-  // Lê valores atuais dos inputs de SKU (caso o usuário tenha digitado sem selecionar)
-  CE.concItens.forEach((it,i) => {
-    const v = (document.getElementById('skuInp'+i)?.value || '').trim();
-    if (v) it.sku = v;
-    else   it.sku = '';
-  });
-
   const dados = {
     pedidoBling:  document.getElementById('f_pedidoBling').value.trim(),
     fornecedor:   document.getElementById('f_fornecedor').value.trim(),
@@ -886,14 +919,22 @@ function salvarNF() {
     importouXML:  'Não',
     responsavel:  '',
     status:       'Aguardando Chegar',
-    itens: CE.concItens.map(it => ({
-      cProd:        it.cProd,
-      descricaoNF:  it.descricaoNF,
-      qtdNF:        it.qtdNF,
-      sku:          it.sku,
-      nomeSKU:      it.nomeSKU,
-      qtdPedido:    it.qtdPedido,
-    })),
+    itens: CE.concItens.map((it,i) => {
+      const sku = (document.getElementById('skuInp'+i)?.value || it.sku || '').trim();
+      const mult = it.multiplo !== false;
+      const fat  = mult ? 1 : (parseFloat(it.fator) || 1);
+      return {
+        cProd:            it.cProd,
+        descricaoNF:      it.descricaoNF,
+        qtdNF:            it.qtdNF,
+        sku,
+        nomeSKU:          it.nomeSKU,
+        qtdPedido:        it.qtdPedido,
+        multiplo:         mult,
+        fator:            fat,
+        qtdNFConvertida:  mult ? it.qtdNF : +(it.qtdNF * fat).toFixed(3),
+      };
+    }),
   };
 
   setOverlay(true, 'Salvando NF na planilha...');
@@ -902,7 +943,9 @@ function salvarNF() {
       setOverlay(false);
       if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
       dados.id         = res.id;
-      dados.dataCriacao = new Date().toLocaleDateString('pt-BR');
+      const _n = new Date();
+      dados.dataCriacao = String(_n.getDate()).padStart(2,'0') + '/' +
+        String(_n.getMonth()+1).padStart(2,'0') + '/' + _n.getFullYear();
       CE.nfs.unshift(dados);
       atualizarHdrSub();
       resetImport();
@@ -965,9 +1008,9 @@ function renderPorNF() {
 
   const RESPS = ['Eduardo','Junior'];
   const body = lista.map(nf => {
-    const sc     = STATUS_CLASS[nf.status] || 's-aguardando';
-    const dataFmt = nf.dataEntrega || '—';
-    const criadoFmt = (nf.dataCriacao || '').slice(0,16);
+    const sc        = STATUS_CLASS[nf.status] || 's-aguardando';
+    const dataFmt   = fmtData(nf.dataEntrega);
+    const criadoFmt = fmtData(nf.dataCriacao);
 
     const lancouHtml = `<div class="yn-toggle">
       <button class="yn-btn ${nf.lancouContas==='Sim'?'sim-on':''}" onclick="toggleYN('${nf.id}','lancouContas','Sim')">Sim</button>
@@ -1022,6 +1065,16 @@ function sortPorNF(field) {
 }
 
 // ── Por Item — render ──────────────────────────────────────
+let _conferirOn = false;
+
+function toggleConferir() {
+  _conferirOn = !_conferirOn;
+  document.getElementById('btnConferir').style.background = _conferirOn ? 'rgba(0,229,255,.12)' : '';
+  document.getElementById('btnConferir').style.borderColor = _conferirOn ? 'var(--cyan)' : '';
+  document.getElementById('thConferir').style.display = _conferirOn ? '' : 'none';
+  renderPorItem();
+}
+
 function renderPorItem() {
   const q = (document.getElementById('filtroItem')?.value || '').toLowerCase().trim();
   const rows = [];
@@ -1035,21 +1088,37 @@ function renderPorItem() {
 
   const sc = STATUS_CLASS;
   const body = rows.map(({ nf, it }) => {
-    const cls = sc[nf.status] || 's-aguardando';
+    const cls     = sc[nf.status] || 's-aguardando';
+    const qtdRecv = it.qtdNFConvertida != null ? it.qtdNFConvertida : it.qtdNF || 0;
+    const qtdPed  = it.qtdPedido || 0;
+
+    let diffCell = '';
+    if (_conferirOn) {
+      if (!qtdPed) {
+        diffCell = `<td class="r" style="display:;color:var(--muted2);font-size:11px">s/ref</td>`;
+      } else {
+        const diff = qtdRecv - qtdPed;
+        const col  = diff === 0 ? 'var(--green)' : diff > 0 ? 'var(--orange)' : 'var(--red)';
+        const lbl  = diff === 0 ? '✅ OK' : (diff > 0 ? '▲ +' + diff : '▼ ' + diff);
+        diffCell = `<td class="r" style="font-weight:700;color:${col};font-size:11px">${lbl}</td>`;
+      }
+    }
+
     return `<tr>
       <td class="td-nf">${escHtml(nf.nNF)}</td>
       <td style="color:var(--blue);font-weight:600">${escHtml(nf.pedidoBling)}</td>
       <td class="td-nome" title="${escHtml(nf.fornecedor)}">${escHtml(nf.fornecedor)}</td>
       <td style="color:var(--green);font-weight:700;font-size:11px">${escHtml(nf.empresa)}</td>
-      <td class="td-muted">${nf.dataEntrega||'—'}</td>
+      <td class="td-muted">${fmtData(nf.dataEntrega)}</td>
       <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
       <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
       <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
-      <td class="r" style="font-weight:700;color:var(--orange)">${it.qtdNF||0}</td>
+      <td class="r" style="font-weight:700;color:var(--orange)">${qtdRecv}</td>
       <td class="r td-muted">${it.qtdPedido||'—'}</td>
+      ${_conferirOn ? diffCell : ''}
       <td><span class="status-chip ${cls}" style="cursor:default">${nf.status}</span></td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="11">Nenhum item encontrado</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="${_conferirOn ? 12 : 11}">Nenhum item encontrado</td></tr>`;
 
   document.getElementById('porItem_body').innerHTML = body;
   document.getElementById('porItem_info').textContent = rows.length + ' item(ns)';
@@ -1235,6 +1304,26 @@ function toast(msg, type) {
 
 function escHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Formata qualquer data para dd/MM/yyyy
+function fmtData(s) {
+  if (!s || s === '—') return '—';
+  // já está no formato dd/MM/yyyy
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(String(s))) return String(s).slice(0,10);
+  // ISO YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(s))) {
+    const [y,m,d] = String(s).split('-');
+    return d + '/' + m + '/' + y;
+  }
+  // Date object ou string de Date javascript (ex: "Mon Aug 31 2026...")
+  const dt = new Date(s);
+  if (!isNaN(dt)) {
+    return String(dt.getDate()).padStart(2,'0') + '/' +
+           String(dt.getMonth()+1).padStart(2,'0') + '/' +
+           dt.getFullYear();
+  }
+  return String(s).slice(0,10);
 }
 
 function escJs(s) {
