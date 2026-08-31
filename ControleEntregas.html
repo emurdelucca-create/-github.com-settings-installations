@@ -369,6 +369,7 @@ td.r { text-align: right; }
   <div class="nav-tab" id="nav_porNF"  onclick="navTo('porNF')">📋 Por NF</div>
   <div class="nav-tab" id="nav_porItem" onclick="navTo('porItem')">📦 Por Item</div>
   <div class="nav-tab" id="nav_conferencia" onclick="navTo('conferencia')">✅ Conferência</div>
+  <div class="nav-tab" id="nav_saldo" onclick="navTo('saldo')">📊 Saldo</div>
 </div>
 
 <!-- ════════════════════ VIEW: IMPORTAR NF ════════════════════ -->
@@ -508,6 +509,7 @@ td.r { text-align: right; }
     <div class="conf-action-bar" id="confActionBar">
       <span style="font-size:12px;color:var(--cyan);font-weight:700" id="confSelCount">0 NF(s) selecionada(s)</span>
       <button class="btn btn-orange btn-sm" onclick="iniciarConferencia()">✅ Iniciar Conferência</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red);border-color:rgba(255,68,68,.3)" onclick="abrirExcluirNF()">🗑 Excluir NF</button>
       <button class="btn btn-ghost btn-sm" onclick="limparSelecaoNF()">✕ Limpar seleção</button>
     </div>
     <div class="tbl-wrap">
@@ -623,6 +625,36 @@ td.r { text-align: right; }
   </div>
 </div>
 
+<!-- ════════════════════ VIEW: SALDO ════════════════════ -->
+<div class="view" id="view_saldo">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border)">
+      <button id="saldoTab_geral" class="btn btn-ghost btn-sm" style="border-radius:0;border:none;border-right:1px solid var(--border);padding:10px 18px;font-size:12px;font-weight:700;color:var(--cyan)" onclick="switchSaldoTab('geral')">📊 Subtotal Geral</button>
+      <button id="saldoTab_porNF" class="btn btn-ghost btn-sm" style="border-radius:0;border:none;padding:10px 18px;font-size:12px;font-weight:700;color:var(--muted2)" onclick="switchSaldoTab('porNF')">📋 Subtotal Por NF</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="renderSaldo()">🔄 Atualizar</button>
+    </div>
+    <div id="saldoBody" style="padding:16px"></div>
+  </div>
+</div>
+
+<!-- Modal excluir NF (senha) -->
+<div class="modal-bg" id="excluirModal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title" style="color:var(--red)">🗑 Excluir NF(s)</div>
+    <div style="font-size:12px;color:var(--muted2);margin-bottom:14px" id="excluirModalDesc"></div>
+    <label style="font-size:11px;color:var(--muted2);display:block;margin-bottom:6px">Senha de exclusão:</label>
+    <input id="excluirSenha" type="password" placeholder="Digite a senha"
+      style="width:100%;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;font-family:monospace;box-sizing:border-box"
+      onkeydown="if(event.key==='Enter')confirmarExcluirNF()">
+    <div id="excluirErr" style="margin-top:8px;font-size:12px;color:var(--red);display:none"></div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('excluirModal')">Cancelar</button>
+      <button class="btn btn-sm" style="background:var(--red);color:#fff" onclick="confirmarExcluirNF()">🗑 Confirmar Exclusão</button>
+    </div>
+  </div>
+</div>
+
 <!-- Tooltip de itens -->
 <div class="item-tooltip" id="itemTooltip" style="display:none;opacity:0"></div>
 <!-- Tooltip conferência parcial -->
@@ -701,14 +733,17 @@ const CE = {
 
 // ── Navegação ──────────────────────────────────────────────
 function navTo(view) {
-  ['import','porNF','porItem','conferencia'].forEach(v => {
-    document.getElementById('view_' + v).classList.toggle('active', v === view);
-    document.getElementById('nav_' + v).classList.toggle('active', v === view);
+  ['import','porNF','porItem','conferencia','saldo'].forEach(v => {
+    const vel = document.getElementById('view_' + v);
+    const nel = document.getElementById('nav_' + v);
+    if (vel) vel.classList.toggle('active', v === view);
+    if (nel) nel.classList.toggle('active', v === view);
   });
   CE.activeView = view;
   if (view === 'porNF')       renderPorNF();
   if (view === 'porItem')     renderPorItem();
   if (view === 'conferencia') renderConferencia();
+  if (view === 'saldo')       renderSaldo();
 }
 
 // ── Boot ───────────────────────────────────────────────────
@@ -1775,8 +1810,11 @@ function _renderConfNFSection(nf) {
 
   const historicoHtml = _renderHistorico(entregas, nf.itens, prevTotais);
 
-  const styluHeader     = isStylu ? '<th class="r">Qtd/Cx</th><th class="r">Nº Caixas</th>' : '';
-  const saldoHeaders    = mostrarSomenteFaltantes ? '<th class="r">Já recebido</th><th class="r">Faltante</th>' : '';
+  const styluHeader  = isStylu ? '<th class="r">Qtd/Cx</th><th class="r">Nº Caixas</th>' : '';
+  const showSaldo    = mostrarSomenteFaltantes || entregas.length > 0;
+  const saldoHeaders = showSaldo
+    ? `<th class="r">Já recebido</th>${isStylu ? '<th class="r">Cx receb.</th>' : ''}<th class="r">Faltante</th>`
+    : '';
 
   // Volume totals (peças)
   const totalNF      = nf.itens.reduce((a, it) => a + (it.qtdNF||0), 0);
@@ -1791,13 +1829,19 @@ function _renderConfNFSection(nf) {
 
   // Caixas totals (Stylu only)
   let totalNFCaixas = 0, totalJaConfCaixas = 0, initialCaixas = 0;
+  const prevCaixas = {};
   if (isStylu) {
     nf.itens.forEach(it => {
       const qc = CONF.styluMap[it.cProd] || 0;
+      prevCaixas[String(it.cProd||'')] = 0;
       if (qc > 0) totalNFCaixas += Math.ceil((it.qtdNF||0) / qc);
     });
     entregas.forEach(ent => {
-      (ent.itens||[]).forEach(ei => { totalJaConfCaixas += (ei.caixas || 0); });
+      (ent.itens||[]).forEach(ei => {
+        totalJaConfCaixas += (ei.caixas || 0);
+        const k = String(ei.cProd||'');
+        if (prevCaixas[k] !== undefined) prevCaixas[k] += (ei.caixas||0);
+      });
     });
     itensVisiveis.forEach(it => {
       const pf = rascMap[it.cProd]?.caixas;
@@ -1806,12 +1850,14 @@ function _renderConfNFSection(nf) {
   }
 
   // Column totals for tfoot
-  const footQtdNF   = itensVisiveis.reduce((a, it) => a + (it.qtdNF||0), 0);
-  const footPrevQtd = itensVisiveis.reduce((a, it) => a + (prevTotais[String(it.cProd||'')]||0), 0);
-  const footFaltante= footQtdNF - footPrevQtd;
+  const footQtdNF     = itensVisiveis.reduce((a, it) => a + (it.qtdNF||0), 0);
+  const footPrevQtd   = itensVisiveis.reduce((a, it) => a + (prevTotais[String(it.cProd||'')]||0), 0);
+  const footPrevCaixas= isStylu ? itensVisiveis.reduce((a, it) => a + (prevCaixas[String(it.cProd||'')]||0), 0) : 0;
+  const footFaltante  = footQtdNF - footPrevQtd;
 
   const rows = itensVisiveis.map((it, i) => {
     const prevQtd  = prevTotais[String(it.cProd||'')] || 0;
+    const prevCxQtd = isStylu ? (prevCaixas[String(it.cProd||'')] || 0) : 0;
     const faltante = it.qtdNF - prevQtd;
     const prefill  = rascMap[it.cProd] != null ? (rascMap[it.cProd].qtdConferida ?? '') : '';
     const styluQtd = isStylu ? (CONF.styluMap[it.cProd] || 0) : null;
@@ -1822,8 +1868,9 @@ function _renderConfNFSection(nf) {
         oninput="confCaixasChanged('${nf.id}',${i},${styluQtd||0})"
         placeholder="0" style="width:60px" value="${rascMap[it.cProd]?.caixas ?? ''}"></td>` : '';
 
-    const saldoCells = mostrarSomenteFaltantes ? `
+    const saldoCells = showSaldo ? `
       <td class="r" style="color:${prevQtd > 0 ? 'var(--blue)' : 'var(--muted2)'};font-size:11px;font-weight:600">${prevQtd > 0 ? prevQtd : '—'}</td>
+      ${isStylu ? `<td class="r" style="color:${prevCxQtd > 0 ? 'var(--blue)' : 'var(--muted2)'};font-size:11px">${prevCxQtd > 0 ? prevCxQtd : '—'}</td>` : ''}
       <td class="r" style="color:var(--orange);font-weight:700">${faltante}</td>` : '';
 
     return `<tr>
@@ -1876,8 +1923,9 @@ function _renderConfNFSection(nf) {
         <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
           <td colspan="3" style="padding:6px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Total</td>
           <td class="r" style="color:var(--orange);font-weight:700;font-size:13px">${footQtdNF}</td>
-          ${mostrarSomenteFaltantes ? `
+          ${showSaldo ? `
             <td class="r" style="color:${footPrevQtd > 0 ? 'var(--blue)' : 'var(--muted2)'};font-weight:700;font-size:13px">${footPrevQtd > 0 ? footPrevQtd : '—'}</td>
+            ${isStylu ? `<td class="r" style="color:${footPrevCaixas > 0 ? 'var(--blue)' : 'var(--muted2)'};font-weight:700;font-size:13px">${footPrevCaixas > 0 ? footPrevCaixas : '—'}</td>` : ''}
             <td class="r" style="color:var(--orange);font-weight:700;font-size:13px">${footFaltante}</td>` : ''}
           ${isStylu ? `
             <td class="r" style="color:var(--muted2)"></td>
@@ -2272,6 +2320,172 @@ function _executarFinalizar(dadosConf, nfIds) {
       .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
   }
   proximo();
+}
+
+// ── Excluir NF (com senha) ────────────────────────────────
+let _excluirIds = [];
+function abrirExcluirNF() {
+  const ids = CONF.nfIds.slice();
+  if (!ids.length) { toast('Selecione ao menos uma NF', 'err'); return; }
+  _excluirIds = ids;
+  const nomes = ids.map(id => {
+    const nf = CE.nfs.find(n => n.id === id);
+    return nf ? `NF ${nf.nNF} (${nf.fornecedor})` : id;
+  }).join(', ');
+  document.getElementById('excluirModalDesc').textContent = `Você está prestes a excluir permanentemente: ${nomes}. Esta ação não pode ser desfeita.`;
+  document.getElementById('excluirSenha').value = '';
+  document.getElementById('excluirErr').style.display = 'none';
+  document.getElementById('excluirModal').classList.add('open');
+  setTimeout(() => document.getElementById('excluirSenha').focus(), 100);
+}
+function confirmarExcluirNF() {
+  const senha = document.getElementById('excluirSenha').value;
+  if (!senha) { document.getElementById('excluirErr').textContent = 'Digite a senha.'; document.getElementById('excluirErr').style.display = 'block'; return; }
+  setOverlay(true, 'Excluindo NF(s)...');
+  closeModal('excluirModal');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (res.ok) {
+        _excluirIds.forEach(id => { CE.nfs = CE.nfs.filter(n => n.id !== id); });
+        CONF.nfIds = CONF.nfIds.filter(id => !_excluirIds.includes(id));
+        _excluirIds = [];
+        atualizarHdrSub();
+        renderPorNF();
+        toast('🗑 NF(s) excluída(s) com sucesso.', 'ok');
+      } else {
+        document.getElementById('excluirSenha').value = '';
+        document.getElementById('excluirErr').textContent = res.error || 'Erro ao excluir.';
+        document.getElementById('excluirErr').style.display = 'block';
+        document.getElementById('excluirModal').classList.add('open');
+        setOverlay(false);
+        toast('❌ ' + (res.error || 'Erro ao excluir'), 'err');
+      }
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      toast('❌ Erro: ' + e.message, 'err');
+    })
+    .ce_excluirNF(senha, _excluirIds);
+}
+
+// ── Saldo ──────────────────────────────────────────────────
+let _saldoTabAtiva = 'geral';
+function switchSaldoTab(tab) {
+  _saldoTabAtiva = tab;
+  document.getElementById('saldoTab_geral').style.color = tab === 'geral' ? 'var(--cyan)' : 'var(--muted2)';
+  document.getElementById('saldoTab_porNF').style.color = tab === 'porNF' ? 'var(--cyan)' : 'var(--muted2)';
+  renderSaldo();
+}
+
+function _calcSaldosNFs() {
+  return CE.nfs.map(nf => {
+    const entregas = nf.conferencia?.entregas || [];
+    const prevTotais = {};
+    (nf.itens||[]).forEach(it => { prevTotais[String(it.cProd||'')] = 0; });
+    entregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => {
+        const k = String(ei.cProd||'');
+        if (prevTotais[k] !== undefined) prevTotais[k] += (ei.qtdConferida||0);
+      });
+    });
+    const itensPendentes = (nf.itens||[]).filter(it => (prevTotais[String(it.cProd||'')]||0) < it.qtdNF)
+      .map(it => ({
+        cProd: it.cProd,
+        sku:   it.sku || '',
+        nome:  it.descricaoNF || '',
+        qtdNF: it.qtdNF || 0,
+        recebido: prevTotais[String(it.cProd||'')] || 0,
+        saldo: (it.qtdNF||0) - (prevTotais[String(it.cProd||'')] || 0),
+      }));
+    return { nf, itensPendentes };
+  }).filter(x => x.itensPendentes.length > 0);
+}
+
+function renderSaldo() {
+  const body = document.getElementById('saldoBody');
+  if (!body) return;
+  const dados = _calcSaldosNFs();
+  if (!dados.length) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--green);font-size:14px">✅ Nenhum saldo pendente! Todos os itens foram recebidos.</div>';
+    return;
+  }
+  if (_saldoTabAtiva === 'geral') {
+    body.innerHTML = _renderSaldoGeral(dados);
+  } else {
+    body.innerHTML = _renderSaldoPorNF(dados);
+  }
+}
+
+function _renderSaldoGeral(dados) {
+  const map = {};
+  dados.forEach(({ nf, itensPendentes }) => {
+    itensPendentes.forEach(it => {
+      const k = it.sku || it.cProd || '?';
+      if (!map[k]) map[k] = { sku: it.sku, cProd: it.cProd, nome: it.nome, qtdNF: 0, recebido: 0, saldo: 0, nfs: [] };
+      map[k].qtdNF    += it.qtdNF;
+      map[k].recebido += it.recebido;
+      map[k].saldo    += it.saldo;
+      map[k].nfs.push(nf.nNF);
+    });
+  });
+  const itens = Object.values(map).sort((a,b) => b.saldo - a.saldo);
+  const totalSaldo = itens.reduce((a, it) => a + it.saldo, 0);
+  const rows = itens.map(it => `<tr>
+    <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
+    <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
+    <td class="td-nome td-muted" title="${escHtml(it.nome)}">${escHtml(it.nome)}</td>
+    <td class="r" style="color:var(--orange);font-weight:700">${it.qtdNF}</td>
+    <td class="r" style="color:${it.recebido > 0 ? 'var(--blue)' : 'var(--muted2)'}">${it.recebido > 0 ? it.recebido : '—'}</td>
+    <td class="r" style="color:var(--yellow);font-weight:700">${it.saldo}</td>
+    <td style="font-size:10px;color:var(--muted2)">${it.nfs.map(n => `<span style="background:rgba(68,138,255,.1);border:1px solid rgba(68,138,255,.2);border-radius:4px;padding:1px 5px">${escHtml(n)}</span>`).join(' ')}</td>
+  </tr>`).join('');
+  return `<div style="margin-bottom:12px;display:flex;align-items:center;gap:16px">
+    <span style="font-size:13px;color:var(--muted2)">Total pendente: <strong style="color:var(--yellow)">${totalSaldo}</strong> peças em <strong style="color:var(--cyan)">${itens.length}</strong> SKUs diferentes</span>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Cód. Forn.</th><th>SKU</th><th>Nome</th><th class="r">Total NF</th><th class="r">Recebido</th><th class="r">Saldo</th><th>NFs</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
+      <td colspan="3" style="padding:6px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase">Total</td>
+      <td class="r" style="font-weight:700;color:var(--orange)">${itens.reduce((a,it)=>a+it.qtdNF,0)}</td>
+      <td class="r" style="font-weight:700;color:var(--blue)">${itens.reduce((a,it)=>a+it.recebido,0)||'—'}</td>
+      <td class="r" style="font-weight:700;color:var(--yellow)">${totalSaldo}</td>
+      <td></td>
+    </tr></tfoot>
+  </table></div>`;
+}
+
+function _renderSaldoPorNF(dados) {
+  return dados.map(({ nf, itensPendentes }) => {
+    const totalSaldo = itensPendentes.reduce((a, it) => a + it.saldo, 0);
+    const rows = itensPendentes.map(it => `<tr>
+      <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
+      <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
+      <td class="td-nome td-muted" title="${escHtml(it.nome)}">${escHtml(it.nome)}</td>
+      <td class="r" style="color:var(--orange);font-weight:700">${it.qtdNF}</td>
+      <td class="r" style="color:${it.recebido > 0 ? 'var(--blue)' : 'var(--muted2)'}">${it.recebido > 0 ? it.recebido : '—'}</td>
+      <td class="r" style="color:var(--yellow);font-weight:700">${it.saldo}</td>
+    </tr>`).join('');
+    return `<div style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 12px;background:var(--card2);border-radius:8px;border:1px solid var(--border)">
+        <span style="color:var(--cyan);font-weight:700;font-size:13px">NF ${escHtml(nf.nNF)}</span>
+        <span style="color:var(--muted2);font-size:11px">· ${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)}</span>
+        <span class="status-chip ${STATUS_CLASS[nf.status]||'s-aguardando'}" style="margin-left:auto">${nf.status}</span>
+        <span style="color:var(--yellow);font-size:11px;font-weight:700">${totalSaldo} pendentes</span>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Cód. Forn.</th><th>SKU</th><th>Nome</th><th class="r">QTD NF</th><th class="r">Recebido</th><th class="r">Saldo</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
+          <td colspan="3" style="padding:5px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase">Total</td>
+          <td class="r" style="font-weight:700;color:var(--orange)">${itensPendentes.reduce((a,it)=>a+it.qtdNF,0)}</td>
+          <td class="r" style="font-weight:700;color:var(--blue)">${itensPendentes.reduce((a,it)=>a+it.recebido,0)||'—'}</td>
+          <td class="r" style="font-weight:700;color:var(--yellow)">${totalSaldo}</td>
+        </tr></tfoot>
+      </table></div>
+    </div>`;
+  }).join('');
 }
 
 </script>

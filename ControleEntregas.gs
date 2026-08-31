@@ -170,6 +170,34 @@ function ce_atualizarCampo(id, campo, valor) {
   }
 }
 
+// ── Excluir NF (senha protegida) ──────────────────────────────
+// Configure a propriedade de script CE_SENHA_EXCLUSAO no editor do GAS:
+// Arquivo → Propriedades do projeto → Propriedades do script
+function ce_excluirNF(senha, ids) {
+  try {
+    const senhaCorreta = PropertiesService.getScriptProperties().getProperty('CE_SENHA_EXCLUSAO');
+    if (!senhaCorreta) return { ok: false, error: 'Senha de exclusão não configurada. Adicione CE_SENHA_EXCLUSAO nas Propriedades do Script.' };
+    if (senha !== senhaCorreta) return { ok: false, error: 'Senha incorreta.' };
+
+    const aba  = _ce_aba();
+    const last = aba.getLastRow();
+    if (last < 2) return { ok: true };
+
+    const allIds = aba.getRange(2, 1, last - 1, 1).getValues().flat().map(String);
+    const idsToDelete = (Array.isArray(ids) ? ids : [ids]).map(String);
+
+    // Delete from bottom up to preserve row indices
+    for (let row = last; row >= 2; row--) {
+      if (idsToDelete.includes(allIds[row - 2])) {
+        aba.deleteRow(row);
+      }
+    }
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // ── Bling OAuth ───────────────────────────────────────────────
 function _ce_getToken() {
   const p       = _ce_props();
