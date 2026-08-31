@@ -1194,7 +1194,7 @@ function selecionarStatus(id, status) {
 }
 
 function ressincrQtds() {
-  const lista = CE.nfs.filter(n => n.pedidoBling && (n.itens||[]).some(it => !it.qtdPedido));
+  const lista = CE.nfs.filter(n => n.pedidoBling && (n.itens||[]).length > 0);
   if (!lista.length) { toast('✅ Todas as NFs já têm Qtd Pedido preenchida.', 'ok'); return; }
 
   confirm2(
@@ -1225,7 +1225,6 @@ function _ressincrProximo(lista, i, ok) {
 
         let mudou = false;
         const novos = nf.itens.map((it, idx) => {
-          if (it.qtdPedido) return it;
           const key = (it.cProd || '').trim().toLowerCase();
           let bi = bmap[key] || null;
           if (!bi) {

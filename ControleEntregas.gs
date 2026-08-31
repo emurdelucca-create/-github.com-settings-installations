@@ -242,14 +242,15 @@ function ce_buscarPedidoBling(numeroPedido) {
     const token = _ce_getToken();
     const numero = String(numeroPedido).trim();
 
-    // Tenta busca direta por número
+    // Tenta busca direta por número — sempre filtra pelo número mesmo se a API ignorar o parâmetro
     const r1 = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?numero=' + encodeURIComponent(numero) + '&pagina=1&limite=50', {
       headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
       muteHttpExceptions: true,
     });
-    let pedidos = (JSON.parse(r1.getContentText() || '{}').data || []);
+    let pedidos = (JSON.parse(r1.getContentText() || '{}').data || [])
+      .filter(p => String(p.numero || p.numeroOrdem || '') === numero);
 
-    // Se não encontrou direto, percorre páginas (até 10) buscando pelo número
+    // Se não encontrou, percorre páginas (até 10) buscando pelo número
     if (!pedidos.length) {
       for (let pg = 1; pg <= 10 && !pedidos.length; pg++) {
         Utilities.sleep(200);
@@ -352,7 +353,6 @@ function ce_ressincronizarQtds() {
 
         let mudou = false;
         const novos = itens.map((it, idx) => {
-          if (it.qtdPedido) return it;
           const key = (it.cProd || '').trim().toLowerCase();
           let bi = bmap[key] || null;
           if (!bi) {
