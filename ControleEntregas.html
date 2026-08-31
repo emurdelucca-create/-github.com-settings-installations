@@ -278,6 +278,65 @@ td.r { text-align: right; }
 .parcial-badge { background: rgba(255,109,0,.12); color: var(--orange); border: 1px solid rgba(255,109,0,.3); border-radius: 10px; padding: 2px 7px; font-size: 9px; font-weight: 700; }
 
 .empty-row td { text-align: center; color: var(--muted); padding: 40px; font-style: italic; }
+
+/* ── CONFERENCE ── */
+.s-parcial { background: rgba(255,214,0,.1); color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
+
+/* Conference status chips (separate from NF status) */
+.conf-chip { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; white-space: nowrap; cursor: default; }
+.conf-pendente   { background: rgba(78,98,128,.12);  color: var(--muted2); border: 1px solid rgba(78,98,128,.3); }
+.conf-andamento  { background: rgba(255,109,0,.12);   color: var(--orange); border: 1px solid rgba(255,109,0,.3); }
+.conf-parcial    { background: rgba(255,214,0,.1);    color: var(--yellow); border: 1px solid rgba(255,214,0,.3); cursor: pointer; }
+.conf-finalizada { background: rgba(0,230,118,.12);   color: var(--green);  border: 1px solid rgba(0,230,118,.3); }
+
+/* Conference select checkbox */
+.cb-nf { width: 15px; height: 15px; cursor: pointer; accent-color: var(--cyan); }
+
+/* Conference toolbar action bar */
+.conf-action-bar {
+  display: none; background: rgba(0,229,255,.06); border: 1px solid rgba(0,229,255,.2);
+  border-radius: 8px; padding: 8px 14px; margin: 8px 14px;
+  align-items: center; gap: 10px;
+}
+.conf-action-bar.show { display: flex; }
+
+/* Conference view */
+.conf-nf-section { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+.conf-nf-hdr {
+  background: linear-gradient(135deg,#0d1929,#0f2040);
+  padding: 12px 18px; display: flex; align-items: center; gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.conf-nf-title { font-size: 14px; font-weight: 700; color: var(--cyan); }
+.conf-nf-sub   { font-size: 11px; color: var(--muted2); }
+.conf-entrega-badge {
+  padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+  background: rgba(68,138,255,.15); color: var(--blue); border: 1px solid rgba(68,138,255,.3);
+}
+.conf-inp {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--cyan); font-size: 12px; padding: 4px 8px; outline: none;
+  font-family: monospace; text-align: right; width: 80px;
+  transition: border-color .15s;
+}
+.conf-inp:focus { border-color: var(--cyan); }
+.conf-inp.filled { border-color: rgba(0,230,118,.4); background: rgba(0,230,118,.04); }
+
+/* Tooltip for parcial conf */
+.conf-parcial-tooltip {
+  position: fixed; z-index: 800;
+  background: #0d1929; border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; min-width: 280px; max-width: 400px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.7); pointer-events: none;
+}
+
+/* Responsavel selector in conference */
+.conf-resp-sel {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); font-size: 13px; padding: 7px 12px; outline: none;
+  cursor: pointer; font-family: inherit; min-width: 180px;
+}
+.conf-resp-sel:focus { border-color: var(--cyan); }
 </style>
 </head>
 <body>
@@ -302,6 +361,7 @@ td.r { text-align: right; }
   <div class="nav-tab active" id="nav_import" onclick="navTo('import')">📥 Importar NF</div>
   <div class="nav-tab" id="nav_porNF"  onclick="navTo('porNF')">📋 Por NF</div>
   <div class="nav-tab" id="nav_porItem" onclick="navTo('porItem')">📦 Por Item</div>
+  <div class="nav-tab" id="nav_conferencia" onclick="navTo('conferencia')">✅ Conferência</div>
 </div>
 
 <!-- ════════════════════ VIEW: IMPORTAR NF ════════════════════ -->
@@ -434,12 +494,20 @@ td.r { text-align: right; }
         <option>Em conferência</option>
         <option>Conferido</option>
         <option>Armazenado</option>
+        <option>Parcialmente Recebido</option>
       </select>
+    </div>
+    <!-- Conference action bar (shows when NFs are selected) -->
+    <div class="conf-action-bar" id="confActionBar">
+      <span style="font-size:12px;color:var(--cyan);font-weight:700" id="confSelCount">0 NF(s) selecionada(s)</span>
+      <button class="btn btn-orange btn-sm" onclick="iniciarConferencia()">✅ Iniciar Conferência</button>
+      <button class="btn btn-ghost btn-sm" onclick="limparSelecaoNF()">✕ Limpar seleção</button>
     </div>
     <div class="tbl-wrap">
       <table>
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" class="cb-nf" id="cbTodas" onclick="toggleTodas(this)" title="Selecionar todas"></th>
             <th onclick="sortPorNF('dataCriacao')" title="Ordenar">Data</th>
             <th onclick="sortPorNF('nNF')">Nº NF</th>
             <th onclick="sortPorNF('pedidoBling')">Pedido Bling</th>
@@ -451,6 +519,7 @@ td.r { text-align: right; }
             <th>Importou XML</th>
             <th>Responsável</th>
             <th onclick="sortPorNF('status')">Status</th>
+            <th>Conferência</th>
             <th style="width:60px">Itens</th>
           </tr>
         </thead>
@@ -492,8 +561,61 @@ td.r { text-align: right; }
   </div>
 </div>
 
+<!-- ════════════════════ VIEW: CONFERÊNCIA ════════════════════ -->
+<div class="view" id="view_conferencia">
+  <div style="max-width:1100px;margin:0 auto">
+
+    <!-- No NFs selected -->
+    <div id="confEmpty" style="text-align:center;padding:60px 20px;color:var(--muted2)">
+      <div style="font-size:48px;margin-bottom:16px">📋</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Nenhuma NF selecionada</div>
+      <div style="font-size:13px">Vá para a aba <strong>Por NF</strong>, selecione as NFs que deseja conferir e clique em <strong>Iniciar Conferência</strong>.</div>
+    </div>
+
+    <!-- Conference form -->
+    <div id="confForm" style="display:none">
+      <!-- Top bar -->
+      <div class="card" style="padding:16px 20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Responsável pela conferência</div>
+            <select class="conf-resp-sel" id="confResp" onchange="confRespChanged()">
+              <option value="">Selecione...</option>
+              <option>Kauã</option>
+              <option>Nicolas</option>
+              <option>Marcos</option>
+              <option>Eduardo</option>
+              <option>Iolanda</option>
+              <option>Lucas</option>
+              <option value="__outro__">Outro...</option>
+            </select>
+          </div>
+          <div id="confRespCustomWrap" style="display:none">
+            <div style="font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Nome</div>
+            <input type="text" id="confRespCustom" class="form-input" placeholder="Digite o nome" style="width:160px">
+          </div>
+          <div style="flex:1"></div>
+          <button class="btn btn-ghost btn-sm" onclick="navTo('porNF')">← Voltar para Por NF</button>
+        </div>
+      </div>
+
+      <!-- NF sections (rendered dynamically) -->
+      <div id="confNFSections"></div>
+
+      <!-- Bottom actions -->
+      <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px;padding-bottom:40px">
+        <button class="btn btn-blue" onclick="salvarRascunho()">📝 Salvar Rascunho</button>
+        <button class="btn btn-orange" onclick="finalizarConferencia()">✅ Finalizar Conferência</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- Tooltip de itens -->
 <div class="item-tooltip" id="itemTooltip" style="display:none;opacity:0"></div>
+<!-- Tooltip conferência parcial -->
+<div class="conf-parcial-tooltip" id="confParcialTooltip" style="display:none"></div>
 
 <!-- Overlay -->
 <div id="overlay">
@@ -555,13 +677,14 @@ const CE = {
 
 // ── Navegação ──────────────────────────────────────────────
 function navTo(view) {
-  ['import','porNF','porItem'].forEach(v => {
+  ['import','porNF','porItem','conferencia'].forEach(v => {
     document.getElementById('view_' + v).classList.toggle('active', v === view);
     document.getElementById('nav_' + v).classList.toggle('active', v === view);
   });
   CE.activeView = view;
-  if (view === 'porNF')   renderPorNF();
-  if (view === 'porItem') renderPorItem();
+  if (view === 'porNF')       renderPorNF();
+  if (view === 'porItem')     renderPorItem();
+  if (view === 'conferencia') renderConferencia();
 }
 
 // ── Boot ───────────────────────────────────────────────────
@@ -972,13 +1095,14 @@ function limparErr(id) {
 
 // ── Por NF — render ────────────────────────────────────────
 const STATUS_CLASS = {
-  'Aguardando Chegar': 's-aguardando',
-  'Recebido':          's-recebido',
-  'Em conferência':    's-conferencia',
-  'Conferido':         's-conferido',
-  'Armazenado':        's-armazenado',
+  'Aguardando Chegar':    's-aguardando',
+  'Recebido':             's-recebido',
+  'Em conferência':       's-conferencia',
+  'Conferido':            's-conferido',
+  'Armazenado':           's-armazenado',
+  'Parcialmente Recebido':'s-parcial',
 };
-const STATUS_LIST = ['Aguardando Chegar','Recebido','Em conferência','Conferido','Armazenado'];
+const STATUS_LIST = ['Aguardando Chegar','Recebido','Em conferência','Conferido','Armazenado','Parcialmente Recebido'];
 
 function renderPorNF() {
   const q       = (document.getElementById('filtroNF')?.value || '').toLowerCase().trim();
@@ -1001,6 +1125,7 @@ function renderPorNF() {
     const sc        = STATUS_CLASS[nf.status] || 's-aguardando';
     const dataFmt   = fmtData(nf.dataEntrega);
     const criadoFmt = fmtData(nf.dataCriacao);
+    const isChecked = CONF.nfIds.includes(nf.id);
 
     const lancouHtml = `<div class="yn-toggle">
       <button class="yn-btn ${nf.lancouContas==='Sim'?'sim-on':''}" onclick="toggleYN('${nf.id}','lancouContas','Sim')">Sim</button>
@@ -1021,6 +1146,9 @@ function renderPorNF() {
 
     const statusHtml = `<span class="status-chip ${sc}" onclick="toggleStatusMenu(event,'${nf.id}')" title="Clique para alterar">${nf.status}</span>`;
 
+    const confStatus = _confStatus(nf);
+    const confHtml   = _confChipHtml(nf.id, confStatus);
+
     const nItens = (nf.itens||[]).length;
     const tooltipBtn = `<button class="btn btn-ghost btn-xs"
       onmouseenter="showTooltip(event,'${nf.id}')"
@@ -1028,7 +1156,8 @@ function renderPorNF() {
       style="font-size:11px"
     >📦 ${nItens}</button>`;
 
-    return `<tr>
+    return `<tr style="${isChecked?'background:rgba(0,229,255,.04)':''}">
+      <td><input type="checkbox" class="cb-nf" data-id="${nf.id}" ${isChecked?'checked':''} onclick="toggleCbNF(this,'${nf.id}')"></td>
       <td class="td-muted" style="font-size:11px">${criadoFmt}</td>
       <td class="td-nf">${escHtml(nf.nNF)}</td>
       <td style="font-weight:600;color:var(--blue)">${escHtml(nf.pedidoBling)}</td>
@@ -1040,12 +1169,14 @@ function renderPorNF() {
       <td>${importouHtml}</td>
       <td>${respHtml}</td>
       <td>${statusHtml}</td>
+      <td>${confHtml}</td>
       <td>${tooltipBtn}</td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="12">Nenhuma NF encontrada</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="14">Nenhuma NF encontrada</td></tr>`;
 
   document.getElementById('porNF_body').innerHTML = body;
   document.getElementById('porNF_info').textContent = lista.length + ' NF(s)';
+  _atualizarConfActionBar();
 }
 
 function sortPorNF(field) {
@@ -1384,7 +1515,450 @@ function escJs(s) {
   return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
 
-document.addEventListener('click', () => closeStatusMenu());
+document.addEventListener('click', () => { closeStatusMenu(); hideParcialTooltip(); });
+
+// ── CONFERÊNCIA ────────────────────────────────────────────
+
+const CONF = {
+  nfIds:    [],        // IDs selecionados em Por NF
+  resp:     '',        // responsável da conferência atual
+  styluMap: {},        // cProd → qtd/caixa (Stylu)
+  styluLoaded: false,
+};
+
+// ── Helpers de status de conferência ─────────────────────
+function _confStatus(nf) {
+  const c = nf.conferencia;
+  if (!c || !c.status) return 'Pendente';
+  return c.status;
+}
+
+function _confChipHtml(nfId, status) {
+  const cls = {
+    'Pendente':            'conf-pendente',
+    'Em Andamento':        'conf-andamento',
+    'Parcialmente Recebido': 'conf-parcial',
+    'Finalizada':          'conf-finalizada',
+  }[status] || 'conf-pendente';
+  const isParcial = status === 'Parcialmente Recebido';
+  return `<span class="conf-chip ${cls}"
+    ${isParcial ? `onmouseenter="showParcialTooltip(event,'${nfId}')" onmouseleave="hideParcialTooltip()"` : ''}
+  >${status}</span>`;
+}
+
+// ── Tooltip para status Parcialmente Recebido ──────────────
+let _parcialTimer = null;
+function showParcialTooltip(event, nfId) {
+  clearTimeout(_parcialTimer);
+  const nf = CE.nfs.find(n => n.id === nfId);
+  if (!nf || !nf.conferencia || !nf.conferencia.entregas) return;
+  const tt = document.getElementById('confParcialTooltip');
+
+  const totais = {};
+  nf.itens.forEach(it => { totais[it.cProd] = { qtdNF: it.qtdNF, conferido: 0, sku: it.sku||'', desc: it.descricaoNF||'' }; });
+  (nf.conferencia.entregas || []).forEach(ent => {
+    (ent.itens || []).forEach(ei => {
+      if (totais[ei.cProd]) totais[ei.cProd].conferido += (ei.qtdConferida || 0);
+    });
+  });
+
+  const recebidos = Object.entries(totais).filter(([,v]) => v.conferido >= v.qtdNF);
+  const faltantes = Object.entries(totais).filter(([,v]) => v.conferido < v.qtdNF);
+
+  let html = '';
+  if (recebidos.length) {
+    html += `<div style="font-size:10px;color:var(--green);font-weight:700;margin-bottom:6px">✅ Recebidos (${recebidos.length})</div>`;
+    recebidos.forEach(([cod, v]) => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <span style="color:var(--cyan);font-family:monospace">${escHtml(cod)}</span>
+        <span style="color:var(--muted2);margin-left:8px;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml(v.sku||v.desc)}</span>
+        <span style="color:var(--green);font-weight:700;margin-left:8px">${v.conferido}/${v.qtdNF}</span>
+      </div>`;
+    });
+  }
+  if (faltantes.length) {
+    html += `<div style="font-size:10px;color:var(--red);font-weight:700;margin:8px 0 6px">⚠ Faltantes (${faltantes.length})</div>`;
+    faltantes.forEach(([cod, v]) => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <span style="color:var(--cyan);font-family:monospace">${escHtml(cod)}</span>
+        <span style="color:var(--muted2);margin-left:8px;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml(v.sku||v.desc)}</span>
+        <span style="color:var(--red);font-weight:700;margin-left:8px">${v.conferido}/${v.qtdNF}</span>
+      </div>`;
+    });
+  }
+
+  tt.innerHTML = html;
+  tt.style.display = 'block';
+  const x = event.clientX + 12, y = event.clientY + 12;
+  const W = window.innerWidth, H = window.innerHeight;
+  tt.style.left = (x + 420 > W ? x - 440 : x) + 'px';
+  tt.style.top  = (y + 200 > H ? y - 220 : y) + 'px';
+}
+function hideParcialTooltip() {
+  _parcialTimer = setTimeout(() => { document.getElementById('confParcialTooltip').style.display='none'; }, 100);
+}
+
+// ── Seleção de NFs para conferência ──────────────────────
+function toggleCbNF(cb, id) {
+  if (cb.checked) {
+    if (!CONF.nfIds.includes(id)) CONF.nfIds.push(id);
+  } else {
+    CONF.nfIds = CONF.nfIds.filter(x => x !== id);
+  }
+  _atualizarConfActionBar();
+}
+
+function toggleTodas(cb) {
+  const cbs = document.querySelectorAll('.cb-nf[data-id]');
+  cbs.forEach(c => {
+    const id = c.dataset.id;
+    c.checked = cb.checked;
+    if (cb.checked) { if (!CONF.nfIds.includes(id)) CONF.nfIds.push(id); }
+    else CONF.nfIds = CONF.nfIds.filter(x => x !== id);
+  });
+  _atualizarConfActionBar();
+}
+
+function limparSelecaoNF() {
+  CONF.nfIds = [];
+  renderPorNF();
+}
+
+function _atualizarConfActionBar() {
+  const bar = document.getElementById('confActionBar');
+  if (!bar) return;
+  const n = CONF.nfIds.length;
+  bar.classList.toggle('show', n > 0);
+  const el = document.getElementById('confSelCount');
+  if (el) el.textContent = n + ' NF(s) selecionada(s)';
+}
+
+function iniciarConferencia() {
+  if (!CONF.nfIds.length) return;
+  // Carrega dados Stylu se necessário
+  const precisaStylu = CE.nfs.some(nf =>
+    CONF.nfIds.includes(nf.id) && (nf.fornecedor||'').toLowerCase().includes('stylu'));
+  if (precisaStylu && !CONF.styluLoaded) {
+    setOverlay(true, 'Carregando tabela Stylu...');
+    google.script.run
+      .withSuccessHandler(res => {
+        setOverlay(false);
+        if (res.ok) { CONF.styluMap = res.map || {}; CONF.styluLoaded = true; }
+        navTo('conferencia');
+      })
+      .withFailureHandler(() => { setOverlay(false); navTo('conferencia'); })
+      .ce_buscarQtdCaixaStylu();
+  } else {
+    navTo('conferencia');
+  }
+}
+
+// ── Render Conferência ────────────────────────────────────
+function renderConferencia() {
+  const empty = document.getElementById('confEmpty');
+  const form  = document.getElementById('confForm');
+
+  if (!CONF.nfIds.length) {
+    empty.style.display = 'block';
+    form.style.display  = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  form.style.display  = 'block';
+
+  // Restaurar responsável salvo
+  const respSel = document.getElementById('confResp');
+  if (CONF.resp && respSel) {
+    const opt = [...respSel.options].find(o => o.value === CONF.resp || o.textContent === CONF.resp);
+    if (opt) respSel.value = opt.value;
+    else {
+      respSel.value = '__outro__';
+      document.getElementById('confRespCustomWrap').style.display = '';
+      document.getElementById('confRespCustom').value = CONF.resp;
+    }
+  }
+
+  const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
+  const sectionsEl = document.getElementById('confNFSections');
+  sectionsEl.innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
+}
+
+function _renderConfNFSection(nf) {
+  const conf       = nf.conferencia || { entregas: [] };
+  const entregas   = conf.entregas || [];
+  const entregaNum = entregas.length + 1;
+  const isStylu    = (nf.fornecedor||'').toLowerCase().includes('stylu');
+
+  // Compute totals already conferenced in previous deliveries
+  const prevTotais = {};
+  nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
+  entregas.forEach(ent => {
+    (ent.itens||[]).forEach(ei => {
+      if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida || 0);
+    });
+  });
+
+  // Items to show: for 1st delivery show all; for subsequent show only missing
+  const itensVisiveis = entregaNum === 1
+    ? nf.itens
+    : nf.itens.filter(it => (prevTotais[it.cProd] || 0) < it.qtdNF);
+
+  if (entregaNum > 1 && itensVisiveis.length === 0) {
+    return `<div class="conf-nf-section">
+      <div class="conf-nf-hdr">
+        <div>
+          <div class="conf-nf-title">NF ${escHtml(nf.nNF)}</div>
+          <div class="conf-nf-sub">${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)}</div>
+        </div>
+        <span class="conf-chip conf-finalizada">Totalmente conferido</span>
+      </div>
+      <div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✅ Todos os itens desta NF já foram conferidos.</div>
+    </div>`;
+  }
+
+  const styluHeader = isStylu ? '<th class="r">Qtd/Caixa</th><th class="r">Nº Caixas</th>' : '';
+  const rows = itensVisiveis.map((it, i) => {
+    const prevQtd  = prevTotais[it.cProd] || 0;
+    const faltante = it.qtdNF - prevQtd;
+    const styluQtd = isStylu ? (CONF.styluMap[it.cProd] || '—') : null;
+
+    const styluCells = isStylu ? `
+      <td class="r td-muted" style="font-size:11px">${styluQtd}</td>
+      <td class="r"><input type="number" min="0" class="conf-inp" id="confCaixas_${nf.id}_${i}"
+        oninput="confCaixasChanged('${nf.id}',${i},${typeof styluQtd==='number'?styluQtd:0})"
+        placeholder="0" style="width:60px"></td>` : '';
+
+    const prevBadge = prevQtd > 0
+      ? `<span style="font-size:9px;color:var(--blue);margin-left:4px">(já: ${prevQtd})</span>` : '';
+    const faltLabel = entregaNum > 1
+      ? `<span style="font-size:9px;color:var(--orange)"> · falta: ${faltante}</span>` : '';
+
+    return `<tr>
+      <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
+      <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
+      <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
+      <td class="r" style="color:var(--orange);font-weight:700">${it.qtdNF}${prevBadge}${faltLabel}</td>
+      ${styluCells}
+      <td class="r"><input type="number" min="0" class="conf-inp" id="confQtd_${nf.id}_${i}"
+        oninput="confQtdChanged(this)"
+        placeholder="${faltante}" data-faltante="${faltante}"></td>
+    </tr>`;
+  }).join('');
+
+  const entradaLabel = entregaNum === 1 ? '1ª Entrega' : entregaNum + 'ª Entrega';
+  const confStatusLabel = _confStatus(nf);
+
+  return `<div class="conf-nf-section">
+    <div class="conf-nf-hdr">
+      <div style="flex:1">
+        <div class="conf-nf-title">NF ${escHtml(nf.nNF)}</div>
+        <div class="conf-nf-sub">${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)} · Pedido: ${escHtml(nf.pedidoBling)}</div>
+      </div>
+      <span class="conf-entrega-badge">${entradaLabel}</span>
+      ${_confChipHtml(nf.id, confStatusLabel)}
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Cód. Fornecedor</th><th>SKU</th><th>Nome</th>
+          <th class="r">Qtd NF</th>
+          ${styluHeader}
+          <th class="r">Qtd Conferida</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function confQtdChanged(inp) {
+  inp.classList.toggle('filled', inp.value !== '' && inp.value >= 0);
+}
+function confCaixasChanged(nfId, idx, qtdCaixa) {
+  const caixasEl = document.getElementById('confCaixas_' + nfId + '_' + idx);
+  const qtdEl    = document.getElementById('confQtd_'   + nfId + '_' + idx);
+  if (!caixasEl || !qtdEl || !qtdCaixa) return;
+  const caixas = parseFloat(caixasEl.value) || 0;
+  qtdEl.value = +(caixas * qtdCaixa).toFixed(3);
+  qtdEl.dispatchEvent(new Event('input'));
+}
+
+function confRespChanged() {
+  const sel = document.getElementById('confResp');
+  const customWrap = document.getElementById('confRespCustomWrap');
+  if (sel.value === '__outro__') {
+    customWrap.style.display = '';
+    document.getElementById('confRespCustom').focus();
+  } else {
+    customWrap.style.display = 'none';
+    CONF.resp = sel.value;
+  }
+}
+
+function _getConfResp() {
+  const sel = document.getElementById('confResp');
+  if (!sel) return '';
+  if (sel.value === '__outro__') {
+    return (document.getElementById('confRespCustom')?.value || '').trim();
+  }
+  return sel.value;
+}
+
+function _coletarItensDaConferencia() {
+  const resp   = _getConfResp();
+  const result = {};
+  CE.nfs.filter(nf => CONF.nfIds.includes(nf.id)).forEach(nf => {
+    const conf       = nf.conferencia || { entregas: [] };
+    const entregas   = conf.entregas || [];
+    const entregaNum = entregas.length + 1;
+    const isStylu    = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const prevTotais = {};
+    nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
+    entregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => {
+        if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida||0);
+      });
+    });
+    const itensVisiveis = entregaNum === 1
+      ? nf.itens
+      : nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF);
+
+    const itensConf = itensVisiveis.map((it, i) => {
+      const qtdEl   = document.getElementById('confQtd_' + nf.id + '_' + i);
+      const caixasEl= isStylu ? document.getElementById('confCaixas_' + nf.id + '_' + i) : null;
+      const qtd     = qtdEl ? (parseFloat(qtdEl.value) || 0) : 0;
+      const caixas  = caixasEl ? (parseFloat(caixasEl.value) || 0) : undefined;
+      const entry   = { cProd: it.cProd, qtdConferida: qtd };
+      if (caixas !== undefined) entry.caixas = caixas;
+      return entry;
+    });
+
+    result[nf.id] = { nf, resp, entregas, entregaNum, itensConf, isStylu };
+  });
+  return result;
+}
+
+function _agora() {
+  const d = new Date();
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear()
+    + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function salvarRascunho() {
+  const resp = _getConfResp();
+  if (!resp) { toast('❌ Selecione o responsável antes de salvar', 'err'); return; }
+  CONF.resp = resp;
+
+  const dadosConf = _coletarItensDaConferencia();
+  const nfIds = Object.keys(dadosConf);
+  if (!nfIds.length) return;
+
+  setOverlay(true, 'Salvando rascunho...');
+  let idx = 0;
+  function proximo() {
+    if (idx >= nfIds.length) { setOverlay(false); toast('📝 Rascunho salvo!', 'ok'); renderConferencia(); return; }
+    const d = dadosConf[nfIds[idx]];
+    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, itens: d.itensConf };
+    const novasEntregas = [...d.entregas, novaEntrega];
+    const confObj = { status: 'Em Andamento', responsavel: d.resp, entregas: novasEntregas };
+    d.nf.conferencia = confObj;
+    idx++;
+    google.script.run
+      .withSuccessHandler(() => proximo())
+      .withFailureHandler(e => { toast('⚠ Erro: ' + e.message, 'err'); idx++; proximo(); })
+      .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
+  }
+  proximo();
+}
+
+function finalizarConferencia() {
+  const resp = _getConfResp();
+  if (!resp) { toast('❌ Selecione o responsável antes de finalizar', 'err'); return; }
+  CONF.resp = resp;
+
+  const dadosConf = _coletarItensDaConferencia();
+  const nfIds = Object.keys(dadosConf);
+  if (!nfIds.length) return;
+
+  let vazios = 0;
+  nfIds.forEach(id => {
+    const d = dadosConf[id];
+    d.itensConf.forEach((it, i) => {
+      const el = document.getElementById('confQtd_' + id + '_' + i);
+      if (!el || el.value === '') vazios++;
+    });
+  });
+
+  function _executarFinalizar(fillRemaining) {
+    setOverlay(true, 'Finalizando conferência...');
+    let idx = 0;
+    function proximo() {
+      if (idx >= nfIds.length) {
+        setOverlay(false);
+        toast('✅ Conferência finalizada!', 'ok');
+        CONF.nfIds = [];
+        renderPorNF();
+        navTo('porNF');
+        return;
+      }
+      const d = dadosConf[nfIds[idx]];
+
+      // Se fillRemaining, preenche itens vazios com o valor faltante
+      if (fillRemaining) {
+        const prevTotais = {};
+        d.nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
+        d.entregas.forEach(ent => {
+          (ent.itens||[]).forEach(ei => {
+            if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida||0);
+          });
+        });
+        d.itensConf.forEach((it, i) => {
+          const el = document.getElementById('confQtd_' + d.nf.id + '_' + i);
+          if (el && el.value === '') {
+            const nfItem = d.nf.itens.find(x => x.cProd === it.cProd);
+            const faltante = nfItem ? nfItem.qtdNF - (prevTotais[it.cProd]||0) : 0;
+            it.qtdConferida = Math.max(0, faltante);
+          }
+        });
+      }
+
+      const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, itens: d.itensConf };
+      const novasEntregas = [...d.entregas, novaEntrega];
+
+      // Determinar status final
+      const allTotais = {};
+      d.nf.itens.forEach(it => { allTotais[it.cProd] = 0; });
+      novasEntregas.forEach(ent => {
+        (ent.itens||[]).forEach(ei => {
+          if (allTotais[ei.cProd] !== undefined) allTotais[ei.cProd] += (ei.qtdConferida||0);
+        });
+      });
+      const todosCompletos = d.nf.itens.every(it => (allTotais[it.cProd]||0) >= it.qtdNF);
+      const confStatus = todosCompletos ? 'Finalizada' : 'Parcialmente Recebido';
+
+      const confObj = { status: confStatus, responsavel: d.resp, entregas: novasEntregas };
+      d.nf.conferencia = confObj;
+      idx++;
+
+      google.script.run
+        .withSuccessHandler(() => proximo())
+        .withFailureHandler(e => { toast('⚠ Erro: ' + e.message, 'err'); idx++; proximo(); })
+        .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
+    }
+    proximo();
+  }
+
+  if (vazios > 0) {
+    confirm2(
+      '⚠ Itens sem quantidade',
+      vazios + ' item(ns) sem quantidade informada.\n\nDeseja marcar todos os itens como conferidos (preenchendo os vazios com a quantidade faltante)?',
+      () => _executarFinalizar(true)
+    );
+  } else {
+    _executarFinalizar(false);
+  }
+}
+
 </script>
 </body>
 </html>

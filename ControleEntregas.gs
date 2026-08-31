@@ -26,6 +26,12 @@ const CE_CTRL_GID       = 1005476335;
 const CE_CTRL_COD_FORN  = 10;  // col K (0-indexed)
 const CE_CTRL_SKU       = 11;  // col L (0-indexed)
 
+// Stylu — tabela de Qtd/Caixa
+const CE_STYLU_SS_ID  = '1aRKBHzr0DbfVcWvZsPY8EsVo7nog92cWfeiJJmdXtR0';
+const CE_STYLU_GID    = 1490662670;
+const CE_STYLU_COD    = 0;  // col A (0-indexed)
+const CE_STYLU_CAIXA  = 3;  // col D (0-indexed)
+
 // Bling
 const CE_BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
 const CE_BLING_API       = 'https://www.bling.com.br/Api/v3';
@@ -34,8 +40,8 @@ const CE_BLING_REDIRECT  = 'https://www.google.com';
 // Colunas da sheet NFs (1-indexed para GAS getRange)
 // A=ID  B=PedidoBling  C=Fornecedor  D=NNF  E=Empresa  F=QtdVolume
 // G=DataEntrega  H=LancouContas  I=ImportouXML  J=Responsavel
-// K=Status  L=DataCriacao  M=ItensJSON
-const CE_NCOLS = 13;
+// K=Status  L=DataCriacao  M=ItensJSON  N=ConferenciaJSON
+const CE_NCOLS = 14;
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
@@ -59,7 +65,7 @@ function _ce_aba() {
     aba.getRange(1, 1, 1, CE_NCOLS).setValues([[
       'ID','Pedido Bling','Fornecedor','Nº NF','Empresa Nossa',
       'Qtd. Volume NF','Data Entrega Agendada','Lançou Contas?',
-      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON',
+      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON','Conferência JSON',
     ]]);
     aba.setFrozenRows(1);
   }
@@ -89,6 +95,9 @@ function _ce_rowToObj(r) {
                   ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
                   : String(r[11])) : '',
     itens:       _ce_json(r[12]),
+    conferencia: r[13] ? (function(v){
+                   try { return typeof v==='string' ? JSON.parse(v) : v; } catch(e){ return null; }
+                 })(r[13]) : null,
   };
 }
 
@@ -112,6 +121,7 @@ function ce_salvarNF(dados) {
       String(dados.status       || 'Aguardando Chegar'),
       agora,
       JSON.stringify(dados.itens || []),
+      '',
     ]);
     return { ok: true, id };
   } catch(e) {
@@ -139,7 +149,7 @@ function ce_atualizarCampo(id, campo, valor) {
     const MAPA = {
       pedidoBling:  2, fornecedor: 3, nNF: 4, empresa: 5,
       qtdVolume:    6, dataEntrega: 7, lancouContas: 8,
-      importouXML:  9, responsavel: 10, status: 11, itens: 13,
+      importouXML:  9, responsavel: 10, status: 11, itens: 13, conferencia: 14,
     };
     const col = MAPA[campo];
     if (!col) return { ok: false, error: 'Campo desconhecido: ' + campo };
@@ -152,7 +162,7 @@ function ce_atualizarCampo(id, campo, valor) {
     const idx = ids.indexOf(String(id));
     if (idx === -1) return { ok: false, error: 'NF não encontrada' };
 
-    const val = (campo === 'itens') ? JSON.stringify(valor) : String(valor);
+    const val = (campo === 'itens' || campo === 'conferencia') ? JSON.stringify(valor) : String(valor);
     aba.getRange(idx + 2, col).setValue(val);
     return { ok: true };
   } catch(e) {
@@ -398,6 +408,28 @@ function ce_buscarMapCodFornSKU() {
       const cod = String(r[CE_CTRL_COD_FORN] || '').trim();
       const sku = String(r[CE_CTRL_SKU]       || '').trim();
       if (cod && sku) map[cod] = sku;
+    });
+    return { ok: true, map };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Mapa cód.fornecedor → qtd/caixa (planilha Stylu)
+function ce_buscarQtdCaixaStylu() {
+  try {
+    const ss  = SpreadsheetApp.openById(CE_STYLU_SS_ID);
+    const aba = ss.getSheets().find(s => s.getSheetId() === CE_STYLU_GID);
+    if (!aba) return { ok: true, map: {} };
+    const last = aba.getLastRow();
+    if (last < 2) return { ok: true, map: {} };
+    const ncols = Math.max(CE_STYLU_COD, CE_STYLU_CAIXA) + 1;
+    const raw   = aba.getRange(2, 1, last - 1, ncols).getValues();
+    const map   = {};
+    raw.forEach(r => {
+      const cod   = String(r[CE_STYLU_COD]  || '').trim();
+      const caixa = Number(r[CE_STYLU_CAIXA] || 0);
+      if (cod && caixa) map[cod] = caixa;
     });
     return { ok: true, map };
   } catch(e) {
