@@ -457,12 +457,18 @@ function pc_criarPedidos(pedidos) {
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
-        itens: ped.itens.map(it => ({
-          produto:    { id: Number(it.produtoId) },
-          descricao:  String(it.nome  || it.sku),
-          quantidade: Number(it.qtd)   || 0,
-          valor:      Number(it.preco) || 0,
-        })),
+        itens: ped.itens.map(it => {
+          const item = {
+            produto:    { id: Number(it.produtoId) },
+            descricao:  String(it.nome  || it.sku),
+            quantidade: Number(it.qtd)   || 0,
+            valor:      Number(it.preco) || 0,
+          };
+          if (it.codFornecedor && String(it.codFornecedor).trim()) {
+            item.codigo = String(it.codFornecedor).trim();
+          }
+          return item;
+        }),
       };
       // Quando separado por empresa, grava o nome nos campos de observação
       if (ped.empresa) {
