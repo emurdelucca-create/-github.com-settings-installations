@@ -369,7 +369,7 @@ td.r { text-align: right; }
         </div>
         <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" onclick="voltarPasso1()">← Voltar</button>
-          <button class="btn btn-orange" onclick="avancarPasso3()">Avançar para Conciliação →</button>
+          <button class="btn btn-green" onclick="avancarPasso3()">💾 Salvar NF</button>
         </div>
       </div>
     </div>
@@ -385,9 +385,9 @@ td.r { text-align: right; }
             <span class="stat-chip stat-err"  id="cntErr">0 sem SKU</span>
           </div>
         </div>
-        <p style="font-size:11px;color:var(--muted2);margin:8px 0 14px">
-          Itens da NF conciliados automaticamente com o Pedido Bling pelo código de fornecedor.
-          Ajuste o SKU manualmente nos itens marcados em amarelo ou vermelho.
+        <p style="font-size:11px;color:var(--yellow);margin:8px 0 14px">
+          ⚠ Alguns itens não foram conciliados automaticamente. Atribua o SKU manualmente nos itens
+          marcados em vermelho e ajuste os amarelos se necessário, depois salve.
         </p>
         <div class="tbl-wrap">
           <table>
@@ -692,7 +692,7 @@ function avancarPasso3() {
   if (erros.length) { toast('❌ Preencha todos os campos obrigatórios', 'err'); return; }
 
   const numeroPedido = document.getElementById('f_pedidoBling').value.trim();
-  setOverlay(true, 'Buscando pedido Bling nº ' + numeroPedido + '...');
+  setOverlay(true, 'Buscando pedido Bling nº ' + numeroPedido + ' e conciliando itens...');
 
   google.script.run
     .withSuccessHandler(res => {
@@ -776,22 +776,19 @@ function _conciliar() {
   renderConciliacao();
 }
 
-// Decide: auto-save se todos conciliados, senão mostra passo3
+// Salva direto quando tudo concilia; só abre passo 3 se houver itens sem SKU
 function _aposConciiliar() {
   const none = CE.concItens.filter(it => !it.sku).length;
-  // Mostra passo3
-  document.getElementById('passo2').style.display = 'none';
-  document.getElementById('passo3').style.display = 'block';
-  document.getElementById('step2').className = 'step done';
-  document.getElementById('step3').className = 'step active';
 
   if (none === 0 && CE.concItens.length > 0) {
-    // Todos conciliados automaticamente — oferece salvar direto
-    confirm2(
-      '✅ Conciliação automática completa',
-      'Todos os ' + CE.concItens.length + ' itens foram conciliados automaticamente pelo código do fornecedor.\n\nDeseja salvar a NF agora?\n(Você ainda pode revisar os itens cancelando.)',
-      () => salvarNF()
-    );
+    // Todos conciliados — salva sem mostrar passo 3
+    salvarNF();
+  } else {
+    // Itens sem SKU — abre passo 3 para ajuste manual
+    document.getElementById('passo2').style.display = 'none';
+    document.getElementById('passo3').style.display = 'block';
+    document.getElementById('step2').className = 'step done';
+    document.getElementById('step3').className = 'step active';
   }
 }
 
