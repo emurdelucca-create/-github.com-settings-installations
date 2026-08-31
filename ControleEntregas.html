@@ -1777,6 +1777,17 @@ function _renderConfNFSection(nf) {
   const styluHeader     = isStylu ? '<th class="r">Qtd/Cx</th><th class="r">Nº Caixas</th>' : '';
   const saldoHeaders    = mostrarSomenteFaltantes ? '<th class="r">Já recebido</th><th class="r">Faltante</th>' : '';
 
+  // Volume totals
+  const totalNF      = nf.itens.reduce((a, it) => a + (it.qtdNF||0), 0);
+  const totalJaConf  = Object.values(prevTotais).reduce((a, b) => a + b, 0);
+
+  // Initial live total from rascunho pre-fill
+  let initialTotal = 0;
+  itensVisiveis.forEach(it => {
+    const pf = rascMap[it.cProd]?.qtdConferida;
+    if (pf != null && !isNaN(pf)) initialTotal += Number(pf);
+  });
+
   const rows = itensVisiveis.map((it, i) => {
     const prevQtd  = prevTotais[it.cProd] || 0;
     const faltante = it.qtdNF - prevQtd;
@@ -1801,18 +1812,26 @@ function _renderConfNFSection(nf) {
       ${saldoCells}
       ${styluCells}
       <td class="r"><input type="number" min="0" class="conf-inp ${prefill!==''?'filled':''}" id="confQtd_${nf.id}_${i}"
-        oninput="confQtdChanged(this)" value="${prefill}" placeholder="${faltante}"></td>
+        data-nfid="${nf.id}" oninput="confQtdChanged(this)" value="${prefill}" placeholder="${faltante}"></td>
     </tr>`;
   }).join('');
 
-  const entradaLabel = entregaNum + 'ª Entrega';
+  const entradaLabel    = entregaNum + 'ª Entrega';
   const confStatusLabel = _confStatus(nf);
+  const pctTotal = totalNF > 0 ? Math.round((totalJaConf + initialTotal) / totalNF * 100) : 0;
 
   return `<div class="conf-nf-section">
     <div class="conf-nf-hdr">
       <div style="flex:1">
         <div class="conf-nf-title">NF ${escHtml(nf.nNF)}</div>
         <div class="conf-nf-sub">${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)} · Pedido: ${escHtml(nf.pedidoBling)}</div>
+        <div style="display:flex;gap:16px;margin-top:6px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted2)">Total NF: <strong style="color:var(--orange)">${totalNF}</strong> peças</span>
+          ${totalJaConf > 0 ? `<span style="font-size:11px;color:var(--muted2)">Já confirmado: <strong style="color:var(--blue)">${totalJaConf}</strong> peças</span>` : ''}
+          <span style="font-size:11px;color:var(--muted2)">Esta entrega: <strong style="color:var(--green)" id="confTotalAtual_${nf.id}">${initialTotal}</strong> peças</span>
+          <span style="font-size:11px;color:var(--muted2)">Total geral: <strong style="color:var(--cyan)" id="confTotalGeral_${nf.id}" data-jaconf="${totalJaConf}" data-totalnf="${totalNF}">${totalJaConf + initialTotal}</strong> / ${totalNF} peças
+            (<span id="confTotalPct_${nf.id}">${pctTotal}</span>%)</span>
+        </div>
       </div>
       <span class="conf-entrega-badge">${entradaLabel}</span>
       ${_confChipHtml(nf.id, confStatusLabel)}
@@ -1873,6 +1892,25 @@ function _renderHistorico(entregas, nfItens, prevTotais) {
 
 function confQtdChanged(inp) {
   inp.classList.toggle('filled', inp.value !== '' && inp.value >= 0);
+  if (inp.dataset.nfid) _atualizarTotalConf(inp.dataset.nfid);
+}
+function _atualizarTotalConf(nfId) {
+  if (!nfId) return;
+  let total = 0;
+  document.querySelectorAll(`input[data-nfid="${nfId}"]`).forEach(el => {
+    total += parseFloat(el.value) || 0;
+  });
+  const atualEl = document.getElementById('confTotalAtual_' + nfId);
+  if (atualEl) atualEl.textContent = total;
+  const geralEl = document.getElementById('confTotalGeral_' + nfId);
+  if (geralEl) {
+    const jaConf  = parseInt(geralEl.dataset.jaconf  || '0');
+    const totalNF = parseInt(geralEl.dataset.totalnf || '0');
+    const geral   = jaConf + total;
+    geralEl.textContent = geral;
+    const pctEl = document.getElementById('confTotalPct_' + nfId);
+    if (pctEl) pctEl.textContent = totalNF > 0 ? Math.round(geral / totalNF * 100) : 0;
+  }
 }
 function confCaixasChanged(nfId, idx, qtdCaixa) {
   const caixasEl = document.getElementById('confCaixas_' + nfId + '_' + idx);
