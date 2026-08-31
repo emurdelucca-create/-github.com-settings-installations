@@ -85,7 +85,9 @@ function _ce_rowToObj(r) {
     importouXML: String(r[8]  || 'Não'),
     responsavel: String(r[9]  || ''),
     status:      String(r[10] || 'Aguardando Chegar'),
-    dataCriacao: String(r[11] || ''),
+    dataCriacao: r[11] ? (r[11] instanceof Date
+                  ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+                  : String(r[11])) : '',
     itens:       _ce_json(r[12]),
   };
 }
