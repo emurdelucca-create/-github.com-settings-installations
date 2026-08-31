@@ -1194,30 +1194,68 @@ function selecionarStatus(id, status) {
 }
 
 function ressincrQtds() {
-  const semQtd = CE.nfs.filter(n => (n.itens||[]).some(it => !it.qtdPedido)).length;
-  if (!semQtd) { toast('✅ Todas as NFs já têm Qtd Pedido preenchida.', 'ok'); return; }
+  const lista = CE.nfs.filter(n => n.pedidoBling && (n.itens||[]).some(it => !it.qtdPedido));
+  if (!lista.length) { toast('✅ Todas as NFs já têm Qtd Pedido preenchida.', 'ok'); return; }
+
   confirm2(
     '🔄 Re-sincronizar Qtd Pedido',
-    semQtd + ' NF(s) com itens sem Qtd Pedido.\n\nO sistema vai buscar cada pedido no Bling e preencher as quantidades.\nIsso pode levar alguns segundos por NF.',
-    () => {
-      setOverlay(true, 'Buscando pedidos no Bling... pode levar alguns segundos.');
-      google.script.run
-        .withSuccessHandler(res => {
-          setOverlay(false);
-          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
-          toast('✅ ' + res.atualizadas + ' NF(s) atualizadas. Recarregando...', 'ok');
-          // Recarrega os dados da planilha
-          google.script.run
-            .withSuccessHandler(r2 => {
-              if (r2.ok) { CE.nfs = r2.nfs || []; atualizarHdrSub(); renderPorNF(); renderPorItem(); }
-            })
-            .withFailureHandler(() => {})
-            .ce_carregarNFs();
-        })
-        .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-        .ce_ressincronizarQtds();
-    }
+    lista.length + ' NF(s) com itens sem Qtd Pedido.\n\nO sistema vai buscar cada pedido Bling e preencher as quantidades.',
+    () => _ressincrProximo(lista, 0, 0)
   );
+}
+
+function _ressincrProximo(lista, i, ok) {
+  if (i >= lista.length) {
+    setOverlay(false);
+    toast('✅ ' + ok + ' NF(s) atualizadas.', ok > 0 ? 'ok' : 'inf');
+    if (ok > 0) { renderPorNF(); renderPorItem(); }
+    return;
+  }
+  const nf = lista[i];
+  setOverlay(true, 'Buscando pedido ' + nf.pedidoBling + ' · NF ' + nf.nNF + ' (' + (i+1) + '/' + lista.length + ')...');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok && res.itens && res.itens.length) {
+        const bmap = {};
+        res.itens.forEach(bi => {
+          if (bi.codForn) bmap[bi.codForn.trim().toLowerCase()] = bi;
+          if (bi.sku)     bmap[bi.sku.trim().toLowerCase()]     = bi;
+        });
+
+        let mudou = false;
+        const novos = nf.itens.map((it, idx) => {
+          if (it.qtdPedido) return it;
+          const key = (it.cProd || '').trim().toLowerCase();
+          let bi = bmap[key] || null;
+          if (!bi) {
+            const sk = CE.codFornSkuMap[(it.cProd||'').trim()] ||
+                       CE.codFornSkuMap[(it.cProd||'').trim().toUpperCase()];
+            if (sk) bi = bmap[sk.trim().toLowerCase()] || null;
+          }
+          if (!bi && res.itens[idx]) bi = res.itens[idx]; // posicional
+          if (bi && bi.qtd) { mudou = true; return { ...it, qtdPedido: bi.qtd }; }
+          return it;
+        });
+
+        if (mudou) {
+          nf.itens = novos;
+          google.script.run
+            .withSuccessHandler(() => _ressincrProximo(lista, i + 1, ok + 1))
+            .withFailureHandler(e => { toast('⚠ Erro ao salvar NF ' + nf.nNF + ': ' + e.message, 'err'); _ressincrProximo(lista, i + 1, ok); })
+            .ce_atualizarCampo(nf.id, 'itens', novos);
+          return;
+        }
+      } else if (!res.ok) {
+        toast('⚠ NF ' + nf.nNF + ': ' + res.error, 'inf');
+      }
+      _ressincrProximo(lista, i + 1, ok);
+    })
+    .withFailureHandler(e => {
+      toast('⚠ NF ' + nf.nNF + ': ' + e.message, 'err');
+      _ressincrProximo(lista, i + 1, ok);
+    })
+    .ce_buscarPedidoBling(nf.pedidoBling);
 }
 
 function salvarCampo(id, campo, valor) {
