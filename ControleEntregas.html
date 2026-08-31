@@ -834,7 +834,7 @@ function renderConciliacao() {
       <td class="r">${qtdConvCell}</td>
       <td>${skuCell}</td>
       <td class="td-nome td-muted" id="nomeSKU${i}">${escHtml(it.nomeSKU)}</td>
-      <td class="r td-muted">${it.qtdPedido || '—'}</td>
+      <td class="r td-muted">${(it.qtdPedido != null && it.qtdPedido !== '') ? it.qtdPedido : '—'}</td>
       <td>${statusLabel}</td>
     </tr>`;
   }).join('');
@@ -1103,7 +1103,7 @@ function renderPorItem() {
       <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
       <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
       <td class="r" style="font-weight:700;color:var(--orange)">${qtdRecv}</td>
-      <td class="r td-muted">${it.qtdPedido||'—'}</td>
+      <td class="r td-muted">${(it.qtdPedido != null && it.qtdPedido !== '') ? it.qtdPedido : '—'}</td>
       ${_conferirOn ? diffCell : ''}
       <td><span class="status-chip ${cls}" style="cursor:default">${nf.status}</span></td>
     </tr>`;
