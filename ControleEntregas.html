@@ -1777,7 +1777,7 @@ function _renderConfNFSection(nf) {
   const styluHeader     = isStylu ? '<th class="r">Qtd/Cx</th><th class="r">Nº Caixas</th>' : '';
   const saldoHeaders    = mostrarSomenteFaltantes ? '<th class="r">Já recebido</th><th class="r">Faltante</th>' : '';
 
-  // Volume totals
+  // Volume totals (peças)
   const totalNF      = nf.itens.reduce((a, it) => a + (it.qtdNF||0), 0);
   const totalJaConf  = Object.values(prevTotais).reduce((a, b) => a + b, 0);
 
@@ -1787,6 +1787,22 @@ function _renderConfNFSection(nf) {
     const pf = rascMap[it.cProd]?.qtdConferida;
     if (pf != null && !isNaN(pf)) initialTotal += Number(pf);
   });
+
+  // Caixas totals (Stylu only)
+  let totalNFCaixas = 0, totalJaConfCaixas = 0, initialCaixas = 0;
+  if (isStylu) {
+    nf.itens.forEach(it => {
+      const qc = CONF.styluMap[it.cProd] || 0;
+      if (qc > 0) totalNFCaixas += Math.ceil((it.qtdNF||0) / qc);
+    });
+    entregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => { totalJaConfCaixas += (ei.caixas || 0); });
+    });
+    itensVisiveis.forEach(it => {
+      const pf = rascMap[it.cProd]?.caixas;
+      if (pf != null && !isNaN(pf)) initialCaixas += Number(pf);
+    });
+  }
 
   const rows = itensVisiveis.map((it, i) => {
     const prevQtd  = prevTotais[it.cProd] || 0;
@@ -1832,6 +1848,13 @@ function _renderConfNFSection(nf) {
           <span style="font-size:11px;color:var(--muted2)">Total geral: <strong style="color:var(--cyan)" id="confTotalGeral_${nf.id}" data-jaconf="${totalJaConf}" data-totalnf="${totalNF}">${totalJaConf + initialTotal}</strong> / ${totalNF} peças
             (<span id="confTotalPct_${nf.id}">${pctTotal}</span>%)</span>
         </div>
+        ${isStylu && totalNFCaixas > 0 ? `<div style="display:flex;gap:16px;margin-top:4px;flex-wrap:wrap;padding:4px 8px;background:rgba(255,109,0,.06);border-radius:6px;border:1px solid rgba(255,109,0,.15)">
+          <span style="font-size:10px;color:var(--muted2);font-weight:600;letter-spacing:.5px">📦 CAIXAS</span>
+          <span style="font-size:11px;color:var(--muted2)">Total NF: <strong style="color:var(--orange)">${totalNFCaixas}</strong> cx</span>
+          ${totalJaConfCaixas > 0 ? `<span style="font-size:11px;color:var(--muted2)">Já conf: <strong style="color:var(--blue)">${totalJaConfCaixas}</strong> cx</span>` : ''}
+          <span style="font-size:11px;color:var(--muted2)">Esta entrega: <strong style="color:var(--green)" id="confCaixasAtual_${nf.id}">${initialCaixas}</strong> cx</span>
+          <span style="font-size:11px;color:var(--muted2)">Faltam: <strong style="color:var(--yellow)" id="confCaixasFaltam_${nf.id}" data-jaconf="${totalJaConfCaixas}" data-totalnf="${totalNFCaixas}">${Math.max(0, totalNFCaixas - totalJaConfCaixas - initialCaixas)}</strong> cx</span>
+        </div>` : ''}
       </div>
       <span class="conf-entrega-badge">${entradaLabel}</span>
       ${_confChipHtml(nf.id, confStatusLabel)}
@@ -1919,6 +1942,22 @@ function confCaixasChanged(nfId, idx, qtdCaixa) {
   const caixas = parseFloat(caixasEl.value) || 0;
   qtdEl.value = +(caixas * qtdCaixa).toFixed(3);
   qtdEl.dispatchEvent(new Event('input'));
+  _atualizarCaixasConf(nfId);
+}
+function _atualizarCaixasConf(nfId) {
+  if (!nfId) return;
+  let total = 0;
+  document.querySelectorAll(`[id^="confCaixas_${nfId}_"]`).forEach(el => {
+    total += parseFloat(el.value) || 0;
+  });
+  const atualEl = document.getElementById('confCaixasAtual_' + nfId);
+  if (atualEl) atualEl.textContent = total;
+  const faltamEl = document.getElementById('confCaixasFaltam_' + nfId);
+  if (faltamEl) {
+    const jaConf  = parseInt(faltamEl.dataset.jaconf  || '0');
+    const totalNF = parseInt(faltamEl.dataset.totalnf || '0');
+    faltamEl.textContent = Math.max(0, totalNF - jaConf - total);
+  }
 }
 
 function confRespChanged() {
