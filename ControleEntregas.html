@@ -231,7 +231,7 @@ td.r { text-align: right; }
 .item-tooltip {
   position: fixed; z-index: 800;
   background: #0d1929; border: 1px solid var(--border);
-  border-radius: 10px; padding: 12px 14px; min-width: 300px; max-width: 420px;
+  border-radius: 10px; padding: 12px 14px; min-width: 360px; max-width: 500px;
   box-shadow: 0 12px 32px rgba(0,0,0,.7); pointer-events: none;
   transition: opacity .15s;
 }
@@ -472,6 +472,7 @@ td.r { text-align: right; }
             <th>Fornecedor</th>
             <th>Empresa</th>
             <th>Entrega</th>
+            <th>Cód. Forn. (NF)</th>
             <th>SKU</th>
             <th>Descrição</th>
             <th class="r">Qtd NF</th>
@@ -625,6 +626,12 @@ function processarXml(file) {
                      sku: '', nomeSKU: '', qtdPedido: 0, matched: false });
       });
 
+      // Bloqueia importação duplicada
+      if (CE.nfs.some(n => n.nNF === nNF && n.empresa === (CNPJ_MAP[cnpjDest] || empresa))) {
+        toast('❌ NF ' + nNF + ' (' + empresa + ') já foi importada!', 'err');
+        return;
+      }
+
       CE.xmlDados  = { nNF, empresa, qtdVolume: qVol };
       CE.xmlItens  = itens;
 
@@ -686,18 +693,14 @@ function avancarPasso3() {
         toast('✅ Pedido Bling encontrado: ' + CE.blingItens.length + ' itens', 'ok');
       }
       _conciliar();
-      document.getElementById('passo2').style.display = 'none';
-      document.getElementById('passo3').style.display = 'block';
-      document.getElementById('step2').className = 'step done';
-      document.getElementById('step3').className = 'step active';
+      _aposConciiliar();
     })
     .withFailureHandler(e => {
       setOverlay(false);
       toast('⚠ Erro ao buscar Bling: ' + e.message + ' — conciliação manual', 'inf');
       CE.blingItens = [];
       _conciliar();
-      document.getElementById('passo2').style.display = 'none';
-      document.getElementById('passo3').style.display = 'block';
+      _aposConciiliar();
     })
     .ce_buscarPedidoBling(numeroPedido);
 }
@@ -732,6 +735,25 @@ function _conciliar() {
   });
 
   renderConciliacao();
+}
+
+// Decide: auto-save se todos conciliados, senão mostra passo3
+function _aposConciiliar() {
+  const none = CE.concItens.filter(it => !it.sku).length;
+  // Mostra passo3
+  document.getElementById('passo2').style.display = 'none';
+  document.getElementById('passo3').style.display = 'block';
+  document.getElementById('step2').className = 'step done';
+  document.getElementById('step3').className = 'step active';
+
+  if (none === 0 && CE.concItens.length > 0) {
+    // Todos conciliados automaticamente — oferece salvar direto
+    confirm2(
+      '✅ Conciliação automática completa',
+      'Todos os ' + CE.concItens.length + ' itens foram conciliados automaticamente pelo código do fornecedor.\n\nDeseja salvar a NF agora?\n(Você ainda pode revisar os itens cancelando.)',
+      () => salvarNF()
+    );
+  }
 }
 
 function renderConciliacao() {
@@ -973,7 +995,7 @@ function renderPorItem() {
   const rows = [];
   CE.nfs.forEach(nf => {
     (nf.itens || []).forEach(it => {
-      if (q && ![nf.nNF,nf.pedidoBling,nf.fornecedor,nf.empresa,it.sku,it.descricaoNF]
+      if (q && ![nf.nNF,nf.pedidoBling,nf.fornecedor,nf.empresa,it.sku,it.descricaoNF,it.cProd]
         .some(v => String(v).toLowerCase().includes(q))) return;
       rows.push({ nf, it });
     });
@@ -988,13 +1010,14 @@ function renderPorItem() {
       <td class="td-nome" title="${escHtml(nf.fornecedor)}">${escHtml(nf.fornecedor)}</td>
       <td style="color:var(--green);font-weight:700;font-size:11px">${escHtml(nf.empresa)}</td>
       <td class="td-muted">${nf.dataEntrega||'—'}</td>
+      <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
       <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
       <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
       <td class="r" style="font-weight:700;color:var(--orange)">${it.qtdNF||0}</td>
       <td class="r td-muted">${it.qtdPedido||'—'}</td>
       <td><span class="status-chip ${cls}" style="cursor:default">${nf.status}</span></td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="10">Nenhum item encontrado</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="11">Nenhum item encontrado</td></tr>`;
 
   document.getElementById('porItem_body').innerHTML = body;
   document.getElementById('porItem_info').textContent = rows.length + ' item(ns)';
@@ -1053,7 +1076,8 @@ function showTooltip(event, nfId) {
 
   const rows = nf.itens.map(it =>
     `<div class="tt-item">
-      <span class="tt-sku">${escHtml(it.sku||it.cProd||'—')}</span>
+      <span style="color:var(--orange);font-family:monospace;font-size:11px;min-width:72px;flex-shrink:0">${escHtml(it.cProd||'—')}</span>
+      <span class="tt-sku">${escHtml(it.sku||'—')}</span>
       <span class="tt-desc" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF||'')}</span>
       <span class="tt-qtd">${it.qtdNF}</span>
     </div>`
