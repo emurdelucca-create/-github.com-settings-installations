@@ -604,6 +604,13 @@ td.r { text-align: right; }
             <input type="text" id="confRespCustom" class="form-input" placeholder="Digite o nome" style="width:160px">
           </div>
           <div style="flex:1"></div>
+          <!-- Modo toggle (only shown when 2+ NFs selected) -->
+          <div id="confModoToggle" style="display:none;align-items:center;gap:0;background:var(--card2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <button id="confModoBtn_sep" onclick="setModoConf('separado')"
+              style="padding:6px 14px;font-size:11px;font-weight:700;border:none;cursor:pointer;background:var(--cyan);color:#000;transition:.15s">Separado</button>
+            <button id="confModoBtn_mesc" onclick="setModoConf('mesclado')"
+              style="padding:6px 14px;font-size:11px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted2);transition:.15s">Mesclado</button>
+          </div>
           <button class="btn btn-ghost btn-sm" onclick="navTo('porNF')">← Voltar para Por NF</button>
         </div>
       </div>
@@ -1593,7 +1600,8 @@ const CONF = {
   resp:           '',
   styluMap:       {},
   styluLoaded:    false,
-  novaEntregaIds: new Set(),  // NFs iniciadas via "Nova Entrega" (mostrar só faltantes)
+  novaEntregaIds: new Set(),
+  modoConf:       'separado', // 'separado' | 'mesclado'
 };
 
 // ── Helpers de status de conferência ─────────────────────
@@ -1764,7 +1772,40 @@ function renderConferencia() {
   }
 
   const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
-  document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
+
+  // Show/hide mode toggle
+  const toggleEl = document.getElementById('confModoToggle');
+  if (toggleEl) toggleEl.style.display = nfs.length >= 2 ? 'flex' : 'none';
+  if (nfs.length < 2) CONF.modoConf = 'separado';
+  _atualizarModoConf();
+
+  if (CONF.modoConf === 'mesclado' && nfs.length >= 2) {
+    document.getElementById('confNFSections').innerHTML = _renderConfMesclado(nfs);
+  } else {
+    document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
+  }
+}
+
+function setModoConf(modo) {
+  CONF.modoConf = modo;
+  _atualizarModoConf();
+  const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
+  if (modo === 'mesclado') {
+    document.getElementById('confNFSections').innerHTML = _renderConfMesclado(nfs);
+  } else {
+    document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
+  }
+}
+
+function _atualizarModoConf() {
+  const sep  = document.getElementById('confModoBtn_sep');
+  const mesc = document.getElementById('confModoBtn_mesc');
+  if (!sep || !mesc) return;
+  const isMesc = CONF.modoConf === 'mesclado';
+  sep.style.background  = isMesc ? 'transparent' : 'var(--cyan)';
+  sep.style.color       = isMesc ? 'var(--muted2)' : '#000';
+  mesc.style.background = isMesc ? 'var(--cyan)' : 'transparent';
+  mesc.style.color      = isMesc ? '#000' : 'var(--muted2)';
 }
 
 function _renderConfNFSection(nf) {
@@ -2051,6 +2092,7 @@ function _getConfResp() {
 }
 
 function _coletarItensDaConferencia() {
+  if (CONF.modoConf === 'mesclado' && CONF.nfIds.length >= 2) return _coletarItensMesclado();
   const resp = _getConfResp();
   const result = {};
   CE.nfs.filter(nf => CONF.nfIds.includes(nf.id)).forEach(nf => {
@@ -2320,6 +2362,195 @@ function _executarFinalizar(dadosConf, nfIds) {
       .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
   }
   proximo();
+}
+
+// ── Conferência Mesclada ──────────────────────────────────
+function _buildMergedItems(nfs) {
+  const order = [];
+  const map   = {};
+  nfs.forEach((nf, j) => {
+    const conf      = nf.conferencia || {};
+    const entregas  = conf.entregas || [];
+    const rascunho  = conf.rascunho || null;
+    const isStylu   = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const isNova    = CONF.novaEntregaIds.has(nf.id) || (rascunho && (rascunho.entregaNumero||1) > 1);
+    const prevTotais = {};
+    (nf.itens||[]).forEach(it => { prevTotais[String(it.cProd||'')] = 0; });
+    entregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => {
+        const k = String(ei.cProd||'');
+        if (prevTotais[k] !== undefined) prevTotais[k] += (ei.qtdConferida||0);
+      });
+    });
+    const rascMap = {};
+    (rascunho?.itens||[]).forEach(it => { rascMap[it.cProd] = it; });
+    let itens = nf.itens||[];
+    if (isNova && entregas.length > 0) itens = itens.filter(it => (prevTotais[String(it.cProd||'')]||0) < it.qtdNF);
+    itens.forEach(it => {
+      const k = String(it.cProd||'');
+      if (!map[k]) {
+        map[k] = { cProd: it.cProd, sku: it.sku||'', nome: it.descricaoNF||'', nfSlots: new Array(nfs.length).fill(null) };
+        order.push(k);
+      }
+      const prevQtd  = prevTotais[k] || 0;
+      const faltante = (it.qtdNF||0) - prevQtd;
+      map[k].nfSlots[j] = {
+        nfId: nf.id, nf, qtdNF: it.qtdNF||0, prevQtd, faltante, isStylu,
+        styluQtd:   isStylu ? (CONF.styluMap[it.cProd]||0) : 0,
+        rascQtd:    rascMap[it.cProd]?.qtdConferida ?? '',
+        rascCaixas: rascMap[it.cProd]?.caixas ?? '',
+        entregas, rascunho,
+      };
+    });
+  });
+  return order.map(k => map[k]);
+}
+
+function _renderConfMesclado(nfs) {
+  const items = _buildMergedItems(nfs);
+  if (!items.length) return '<div style="padding:30px;text-align:center;color:var(--muted2)">Nenhum item a conferir.</div>';
+
+  // Build NF header rows
+  const th1 = nfs.map((nf, j) => {
+    const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const span = isStylu ? 4 : 2; // QTD NF + [QTD/CX + Nº Cx +] Conf
+    return `<th class="r" colspan="${span}" style="color:var(--cyan);font-size:10px;background:rgba(0,229,255,.05);border-right:1px solid var(--border)">NF ${escHtml(nf.nNF)}<span style="color:var(--muted2);font-weight:400"> · ${escHtml(nf.fornecedor)}</span></th>`;
+  }).join('') + '<th class="r" style="font-size:10px">Tot. NF</th><th class="r" style="color:var(--green);font-size:10px">Tot. Conf</th>';
+
+  const th2 = nfs.map((nf, j) => {
+    const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const sth = isStylu ? '<th class="r" style="font-size:10px">QTD/Cx</th><th class="r" style="font-size:10px">Nº Cx</th>' : '';
+    return `<th class="r" style="font-size:10px">QTD</th>${sth}<th class="r" style="font-size:10px;border-right:1px solid var(--border)">Conf</th>`;
+  }).join('') + '<th></th><th></th>';
+
+  const rows = items.map((item, i) => {
+    const totalQtd = item.nfSlots.reduce((a, s) => a + (s ? s.qtdNF : 0), 0);
+    let initConf = 0;
+    const nfCells = nfs.map((nf, j) => {
+      const s = item.nfSlots[j];
+      const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
+      if (!s) {
+        const emptyCols = isStylu ? '<td class="r" style="color:var(--muted2)">—</td><td class="r"></td><td class="r"></td>' : '';
+        return `<td class="r" style="color:var(--muted2)">—</td>${emptyCols}<td class="r" style="border-right:1px solid var(--border)">—</td>`;
+      }
+      const pf   = s.rascQtd !== '' ? s.rascQtd : '';
+      const pfCx = s.rascCaixas !== '' ? s.rascCaixas : '';
+      if (pf !== '' && !isNaN(Number(pf))) initConf += Number(pf);
+      const styluCols = isStylu ? `
+        <td class="r td-muted" style="font-size:11px">${s.styluQtd||'—'}</td>
+        <td class="r"><input type="number" min="0" class="conf-inp" id="mescCx_${i}_${j}" style="width:55px"
+          oninput="mescCxChanged(${i},${j},${s.styluQtd||0})"
+          placeholder="0" value="${escHtml(String(pfCx))}"></td>` : '';
+      return `<td class="r" style="color:var(--orange);font-weight:700">${s.qtdNF}</td>
+        ${styluCols}
+        <td class="r" style="border-right:1px solid var(--border)"><input type="number" min="0" class="conf-inp ${pf!==''?'filled':''}"
+          id="mescQtd_${i}_${j}" style="width:70px" oninput="mescQtdChanged(${i})"
+          placeholder="${s.faltante}" value="${escHtml(String(pf))}"></td>`;
+    }).join('');
+    return `<tr>
+      <td><code style="color:var(--orange);font-size:11px">${escHtml(item.cProd||'—')}</code></td>
+      <td><code style="color:var(--cyan);font-size:11px">${escHtml(item.sku||'—')}</code></td>
+      <td class="td-nome td-muted" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>
+      ${nfCells}
+      <td class="r" style="color:var(--orange);font-weight:700">${totalQtd}</td>
+      <td class="r" style="color:var(--green);font-weight:700" id="mescTotalConf_${i}">${initConf}</td>
+    </tr>`;
+  }).join('');
+
+  const totalQtdAll = items.reduce((a, item) => a + item.nfSlots.reduce((b, s) => b + (s ? s.qtdNF : 0), 0), 0);
+
+  return `<div class="conf-nf-section">
+    <div class="tbl-wrap"><table>
+      <thead><tr><th rowspan="2">Cód. Forn.</th><th rowspan="2">SKU</th><th rowspan="2">Nome</th>${th1}</tr><tr>${th2}</tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
+        <td colspan="3" style="padding:6px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase">Total</td>
+        ${nfs.map((nf,j) => {
+          const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
+          const extra = isStylu ? '<td></td><td></td>' : '';
+          const nfTotal = items.reduce((a, item) => a + (item.nfSlots[j] ? item.nfSlots[j].qtdNF : 0), 0);
+          return `<td class="r" style="color:var(--orange);font-weight:700">${nfTotal}</td>${extra}<td class="r" style="color:var(--green);font-weight:700;border-right:1px solid var(--border)" id="mescFootConf_${j}">0</td>`;
+        }).join('')}
+        <td class="r" style="color:var(--orange);font-weight:700">${totalQtdAll}</td>
+        <td class="r" style="color:var(--green);font-weight:700" id="mescFootTotal">0</td>
+      </tr></tfoot>
+    </table></div>
+  </div>`;
+}
+
+function mescQtdChanged(i) {
+  let rowTotal = 0;
+  const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
+  nfs.forEach((nf, j) => {
+    const el = document.getElementById(`mescQtd_${i}_${j}`);
+    if (el) {
+      el.classList.toggle('filled', el.value !== '' && Number(el.value) >= 0);
+      rowTotal += parseFloat(el.value) || 0;
+    }
+  });
+  const rowEl = document.getElementById('mescTotalConf_' + i);
+  if (rowEl) rowEl.textContent = rowTotal;
+  // Update column footers
+  const items = _buildMergedItems(nfs); // lightweight, just structure
+  nfs.forEach((nf, j) => {
+    let colTotal = 0;
+    items.forEach((_, ii) => {
+      const el = document.getElementById(`mescQtd_${ii}_${j}`);
+      if (el) colTotal += parseFloat(el.value) || 0;
+    });
+    const footEl = document.getElementById(`mescFootConf_${j}`);
+    if (footEl) footEl.textContent = colTotal;
+  });
+  let grandTotal = 0;
+  items.forEach((_, ii) => {
+    const el = document.getElementById('mescTotalConf_' + ii);
+    if (el) grandTotal += parseFloat(el.textContent) || 0;
+  });
+  const grandEl = document.getElementById('mescFootTotal');
+  if (grandEl) grandEl.textContent = grandTotal;
+}
+
+function mescCxChanged(i, j, qtdCaixa) {
+  const cxEl  = document.getElementById(`mescCx_${i}_${j}`);
+  const qtdEl = document.getElementById(`mescQtd_${i}_${j}`);
+  if (!cxEl || !qtdEl || !qtdCaixa) return;
+  qtdEl.value = +(parseFloat(cxEl.value || 0) * qtdCaixa).toFixed(3);
+  mescQtdChanged(i);
+}
+
+function _coletarItensMesclado() {
+  const resp   = _getConfResp();
+  const nfs    = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
+  const items  = _buildMergedItems(nfs);
+  const result = {};
+  nfs.forEach((nf, j) => {
+    const conf     = nf.conferencia || {};
+    const entregas = conf.entregas || [];
+    const rascunho = conf.rascunho || null;
+    const isStylu  = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const entregaNum = rascunho ? (rascunho.entregaNumero || entregas.length + 1) : entregas.length + 1;
+    const prevTotais = {};
+    (nf.itens||[]).forEach(it => { prevTotais[String(it.cProd||'')] = 0; });
+    entregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => {
+        const k = String(ei.cProd||'');
+        if (prevTotais[k] !== undefined) prevTotais[k] += (ei.qtdConferida||0);
+      });
+    });
+    const itensConf = [];
+    items.forEach((item, i) => {
+      const slot = item.nfSlots[j];
+      if (!slot) return;
+      const qtdEl = document.getElementById(`mescQtd_${i}_${j}`);
+      const cxEl  = isStylu ? document.getElementById(`mescCx_${i}_${j}`) : null;
+      const qtd   = qtdEl ? (parseFloat(qtdEl.value) || 0) : 0;
+      const entry = { cProd: item.cProd, sku: item.sku, descricaoNF: item.nome, qtdConferida: qtd };
+      if (cxEl) entry.caixas = parseFloat(cxEl.value) || 0;
+      itensConf.push(entry);
+    });
+    result[nf.id] = { nf, resp, entregas, entregaNum, itensConf, isStylu, prevTotais };
+  });
+  return result;
 }
 
 // ── Excluir NF (com senha) ────────────────────────────────
