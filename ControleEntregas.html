@@ -986,7 +986,7 @@ function renderPorNF() {
       ${isCustom?`<option value="${escHtml(nf.responsavel)}" selected hidden>${escHtml(nf.responsavel)}</option>`:''}
     </select>`;
 
-    const statusHtml = `<span class="status-chip ${sc}" onclick="ciclarStatus('${nf.id}')">${nf.status}</span>`;
+    const statusHtml = `<span class="status-chip ${sc}" onclick="toggleStatusMenu(event,'${nf.id}')" title="Clique para alterar">${nf.status}</span>`;
 
     const nItens = (nf.itens||[]).length;
     const tooltipBtn = `<button class="btn btn-ghost btn-xs"
@@ -1080,14 +1080,58 @@ function mudaResponsavel(id, sel) {
   salvarCampo(id, 'responsavel', sel.value);
 }
 
-function ciclarStatus(id) {
-  const nf  = CE.nfs.find(n => n.id === id);
+let _statusMenuId = null;
+
+function toggleStatusMenu(event, id) {
+  event.stopPropagation();
+  if (_statusMenuId === id) { closeStatusMenu(); return; }
+  closeStatusMenu();
+  _statusMenuId = id;
+
+  const nf   = CE.nfs.find(n => n.id === id);
   if (!nf) return;
-  const idx = STATUS_LIST.indexOf(nf.status);
-  const next = STATUS_LIST[(idx + 1) % STATUS_LIST.length];
-  nf.status = next;
+
+  const menu = document.createElement('div');
+  menu.id = 'statusMenu';
+  menu.style.cssText = [
+    'position:fixed;z-index:700',
+    'background:#0d1929;border:1px solid var(--border)',
+    'border-radius:8px;padding:5px',
+    'box-shadow:0 8px 24px rgba(0,0,0,.7);min-width:170px',
+  ].join(';');
+
+  STATUS_LIST.forEach(s => {
+    const cls  = STATUS_CLASS[s] || 's-aguardando';
+    const isCur = s === nf.status;
+    const div  = document.createElement('div');
+    div.style.cssText = 'padding:3px 4px;cursor:pointer';
+    div.innerHTML = `<span class="status-chip ${cls}" style="display:block;text-align:center;${isCur ? 'outline:2px solid currentColor;outline-offset:2px;' : ''}">${s}</span>`;
+    div.onmousedown = (e) => { e.stopPropagation(); selecionarStatus(id, s); };
+    menu.appendChild(div);
+  });
+
+  document.body.appendChild(menu);
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const mH   = STATUS_LIST.length * 34 + 14;
+  const top  = rect.bottom + 4 + mH > window.innerHeight ? rect.top - mH - 4 : rect.bottom + 4;
+  menu.style.left = Math.min(rect.left, window.innerWidth - 185) + 'px';
+  menu.style.top  = top + 'px';
+}
+
+function closeStatusMenu() {
+  const m = document.getElementById('statusMenu');
+  if (m) m.remove();
+  _statusMenuId = null;
+}
+
+function selecionarStatus(id, status) {
+  const nf = CE.nfs.find(n => n.id === id);
+  if (!nf) return;
+  nf.status = status;
+  closeStatusMenu();
   renderPorNF();
-  salvarCampo(id, 'status', next);
+  salvarCampo(id, 'status', status);
 }
 
 function salvarCampo(id, campo, valor) {
@@ -1196,6 +1240,8 @@ function escHtml(s) {
 function escJs(s) {
   return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
+
+document.addEventListener('click', () => closeStatusMenu());
 </script>
 </body>
 </html>
