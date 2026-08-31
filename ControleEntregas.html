@@ -1738,12 +1738,13 @@ function _renderConfNFSection(nf) {
   const rascunho = conf.rascunho || null;
   const isStylu  = (nf.fornecedor||'').toLowerCase().includes('stylu');
 
-  // Totals from confirmed deliveries
+  // Totals from confirmed deliveries (String keys to avoid numeric vs string mismatch)
   const prevTotais = {};
-  nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
+  nf.itens.forEach(it => { prevTotais[String(it.cProd||'')] = 0; });
   entregas.forEach(ent => {
     (ent.itens||[]).forEach(ei => {
-      if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida || 0);
+      const k = String(ei.cProd||'');
+      if (prevTotais[k] !== undefined) prevTotais[k] += (ei.qtdConferida || 0);
     });
   });
 
@@ -1754,7 +1755,7 @@ function _renderConfNFSection(nf) {
 
   // Items to show
   const itensVisiveis = mostrarSomenteFaltantes
-    ? nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF)
+    ? nf.itens.filter(it => (prevTotais[String(it.cProd||'')]||0) < it.qtdNF)
     : nf.itens;
 
   // Pre-fill from rascunho
@@ -1804,8 +1805,13 @@ function _renderConfNFSection(nf) {
     });
   }
 
+  // Column totals for tfoot
+  const footQtdNF   = itensVisiveis.reduce((a, it) => a + (it.qtdNF||0), 0);
+  const footPrevQtd = itensVisiveis.reduce((a, it) => a + (prevTotais[String(it.cProd||'')]||0), 0);
+  const footFaltante= footQtdNF - footPrevQtd;
+
   const rows = itensVisiveis.map((it, i) => {
-    const prevQtd  = prevTotais[it.cProd] || 0;
+    const prevQtd  = prevTotais[String(it.cProd||'')] || 0;
     const faltante = it.qtdNF - prevQtd;
     const prefill  = rascMap[it.cProd] != null ? (rascMap[it.cProd].qtdConferida ?? '') : '';
     const styluQtd = isStylu ? (CONF.styluMap[it.cProd] || 0) : null;
@@ -1867,6 +1873,17 @@ function _renderConfNFSection(nf) {
           ${saldoHeaders}${styluHeader}<th class="r">Qtd Conferida</th>
         </tr></thead>
         <tbody>${rows}</tbody>
+        <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
+          <td colspan="3" style="padding:6px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Total</td>
+          <td class="r" style="color:var(--orange);font-weight:700;font-size:13px">${footQtdNF}</td>
+          ${mostrarSomenteFaltantes ? `
+            <td class="r" style="color:${footPrevQtd > 0 ? 'var(--blue)' : 'var(--muted2)'};font-weight:700;font-size:13px">${footPrevQtd > 0 ? footPrevQtd : '—'}</td>
+            <td class="r" style="color:var(--orange);font-weight:700;font-size:13px">${footFaltante}</td>` : ''}
+          ${isStylu ? `
+            <td class="r" style="color:var(--muted2)"></td>
+            <td class="r" style="color:var(--green);font-weight:700;font-size:13px" id="confFootCaixas_${nf.id}">${initialCaixas}</td>` : ''}
+          <td class="r" style="color:var(--green);font-weight:700;font-size:13px" id="confFootQtd_${nf.id}">${initialTotal}</td>
+        </tr></tfoot>
       </table>
     </div>
   </div>`;
@@ -1925,6 +1942,8 @@ function _atualizarTotalConf(nfId) {
   });
   const atualEl = document.getElementById('confTotalAtual_' + nfId);
   if (atualEl) atualEl.textContent = total;
+  const footQtdEl = document.getElementById('confFootQtd_' + nfId);
+  if (footQtdEl) footQtdEl.textContent = total;
   const geralEl = document.getElementById('confTotalGeral_' + nfId);
   if (geralEl) {
     const jaConf  = parseInt(geralEl.dataset.jaconf  || '0');
@@ -1952,6 +1971,8 @@ function _atualizarCaixasConf(nfId) {
   });
   const atualEl = document.getElementById('confCaixasAtual_' + nfId);
   if (atualEl) atualEl.textContent = total;
+  const footCxEl = document.getElementById('confFootCaixas_' + nfId);
+  if (footCxEl) footCxEl.textContent = total;
   const faltamEl = document.getElementById('confCaixasFaltam_' + nfId);
   if (faltamEl) {
     const jaConf  = parseInt(faltamEl.dataset.jaconf  || '0');
@@ -1994,16 +2015,17 @@ function _coletarItensDaConferencia() {
     const entregaNum    = rascunho ? (rascunho.entregaNumero || entregas.length + 1) : entregas.length + 1;
 
     const prevTotais = {};
-    nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
+    nf.itens.forEach(it => { prevTotais[String(it.cProd||'')] = 0; });
     entregas.forEach(ent => {
       (ent.itens||[]).forEach(ei => {
-        if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida||0);
+        const k = String(ei.cProd||'');
+        if (prevTotais[k] !== undefined) prevTotais[k] += (ei.qtdConferida||0);
       });
     });
 
     const mostrarSomenteFaltantes = isNovaEntrega && entregas.length > 0;
     const itensVisiveis = mostrarSomenteFaltantes
-      ? nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF)
+      ? nf.itens.filter(it => (prevTotais[String(it.cProd||'')]||0) < it.qtdNF)
       : nf.itens;
 
     const itensConf = itensVisiveis.map((it, i) => {
