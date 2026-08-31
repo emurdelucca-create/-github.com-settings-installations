@@ -33,8 +33,9 @@ const PC_EMPRESAS = [
 ];
 const PC_NCOLS_COMP = 66;  // lê até col BN (1-indexed)
 
-const PC_CTRL_SKU   = 11;  // col L
-const PC_CTRL_PREC  = 16;  // col Q
+const PC_CTRL_COD_FORN = 10; // col K
+const PC_CTRL_SKU      = 11; // col L
+const PC_CTRL_PREC     = 16; // col Q
 
 const BLING_REDIRECT = 'https://www.google.com';
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
@@ -265,6 +266,34 @@ function pc_buscarProdutosBling(skus) {
       produtos[sku] = { id: null, nome: nomeMap[sku] || sku };
     }
     return { ok: true, produtos };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Importar último cód. fornecedor por SKU (Controle de Compras) ─
+// Lê a planilha Controle de Compras e retorna o ÚLTIMO código de fornecedor
+// encontrado para cada SKU solicitado (a linha mais recente vence).
+function pc_importarCodsFornecedor(skus) {
+  try {
+    const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
+    const aba     = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
+    const lastRow = aba.getLastRow();
+    if (lastRow < 2) return { ok: true, codigos: {} };
+
+    const skuSet = new Set(skus.map(s => String(s).trim()));
+    const ncols  = Math.max(PC_CTRL_COD_FORN, PC_CTRL_SKU) + 1;
+    const raw    = aba.getRange(2, 1, lastRow - 1, ncols).getValues();
+
+    // Percorre de cima para baixo — a última linha de cada SKU substitui as anteriores
+    const codigos = {};
+    raw.forEach(r => {
+      const sku = String(r[PC_CTRL_SKU]      || '').trim();
+      const cod = String(r[PC_CTRL_COD_FORN] || '').trim();
+      if (sku && cod && skuSet.has(sku)) codigos[sku] = cod;
+    });
+
+    return { ok: true, codigos };
   } catch(e) {
     return { ok: false, error: e.message };
   }

@@ -811,6 +811,12 @@ function renderTabContent(idx) {
             ↓ Preços planilha
           </button>
         </div>
+        <div class="field-group" style="justify-content:flex-end">
+          <span class="field-label">&nbsp;</span>
+          <button class="btn btn-ghost btn-sm" style="color:var(--yellow);border-color:rgba(255,214,0,.3)" onclick="importarCodsFornecedor(${idx})" title="Preenche o Cód. Fornecedor de cada item com o último código registrado na planilha Controle de Compras">
+            📥 Importar Cód. Forn.
+          </button>
+        </div>
         <div style="flex:1"></div>
         <div class="field-group" style="justify-content:flex-end">
           <span class="field-label">&nbsp;</span>
@@ -1018,6 +1024,47 @@ function preencherPrecosPlanilha(idx) {
   renderTabContent(idx);
   salvarEstado();
   toast('✅ Preços da planilha aplicados em ' + count + ' iten(s)', 'ok');
+}
+
+// ── Importar cód. fornecedor da planilha Controle ─────────────
+function importarCodsFornecedor(idx) {
+  const tab  = S.tabs[idx];
+  const skus = tab.itens.map(it => it.sku);
+
+  confirm2(
+    '📥 Importar Cód. Fornecedor?',
+    'Vai buscar o último código de fornecedor registrado na planilha Controle de Compras para cada SKU desta aba.\n\nPreenche o Cód. Fornecedor principal e todos os campos de clone. Valores já preenchidos serão substituídos.',
+    () => {
+      setOverlay(true, 'Buscando códigos na planilha Controle de Compras...');
+      google.script.run
+        .withSuccessHandler(res => {
+          setOverlay(false);
+          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+
+          let count = 0;
+          tab.itens.forEach(it => {
+            const cod = res.codigos[it.sku];
+            if (!cod) return;
+            it.codForn = cod;
+            // Preenche também todas as colunas clone
+            if (tab.clonar) {
+              it.codsForn = it.codsForn.map(() => cod);
+            }
+            count++;
+          });
+
+          if (!count) {
+            toast('ℹ Nenhum código encontrado para os SKUs desta aba', 'inf');
+            return;
+          }
+          renderTabContent(idx);
+          salvarEstado();
+          toast('✅ Cód. Fornecedor importado em ' + count + ' item(ns)', 'ok');
+        })
+        .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+        .pc_importarCodsFornecedor(skus);
+    }
+  );
 }
 
 // ── Filtro de tabela ──────────────────────────────────────────
