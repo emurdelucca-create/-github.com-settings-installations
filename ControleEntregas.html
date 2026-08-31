@@ -337,6 +337,13 @@ td.r { text-align: right; }
   cursor: pointer; font-family: inherit; min-width: 180px;
 }
 .conf-resp-sel:focus { border-color: var(--cyan); }
+
+/* Conference history */
+.hist-body { }
+.hist-body.hidden { display: none; }
+
+/* Verification panel */
+.conf-verif-panel { border-radius: 10px; padding: 16px; margin-bottom: 16px; background: rgba(255,68,68,.06); border: 1px solid rgba(255,68,68,.3); }
 </style>
 </head>
 <body>
@@ -602,9 +609,13 @@ td.r { text-align: right; }
       <!-- NF sections (rendered dynamically) -->
       <div id="confNFSections"></div>
 
+      <!-- Verification panel (shown when finalizar has differences) -->
+      <div id="confVerificacaoPanel" style="display:none"></div>
+
       <!-- Bottom actions -->
       <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px;padding-bottom:40px">
-        <button class="btn btn-blue" onclick="salvarRascunho()">📝 Salvar Rascunho</button>
+        <button class="btn btn-ghost btn-sm" onclick="salvarRascunho()">📝 Salvar Rascunho</button>
+        <button class="btn btn-blue" onclick="salvarEntrega()">📦 Salvar Entrega</button>
         <button class="btn btn-orange" onclick="finalizarConferencia()">✅ Finalizar Conferência</button>
       </div>
     </div>
@@ -643,6 +654,19 @@ td.r { text-align: right; }
       <button class="btn btn-ghost btn-sm" onclick="closeModal('blingModal')">Fechar</button>
     </div>
     <div id="blingErr" style="margin-top:8px;font-size:12px;color:var(--red);display:none"></div>
+  </div>
+</div>
+
+<!-- Modal confirm entrega -->
+<div class="modal-bg" id="confEntregaModal">
+  <div class="modal" style="max-width:640px;max-height:80vh;overflow-y:auto">
+    <div class="modal-title">📦 Confirmar Entrega</div>
+    <div style="font-size:12px;color:var(--muted2);margin-bottom:14px">Verifique os itens abaixo antes de confirmar. Após confirmado, esta entrega ficará no histórico.</div>
+    <div id="confEntregaBody"></div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('confEntregaModal')">Cancelar</button>
+      <button class="btn btn-green btn-sm" id="confEntregaOk">✅ Confirmar Entrega</button>
+    </div>
   </div>
 </div>
 
@@ -1146,8 +1170,18 @@ function renderPorNF() {
 
     const statusHtml = `<span class="status-chip ${sc}" onclick="toggleStatusMenu(event,'${nf.id}')" title="Clique para alterar">${nf.status}</span>`;
 
-    const confStatus = _confStatus(nf);
-    const confHtml   = _confChipHtml(nf.id, confStatus);
+    const confStatus  = _confStatus(nf);
+    const confEntregas = nf.conferencia?.entregas || [];
+    let hasMissing = false;
+    if (confEntregas.length > 0 && (nf.itens||[]).length > 0) {
+      const tot = {};
+      nf.itens.forEach(it => { tot[it.cProd] = 0; });
+      confEntregas.forEach(ent => { (ent.itens||[]).forEach(ei => { if(tot[ei.cProd]!==undefined) tot[ei.cProd]+=(ei.qtdConferida||0); }); });
+      hasMissing = nf.itens.some(it => (tot[it.cProd]||0) < it.qtdNF);
+    }
+    const novaEntregaBtn = hasMissing
+      ? `<button class="btn btn-ghost btn-xs" style="margin-top:5px;display:block" onclick="event.stopPropagation();iniciarNovaEntrega('${nf.id}')">🚚 Nova Entrega</button>` : '';
+    const confHtml = _confChipHtml(nf.id, confStatus) + novaEntregaBtn;
 
     const nItens = (nf.itens||[]).length;
     const tooltipBtn = `<button class="btn btn-ghost btn-xs"
@@ -1520,17 +1554,20 @@ document.addEventListener('click', () => { closeStatusMenu(); hideParcialTooltip
 // ── CONFERÊNCIA ────────────────────────────────────────────
 
 const CONF = {
-  nfIds:    [],        // IDs selecionados em Por NF
-  resp:     '',        // responsável da conferência atual
-  styluMap: {},        // cProd → qtd/caixa (Stylu)
-  styluLoaded: false,
+  nfIds:          [],
+  resp:           '',
+  styluMap:       {},
+  styluLoaded:    false,
+  novaEntregaIds: new Set(),  // NFs iniciadas via "Nova Entrega" (mostrar só faltantes)
 };
 
 // ── Helpers de status de conferência ─────────────────────
 function _confStatus(nf) {
   const c = nf.conferencia;
-  if (!c || !c.status) return 'Pendente';
-  return c.status;
+  if (!c) return 'Pendente';
+  if (c.status) return c.status;
+  if (c.rascunho) return 'Em Andamento';
+  return 'Pendente';
 }
 
 function _confChipHtml(nfId, status) {
@@ -1604,6 +1641,7 @@ function toggleCbNF(cb, id) {
     if (!CONF.nfIds.includes(id)) CONF.nfIds.push(id);
   } else {
     CONF.nfIds = CONF.nfIds.filter(x => x !== id);
+    CONF.novaEntregaIds.delete(id);
   }
   _atualizarConfActionBar();
 }
@@ -1614,13 +1652,14 @@ function toggleTodas(cb) {
     const id = c.dataset.id;
     c.checked = cb.checked;
     if (cb.checked) { if (!CONF.nfIds.includes(id)) CONF.nfIds.push(id); }
-    else CONF.nfIds = CONF.nfIds.filter(x => x !== id);
+    else { CONF.nfIds = CONF.nfIds.filter(x => x !== id); CONF.novaEntregaIds.delete(id); }
   });
   _atualizarConfActionBar();
 }
 
 function limparSelecaoNF() {
   CONF.nfIds = [];
+  CONF.novaEntregaIds.clear();
   renderPorNF();
 }
 
@@ -1635,21 +1674,30 @@ function _atualizarConfActionBar() {
 
 function iniciarConferencia() {
   if (!CONF.nfIds.length) return;
-  // Carrega dados Stylu se necessário
+  _carregarStyluSeNeeded(CONF.nfIds, () => navTo('conferencia'));
+}
+
+function iniciarNovaEntrega(nfId) {
+  CONF.nfIds = [nfId];
+  CONF.novaEntregaIds.add(nfId);
+  _carregarStyluSeNeeded([nfId], () => navTo('conferencia'));
+}
+
+function _carregarStyluSeNeeded(nfIds, cb) {
   const precisaStylu = CE.nfs.some(nf =>
-    CONF.nfIds.includes(nf.id) && (nf.fornecedor||'').toLowerCase().includes('stylu'));
+    nfIds.includes(nf.id) && (nf.fornecedor||'').toLowerCase().includes('stylu'));
   if (precisaStylu && !CONF.styluLoaded) {
     setOverlay(true, 'Carregando tabela Stylu...');
     google.script.run
       .withSuccessHandler(res => {
         setOverlay(false);
         if (res.ok) { CONF.styluMap = res.map || {}; CONF.styluLoaded = true; }
-        navTo('conferencia');
+        cb();
       })
-      .withFailureHandler(() => { setOverlay(false); navTo('conferencia'); })
+      .withFailureHandler(() => { setOverlay(false); cb(); })
       .ce_buscarQtdCaixaStylu();
   } else {
-    navTo('conferencia');
+    cb();
   }
 }
 
@@ -1657,6 +1705,8 @@ function iniciarConferencia() {
 function renderConferencia() {
   const empty = document.getElementById('confEmpty');
   const form  = document.getElementById('confForm');
+  const verif = document.getElementById('confVerificacaoPanel');
+  if (verif) verif.style.display = 'none';
 
   if (!CONF.nfIds.length) {
     empty.style.display = 'block';
@@ -1666,11 +1716,11 @@ function renderConferencia() {
   empty.style.display = 'none';
   form.style.display  = 'block';
 
-  // Restaurar responsável salvo
+  // Pre-fill responsável
   const respSel = document.getElementById('confResp');
   if (CONF.resp && respSel) {
-    const opt = [...respSel.options].find(o => o.value === CONF.resp || o.textContent === CONF.resp);
-    if (opt) respSel.value = opt.value;
+    const KNOWN = ['Kauã','Nicolas','Marcos','Eduardo','Iolanda','Lucas'];
+    if (KNOWN.includes(CONF.resp)) respSel.value = CONF.resp;
     else {
       respSel.value = '__outro__';
       document.getElementById('confRespCustomWrap').style.display = '';
@@ -1679,17 +1729,16 @@ function renderConferencia() {
   }
 
   const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
-  const sectionsEl = document.getElementById('confNFSections');
-  sectionsEl.innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
+  document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
 }
 
 function _renderConfNFSection(nf) {
-  const conf       = nf.conferencia || { entregas: [] };
-  const entregas   = conf.entregas || [];
-  const entregaNum = entregas.length + 1;
-  const isStylu    = (nf.fornecedor||'').toLowerCase().includes('stylu');
+  const conf     = nf.conferencia || {};
+  const entregas = conf.entregas || [];
+  const rascunho = conf.rascunho || null;
+  const isStylu  = (nf.fornecedor||'').toLowerCase().includes('stylu');
 
-  // Compute totals already conferenced in previous deliveries
+  // Totals from confirmed deliveries
   const prevTotais = {};
   nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
   entregas.forEach(ent => {
@@ -1698,54 +1747,65 @@ function _renderConfNFSection(nf) {
     });
   });
 
-  // Items to show: for 1st delivery show all; for subsequent show only missing
-  const itensVisiveis = entregaNum === 1
-    ? nf.itens
-    : nf.itens.filter(it => (prevTotais[it.cProd] || 0) < it.qtdNF);
+  // Determine delivery number and mode
+  const isNovaEntrega = CONF.novaEntregaIds.has(nf.id) || (rascunho && (rascunho.entregaNumero || 1) > 1);
+  const entregaNum = rascunho ? (rascunho.entregaNumero || entregas.length + 1) : entregas.length + 1;
+  const mostrarSomenteFaltantes = isNovaEntrega && entregas.length > 0;
 
-  if (entregaNum > 1 && itensVisiveis.length === 0) {
+  // Items to show
+  const itensVisiveis = mostrarSomenteFaltantes
+    ? nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF)
+    : nf.itens;
+
+  // Pre-fill from rascunho
+  const rascMap = {};
+  (rascunho?.itens || []).forEach(it => { rascMap[it.cProd] = it; });
+
+  if (mostrarSomenteFaltantes && itensVisiveis.length === 0) {
     return `<div class="conf-nf-section">
       <div class="conf-nf-hdr">
-        <div>
-          <div class="conf-nf-title">NF ${escHtml(nf.nNF)}</div>
-          <div class="conf-nf-sub">${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)}</div>
-        </div>
-        <span class="conf-chip conf-finalizada">Totalmente conferido</span>
+        <div style="flex:1"><div class="conf-nf-title">NF ${escHtml(nf.nNF)}</div>
+        <div class="conf-nf-sub">${escHtml(nf.fornecedor)} · ${escHtml(nf.empresa)}</div></div>
+        <span class="conf-chip conf-finalizada">✅ Totalmente conferido</span>
       </div>
-      <div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✅ Todos os itens desta NF já foram conferidos.</div>
+      <div style="padding:20px;text-align:center;color:var(--green);font-size:13px">Todos os itens já foram conferidos nas entregas anteriores.</div>
     </div>`;
   }
 
-  const styluHeader = isStylu ? '<th class="r">Qtd/Caixa</th><th class="r">Nº Caixas</th>' : '';
+  const historicoHtml = _renderHistorico(entregas, nf.itens, prevTotais);
+
+  const styluHeader     = isStylu ? '<th class="r">Qtd/Cx</th><th class="r">Nº Caixas</th>' : '';
+  const saldoHeaders    = mostrarSomenteFaltantes ? '<th class="r">Já recebido</th><th class="r">Faltante</th>' : '';
+
   const rows = itensVisiveis.map((it, i) => {
     const prevQtd  = prevTotais[it.cProd] || 0;
     const faltante = it.qtdNF - prevQtd;
-    const styluQtd = isStylu ? (CONF.styluMap[it.cProd] || '—') : null;
+    const prefill  = rascMap[it.cProd] != null ? (rascMap[it.cProd].qtdConferida ?? '') : '';
+    const styluQtd = isStylu ? (CONF.styluMap[it.cProd] || 0) : null;
 
     const styluCells = isStylu ? `
-      <td class="r td-muted" style="font-size:11px">${styluQtd}</td>
+      <td class="r td-muted" style="font-size:11px">${styluQtd||'—'}</td>
       <td class="r"><input type="number" min="0" class="conf-inp" id="confCaixas_${nf.id}_${i}"
-        oninput="confCaixasChanged('${nf.id}',${i},${typeof styluQtd==='number'?styluQtd:0})"
-        placeholder="0" style="width:60px"></td>` : '';
+        oninput="confCaixasChanged('${nf.id}',${i},${styluQtd||0})"
+        placeholder="0" style="width:60px" value="${rascMap[it.cProd]?.caixas ?? ''}"></td>` : '';
 
-    const prevBadge = prevQtd > 0
-      ? `<span style="font-size:9px;color:var(--blue);margin-left:4px">(já: ${prevQtd})</span>` : '';
-    const faltLabel = entregaNum > 1
-      ? `<span style="font-size:9px;color:var(--orange)"> · falta: ${faltante}</span>` : '';
+    const saldoCells = mostrarSomenteFaltantes ? `
+      <td class="r" style="color:var(--blue);font-size:11px;font-weight:600">${prevQtd}</td>
+      <td class="r" style="color:var(--orange);font-weight:700">${faltante}</td>` : '';
 
     return `<tr>
       <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
       <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
       <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
-      <td class="r" style="color:var(--orange);font-weight:700">${it.qtdNF}${prevBadge}${faltLabel}</td>
+      <td class="r" style="color:var(--orange);font-weight:700">${it.qtdNF}</td>
+      ${saldoCells}
       ${styluCells}
-      <td class="r"><input type="number" min="0" class="conf-inp" id="confQtd_${nf.id}_${i}"
-        oninput="confQtdChanged(this)"
-        placeholder="${faltante}" data-faltante="${faltante}"></td>
+      <td class="r"><input type="number" min="0" class="conf-inp ${prefill!==''?'filled':''}" id="confQtd_${nf.id}_${i}"
+        oninput="confQtdChanged(this)" value="${prefill}" placeholder="${faltante}"></td>
     </tr>`;
   }).join('');
 
-  const entradaLabel = entregaNum === 1 ? '1ª Entrega' : entregaNum + 'ª Entrega';
+  const entradaLabel = entregaNum + 'ª Entrega';
   const confStatusLabel = _confStatus(nf);
 
   return `<div class="conf-nf-section">
@@ -1757,17 +1817,57 @@ function _renderConfNFSection(nf) {
       <span class="conf-entrega-badge">${entradaLabel}</span>
       ${_confChipHtml(nf.id, confStatusLabel)}
     </div>
+    ${historicoHtml}
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Cód. Fornecedor</th><th>SKU</th><th>Nome</th>
-          <th class="r">Qtd NF</th>
-          ${styluHeader}
-          <th class="r">Qtd Conferida</th>
+          <th>Cód. Fornecedor</th><th>SKU</th><th>Nome</th><th class="r">Qtd NF</th>
+          ${saldoHeaders}${styluHeader}<th class="r">Qtd Conferida</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
+  </div>`;
+}
+
+function _renderHistorico(entregas, nfItens, prevTotais) {
+  if (!entregas.length) return '';
+  const totalConf = Object.values(prevTotais).reduce((a, b) => a + b, 0);
+  const totalNF   = nfItens.reduce((a, it) => a + (it.qtdNF||0), 0);
+  const pct       = totalNF > 0 ? Math.round(totalConf / totalNF * 100) : 0;
+  const pctColor  = pct >= 100 ? 'var(--green)' : pct > 0 ? 'var(--yellow)' : 'var(--muted2)';
+
+  let rows = '';
+  entregas.forEach(ent => {
+    const totalPcs = ent.totalPecas || (ent.itens||[]).reduce((a, ei) => a + (ei.qtdConferida||0), 0);
+    const itensHtml = (ent.itens||[]).map(ei => {
+      const nfItem = nfItens.find(x => x.cProd === ei.cProd);
+      return `<span style="background:rgba(68,138,255,.08);border:1px solid rgba(68,138,255,.18);border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
+        <span style="color:var(--orange);font-family:monospace">${escHtml(ei.cProd)}</span>
+        <span style="color:var(--muted2);margin:0 3px">${escHtml(nfItem?.sku||'')}</span>
+        <span style="color:var(--cyan);font-weight:700">×${ei.qtdConferida}</span>
+      </span>`;
+    }).join('');
+    rows += `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+        <span class="conf-entrega-badge">${ent.numero}ª Entrega</span>
+        <span style="color:var(--muted2);font-size:11px">📅 ${escHtml(ent.data||'')}</span>
+        <span style="color:var(--muted2);font-size:11px">👤 ${escHtml(ent.responsavel||'—')}</span>
+        <span style="color:var(--green);font-size:11px;font-weight:700">📦 ${totalPcs} peças</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">${itensHtml}</div>
+    </div>`;
+  });
+
+  return `<div style="border-bottom:1px solid var(--border)">
+    <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+      style="width:100%;text-align:left;background:rgba(0,0,0,.25);border:none;color:var(--muted2);font-size:11px;padding:8px 18px;cursor:pointer;display:flex;align-items:center;gap:8px">
+      <span style="font-weight:700">📋 Histórico de Entregas</span>
+      <span style="color:var(--cyan)">${entregas.length} entrega(s)</span>·
+      <span style="color:${pctColor};font-weight:700">${totalConf}/${totalNF} peças (${pct}%)</span>
+      <span style="margin-left:auto;font-size:10px">▼</span>
+    </button>
+    <div class="hist-body hidden" style="padding:0 18px 4px">${rows}</div>
   </div>`;
 }
 
@@ -1805,13 +1905,17 @@ function _getConfResp() {
 }
 
 function _coletarItensDaConferencia() {
-  const resp   = _getConfResp();
+  const resp = _getConfResp();
   const result = {};
   CE.nfs.filter(nf => CONF.nfIds.includes(nf.id)).forEach(nf => {
-    const conf       = nf.conferencia || { entregas: [] };
-    const entregas   = conf.entregas || [];
-    const entregaNum = entregas.length + 1;
-    const isStylu    = (nf.fornecedor||'').toLowerCase().includes('stylu');
+    const conf     = nf.conferencia || {};
+    const entregas = conf.entregas || [];
+    const rascunho = conf.rascunho;
+    const isStylu  = (nf.fornecedor||'').toLowerCase().includes('stylu');
+
+    const isNovaEntrega = CONF.novaEntregaIds.has(nf.id) || (rascunho && (rascunho.entregaNumero||1) > 1);
+    const entregaNum    = rascunho ? (rascunho.entregaNumero || entregas.length + 1) : entregas.length + 1;
+
     const prevTotais = {};
     nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
     entregas.forEach(ent => {
@@ -1819,21 +1923,22 @@ function _coletarItensDaConferencia() {
         if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida||0);
       });
     });
-    const itensVisiveis = entregaNum === 1
-      ? nf.itens
-      : nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF);
+
+    const mostrarSomenteFaltantes = isNovaEntrega && entregas.length > 0;
+    const itensVisiveis = mostrarSomenteFaltantes
+      ? nf.itens.filter(it => (prevTotais[it.cProd]||0) < it.qtdNF)
+      : nf.itens;
 
     const itensConf = itensVisiveis.map((it, i) => {
-      const qtdEl   = document.getElementById('confQtd_' + nf.id + '_' + i);
-      const caixasEl= isStylu ? document.getElementById('confCaixas_' + nf.id + '_' + i) : null;
-      const qtd     = qtdEl ? (parseFloat(qtdEl.value) || 0) : 0;
-      const caixas  = caixasEl ? (parseFloat(caixasEl.value) || 0) : undefined;
-      const entry   = { cProd: it.cProd, qtdConferida: qtd };
-      if (caixas !== undefined) entry.caixas = caixas;
+      const qtdEl    = document.getElementById('confQtd_' + nf.id + '_' + i);
+      const caixasEl = isStylu ? document.getElementById('confCaixas_' + nf.id + '_' + i) : null;
+      const qtd      = qtdEl ? (parseFloat(qtdEl.value) || 0) : 0;
+      const entry    = { cProd: it.cProd, sku: it.sku||'', descricaoNF: it.descricaoNF||'', qtdConferida: isNaN(qtd) ? 0 : qtd };
+      if (caixasEl) entry.caixas = parseFloat(caixasEl.value) || 0;
       return entry;
     });
 
-    result[nf.id] = { nf, resp, entregas, entregaNum, itensConf, isStylu };
+    result[nf.id] = { nf, resp, entregas, entregaNum, itensConf, isStylu, prevTotais };
   });
   return result;
 }
@@ -1844,6 +1949,7 @@ function _agora() {
     + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
 
+// ── Salvar Rascunho (draft, mantém itens editáveis) ──────
 function salvarRascunho() {
   const resp = _getConfResp();
   if (!resp) { toast('❌ Selecione o responsável antes de salvar', 'err'); return; }
@@ -1856,11 +1962,18 @@ function salvarRascunho() {
   setOverlay(true, 'Salvando rascunho...');
   let idx = 0;
   function proximo() {
-    if (idx >= nfIds.length) { setOverlay(false); toast('📝 Rascunho salvo!', 'ok'); renderConferencia(); return; }
+    if (idx >= nfIds.length) {
+      setOverlay(false);
+      toast('📝 Rascunho salvo! Continue editando quando quiser.', 'ok');
+      return;
+    }
     const d = dadosConf[nfIds[idx]];
-    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, itens: d.itensConf };
-    const novasEntregas = [...d.entregas, novaEntrega];
-    const confObj = { status: 'Em Andamento', responsavel: d.resp, entregas: novasEntregas };
+    const novoRascunho = { entregaNumero: d.entregaNum, responsavel: d.resp, itens: d.itensConf };
+    const confObj = {
+      status: d.nf.conferencia?.status || 'Em Andamento',
+      rascunho: novoRascunho,
+      entregas: d.entregas,
+    };
     d.nf.conferencia = confObj;
     idx++;
     google.script.run
@@ -1871,6 +1984,78 @@ function salvarRascunho() {
   proximo();
 }
 
+// ── Salvar Entrega (confirma e grava no histórico) ───────
+function salvarEntrega() {
+  const resp = _getConfResp();
+  if (!resp) { toast('❌ Selecione o responsável antes de salvar', 'err'); return; }
+  CONF.resp = resp;
+
+  const dadosConf = _coletarItensDaConferencia();
+  const nfIds = Object.keys(dadosConf);
+  if (!nfIds.length) return;
+
+  // Build confirmation modal content
+  let bodyHtml = '';
+  nfIds.forEach(id => {
+    const d = dadosConf[id];
+    const totalPecas = d.itensConf.reduce((a, it) => a + (it.qtdConferida||0), 0);
+    bodyHtml += `<div style="margin-bottom:16px">
+      <div style="font-weight:700;color:var(--cyan);margin-bottom:6px">NF ${escHtml(d.nf.nNF)} — ${escHtml(d.nf.fornecedor)}</div>
+      <div style="font-size:11px;color:var(--muted2);margin-bottom:8px">${d.entregaNum}ª Entrega · Responsável: <strong style="color:var(--text)">${escHtml(d.resp)}</strong> · Total: <strong style="color:var(--green)">${totalPecas} peças</strong></div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">Cód. Forn.</th>
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">SKU</th>
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">Nome</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted2)">Qtd Conferida</th>
+        </tr></thead>
+        <tbody>`;
+    d.itensConf.forEach(it => {
+      bodyHtml += `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+        <td style="padding:4px 8px"><code style="color:var(--orange)">${escHtml(it.cProd)}</code></td>
+        <td style="padding:4px 8px"><code style="color:var(--cyan)">${escHtml(it.sku||'—')}</code></td>
+        <td style="padding:4px 8px;color:var(--muted2);max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml(it.descricaoNF||'')}</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700;color:var(--green)">${it.qtdConferida}</td>
+      </tr>`;
+    });
+    bodyHtml += `</tbody></table></div>`;
+  });
+
+  document.getElementById('confEntregaBody').innerHTML = bodyHtml;
+  document.getElementById('confEntregaOk').onclick = () => {
+    closeModal('confEntregaModal');
+    _executarSalvarEntrega(dadosConf, nfIds);
+  };
+  document.getElementById('confEntregaModal').classList.add('open');
+}
+
+function _executarSalvarEntrega(dadosConf, nfIds) {
+  setOverlay(true, 'Salvando entrega...');
+  let idx = 0;
+  function proximo() {
+    if (idx >= nfIds.length) {
+      setOverlay(false);
+      toast('📦 Entrega salva com sucesso!', 'ok');
+      nfIds.forEach(id => CONF.novaEntregaIds.delete(id));
+      renderConferencia();
+      return;
+    }
+    const d = dadosConf[nfIds[idx]];
+    const totalPecas = d.itensConf.reduce((a, it) => a + (it.qtdConferida||0), 0);
+    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: d.itensConf };
+    const novasEntregas = [...d.entregas, novaEntrega];
+    const confObj = { status: 'Em Andamento', rascunho: null, entregas: novasEntregas };
+    d.nf.conferencia = confObj;
+    idx++;
+    google.script.run
+      .withSuccessHandler(() => proximo())
+      .withFailureHandler(e => { toast('⚠ Erro: ' + e.message, 'err'); idx++; proximo(); })
+      .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
+  }
+  proximo();
+}
+
+// ── Finalizar Conferência ────────────────────────────────
 function finalizarConferencia() {
   const resp = _getConfResp();
   if (!resp) { toast('❌ Selecione o responsável antes de finalizar', 'err'); return; }
@@ -1880,83 +2065,114 @@ function finalizarConferencia() {
   const nfIds = Object.keys(dadosConf);
   if (!nfIds.length) return;
 
-  let vazios = 0;
+  // Compute final totals to detect differences
+  const resumo = [];
   nfIds.forEach(id => {
     const d = dadosConf[id];
-    d.itensConf.forEach((it, i) => {
-      const el = document.getElementById('confQtd_' + id + '_' + i);
-      if (!el || el.value === '') vazios++;
-    });
+    const allTotais = {};
+    d.nf.itens.forEach(it => { allTotais[it.cProd] = d.prevTotais[it.cProd] || 0; });
+    d.itensConf.forEach(ei => { if (allTotais[ei.cProd] !== undefined) allTotais[ei.cProd] += (ei.qtdConferida||0); });
+    const itensResumo = d.nf.itens.map(it => ({
+      cProd: it.cProd, sku: it.sku||'', descricaoNF: it.descricaoNF||'',
+      qtdNF: it.qtdNF, totalConferido: allTotais[it.cProd]||0,
+      diferenca: (allTotais[it.cProd]||0) - it.qtdNF,
+    }));
+    resumo.push({ ...d, itensResumo });
   });
 
-  function _executarFinalizar(fillRemaining) {
-    setOverlay(true, 'Finalizando conferência...');
-    let idx = 0;
-    function proximo() {
-      if (idx >= nfIds.length) {
-        setOverlay(false);
-        toast('✅ Conferência finalizada!', 'ok');
-        CONF.nfIds = [];
-        renderPorNF();
-        navTo('porNF');
-        return;
-      }
-      const d = dadosConf[nfIds[idx]];
+  const hasDiferenca = resumo.some(r => r.itensResumo.some(it => it.diferenca !== 0));
 
-      // Se fillRemaining, preenche itens vazios com o valor faltante
-      if (fillRemaining) {
-        const prevTotais = {};
-        d.nf.itens.forEach(it => { prevTotais[it.cProd] = 0; });
-        d.entregas.forEach(ent => {
-          (ent.itens||[]).forEach(ei => {
-            if (prevTotais[ei.cProd] !== undefined) prevTotais[ei.cProd] += (ei.qtdConferida||0);
-          });
-        });
-        d.itensConf.forEach((it, i) => {
-          const el = document.getElementById('confQtd_' + d.nf.id + '_' + i);
-          if (el && el.value === '') {
-            const nfItem = d.nf.itens.find(x => x.cProd === it.cProd);
-            const faltante = nfItem ? nfItem.qtdNF - (prevTotais[it.cProd]||0) : 0;
-            it.qtdConferida = Math.max(0, faltante);
-          }
-        });
-      }
+  if (!hasDiferenca) {
+    _executarFinalizar(dadosConf, nfIds);
+    return;
+  }
 
-      const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, itens: d.itensConf };
-      const novasEntregas = [...d.entregas, novaEntrega];
+  // Show verification panel
+  const panel = document.getElementById('confVerificacaoPanel');
+  let html = `<div class="conf-verif-panel">
+    <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:10px">⚠ Verificação de Diferenças</div>
+    <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">Os itens abaixo apresentam diferença entre a Qtd. da NF e o total conferido. Confirme para finalizar com diferença registrada.</p>`;
 
-      // Determinar status final
-      const allTotais = {};
-      d.nf.itens.forEach(it => { allTotais[it.cProd] = 0; });
-      novasEntregas.forEach(ent => {
-        (ent.itens||[]).forEach(ei => {
-          if (allTotais[ei.cProd] !== undefined) allTotais[ei.cProd] += (ei.qtdConferida||0);
-        });
-      });
-      const todosCompletos = d.nf.itens.every(it => (allTotais[it.cProd]||0) >= it.qtdNF);
-      const confStatus = todosCompletos ? 'Finalizada' : 'Parcialmente Recebido';
+  resumo.forEach(r => {
+    html += `<div style="margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:6px">NF ${escHtml(r.nf.nNF)} — ${escHtml(r.nf.fornecedor)}</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">Cód. Forn.</th>
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">SKU</th>
+          <th style="text-align:left;padding:4px 8px;color:var(--muted2)">Nome</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted2)">Qtd NF</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted2)">Conferido</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted2)">Diferença</th>
+        </tr></thead><tbody>`;
+    r.itensResumo.forEach(it => {
+      const difColor = it.diferenca === 0 ? 'var(--green)' : it.diferenca > 0 ? 'var(--orange)' : 'var(--red)';
+      const difLabel = it.diferenca === 0 ? '✅ OK' : (it.diferenca > 0 ? '+'+it.diferenca : String(it.diferenca));
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+        <td style="padding:4px 8px"><code style="color:var(--orange);font-size:10px">${escHtml(it.cProd)}</code></td>
+        <td style="padding:4px 8px"><code style="color:var(--cyan);font-size:10px">${escHtml(it.sku||'—')}</code></td>
+        <td style="padding:4px 8px;color:var(--muted2);font-size:10px;max-width:160px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml(it.descricaoNF)}</td>
+        <td style="padding:4px 8px;text-align:right;color:var(--orange);font-weight:700">${it.qtdNF}</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700">${it.totalConferido}</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700;color:${difColor}">${difLabel}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  });
 
-      const confObj = { status: confStatus, responsavel: d.resp, entregas: novasEntregas };
-      d.nf.conferencia = confObj;
-      idx++;
+  // Store refs for the confirm button (avoid closure capture issues)
+  window._confFinalizarDados = dadosConf;
+  window._confFinalizarIds   = nfIds;
 
-      google.script.run
-        .withSuccessHandler(() => proximo())
-        .withFailureHandler(e => { toast('⚠ Erro: ' + e.message, 'err'); idx++; proximo(); })
-        .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
+  html += `<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('confVerificacaoPanel').style.display='none'">Cancelar</button>
+    <button class="btn btn-orange btn-sm" onclick="_executarFinalizar(window._confFinalizarDados, window._confFinalizarIds)">✅ Confirmar com Diferença</button>
+  </div></div>`;
+
+  panel.innerHTML = html;
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function _executarFinalizar(dadosConf, nfIds) {
+  setOverlay(true, 'Finalizando conferência...');
+  let idx = 0;
+  function proximo() {
+    if (idx >= nfIds.length) {
+      setOverlay(false);
+      toast('✅ Conferência finalizada!', 'ok');
+      CONF.nfIds = [];
+      CONF.novaEntregaIds.clear();
+      window._confFinalizarDados = null; window._confFinalizarIds = null;
+      renderPorNF();
+      navTo('porNF');
+      return;
     }
-    proximo();
-  }
+    const d = dadosConf[nfIds[idx]];
+    const totalPecas = d.itensConf.reduce((a, it) => a + (it.qtdConferida||0), 0);
+    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: d.itensConf };
+    const novasEntregas = [...d.entregas, novaEntrega];
 
-  if (vazios > 0) {
-    confirm2(
-      '⚠ Itens sem quantidade',
-      vazios + ' item(ns) sem quantidade informada.\n\nDeseja marcar todos os itens como conferidos (preenchendo os vazios com a quantidade faltante)?',
-      () => _executarFinalizar(true)
-    );
-  } else {
-    _executarFinalizar(false);
+    const allTotais = {};
+    d.nf.itens.forEach(it => { allTotais[it.cProd] = 0; });
+    novasEntregas.forEach(ent => {
+      (ent.itens||[]).forEach(ei => {
+        if (allTotais[ei.cProd] !== undefined) allTotais[ei.cProd] += (ei.qtdConferida||0);
+      });
+    });
+    const todosCompletos = d.nf.itens.every(it => (allTotais[it.cProd]||0) >= it.qtdNF);
+    const confStatus = todosCompletos ? 'Finalizada' : 'Parcialmente Recebido';
+
+    const confObj = { status: confStatus, rascunho: null, entregas: novasEntregas };
+    d.nf.conferencia = confObj;
+    idx++;
+
+    google.script.run
+      .withSuccessHandler(() => proximo())
+      .withFailureHandler(e => { toast('⚠ Erro: ' + e.message, 'err'); idx++; proximo(); })
+      .ce_atualizarCampo(d.nf.id, 'conferencia', confObj);
   }
+  proximo();
 }
 
 </script>
