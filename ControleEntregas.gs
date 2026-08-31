@@ -20,6 +20,12 @@ const CE_SS_BL_ID   = '1wy-tJoDxGDjfnd0AXQfdQ0bw9qmTtxz7wV4UKDlQrik';
 const CE_BL_SKU_COL = 1;  // col B (0-indexed)
 const CE_BL_NOM_COL = 7;  // col H (0-indexed)
 
+// Controle de Compras — mapa cód.fornecedor → SKU
+const CE_CTRL_SS_ID     = '1eNMjC-iGBCAdVbJYSnP_Y4p7hJAzF6Gx';
+const CE_CTRL_GID       = 1005476335;
+const CE_CTRL_COD_FORN  = 10;  // col K (0-indexed)
+const CE_CTRL_SKU       = 11;  // col L (0-indexed)
+
 // Bling
 const CE_BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
 const CE_BLING_API       = 'https://www.bling.com.br/Api/v3';
@@ -309,4 +315,26 @@ function ce_buscarSKUsBL() {
 // Mapa CNPJ → empresa (para uso no frontend via JSON)
 function ce_getEmpresas() {
   return { ok: true, empresas: CE_EMPRESAS_CNPJ };
+}
+
+// Mapa cód.fornecedor → SKU (lê planilha Controle de Compras, cols K e L)
+function ce_buscarMapCodFornSKU() {
+  try {
+    const ss  = SpreadsheetApp.openById(CE_CTRL_SS_ID);
+    const aba = ss.getSheets().find(s => s.getSheetId() === CE_CTRL_GID);
+    if (!aba) return { ok: true, map: {} };
+    const last = aba.getLastRow();
+    if (last < 2) return { ok: true, map: {} };
+    const ncols = CE_CTRL_SKU + 1;
+    const raw   = aba.getRange(2, 1, last - 1, ncols).getValues();
+    const map   = {};
+    raw.forEach(r => {
+      const cod = String(r[CE_CTRL_COD_FORN] || '').trim();
+      const sku = String(r[CE_CTRL_SKU]       || '').trim();
+      if (cod && sku) map[cod] = sku;
+    });
+    return { ok: true, map };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
 }

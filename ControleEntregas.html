@@ -533,8 +533,9 @@ td.r { text-align: right; }
 <script>
 // ── Estado global ──────────────────────────────────────────
 const CE = {
-  nfs:        [],
-  skusBL:     [],
+  nfs:            [],
+  skusBL:         [],
+  codFornSkuMap:  {},   // cód.fornecedor → SKU (Controle de Compras)
   activeView: 'import',
   // Import flow
   xmlItens:   [],   // itens do XML
@@ -574,6 +575,12 @@ window.onload = () => {
     .withSuccessHandler(res => { if (res.ok) CE.skusBL = res.skus || []; })
     .withFailureHandler(() => {})
     .ce_buscarSKUsBL();
+
+  // Carrega mapa cód.fornecedor → SKU em background
+  google.script.run
+    .withSuccessHandler(res => { if (res.ok) CE.codFornSkuMap = res.map || {}; })
+    .withFailureHandler(() => {})
+    .ce_buscarMapCodFornSKU();
 };
 
 function atualizarHdrSub() {
@@ -712,7 +719,10 @@ function voltarPasso2() {
   document.getElementById('step3').className = 'step';
 }
 
-// Auto-concilia: liga cProd da NF com codForn do pedido Bling; fallback SKU direto
+// Auto-concilia com 3 tentativas:
+// 1) cProd → codForn/sku no mapa do pedido Bling
+// 2) cProd → mapa Controle de Compras → SKU → pedido Bling
+// 3) posicional (item i do XML = item i do Bling)
 function _conciliar() {
   const blingMap = {};
   CE.blingItens.forEach(it => {
@@ -720,17 +730,39 @@ function _conciliar() {
     if (it.sku)     blingMap[it.sku.trim().toLowerCase()]     = it;
   });
 
-  CE.concItens = CE.xmlItens.map(it => {
-    const key  = (it.cProd || '').trim().toLowerCase();
-    const bling = blingMap[key] || null;
-    const sku   = bling ? bling.sku  : '';
-    const nome  = bling ? (CE.skusBL.find(s => s.sku === sku)?.nome || sku) : '';
+  CE.concItens = CE.xmlItens.map((it, i) => {
+    const keyLow = (it.cProd || '').trim().toLowerCase();
+
+    // 1ª tentativa: correspondência direta por código
+    let bling = blingMap[keyLow] || null;
+    let sku   = bling ? bling.sku : '';
+    let auto  = !!bling;
+
+    // 2ª tentativa: mapa cód.fornecedor→SKU (Controle de Compras)
+    if (!bling) {
+      const skuMapped = CE.codFornSkuMap[(it.cProd||'').trim()] ||
+                        CE.codFornSkuMap[(it.cProd||'').trim().toUpperCase()];
+      if (skuMapped) {
+        sku   = skuMapped;
+        bling = blingMap[skuMapped.trim().toLowerCase()] || null;
+        auto  = true;
+      }
+    }
+
+    // 3ª tentativa: posicional
+    if (!sku && CE.blingItens[i]) {
+      bling = CE.blingItens[i];
+      sku   = bling.sku;
+      auto  = false; // marca amarelo para revisão
+    }
+
+    const nome = sku ? (CE.skusBL.find(s => s.sku === sku)?.nome || sku) : '';
     return {
       ...it,
-      sku:       sku,
+      sku,
       nomeSKU:   nome,
       qtdPedido: bling ? bling.qtd : 0,
-      matched:   !!bling,
+      matched:   auto,
     };
   });
 
