@@ -314,6 +314,70 @@ function ce_buscarSKUsBL() {
   }
 }
 
+// Re-sincroniza qtdPedido de todas as NFs que ainda têm itens com qtdPedido=0
+function ce_ressincronizarQtds() {
+  try {
+    const aba  = _ce_aba();
+    const last = aba.getLastRow();
+    if (last < 2) return { ok: true, atualizadas: 0 };
+
+    const raw = aba.getRange(2, 1, last - 1, CE_NCOLS).getValues();
+
+    // Mapa codForn → SKU do Controle de Compras
+    let codFornMap = {};
+    try { const r = ce_buscarMapCodFornSKU(); if (r.ok) codFornMap = r.map; } catch(e) {}
+
+    let atualizadas = 0;
+
+    for (let i = 0; i < raw.length; i++) {
+      const r = raw[i];
+      if (!r[0]) continue;
+      const pedidoBling = String(r[1] || '').trim();
+      if (!pedidoBling) continue;
+
+      const itens = _ce_json(r[12]);
+      if (!itens.length) continue;
+      if (!itens.some(it => !it.qtdPedido)) continue; // todos já preenchidos
+
+      try {
+        Utilities.sleep(300);
+        const res = ce_buscarPedidoBling(pedidoBling);
+        if (!res.ok || !res.itens.length) continue;
+
+        const bmap = {};
+        res.itens.forEach(bi => {
+          if (bi.codForn) bmap[bi.codForn.trim().toLowerCase()] = bi;
+          if (bi.sku)     bmap[bi.sku.trim().toLowerCase()]     = bi;
+        });
+
+        let mudou = false;
+        const novos = itens.map((it, idx) => {
+          if (it.qtdPedido) return it;
+          const key = (it.cProd || '').trim().toLowerCase();
+          let bi = bmap[key] || null;
+          if (!bi) {
+            const sk = codFornMap[(it.cProd||'').trim()] ||
+                       codFornMap[(it.cProd||'').trim().toUpperCase()];
+            if (sk) bi = bmap[sk.trim().toLowerCase()] || null;
+          }
+          if (!bi && res.itens[idx]) bi = res.itens[idx];
+          if (bi && bi.qtd) { mudou = true; return { ...it, qtdPedido: bi.qtd }; }
+          return it;
+        });
+
+        if (mudou) {
+          aba.getRange(i + 2, 13).setValue(JSON.stringify(novos));
+          atualizadas++;
+        }
+      } catch(e) { continue; }
+    }
+
+    return { ok: true, atualizadas };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // Mapa CNPJ → empresa (para uso no frontend via JSON)
 function ce_getEmpresas() {
   return { ok: true, empresas: CE_EMPRESAS_CNPJ };

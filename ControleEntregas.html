@@ -425,6 +425,7 @@ td.r { text-align: right; }
     <div class="tbl-toolbar">
       <span class="tbl-info" id="porNF_info">0 NFs</span>
       <input class="filter-inp" id="filtroNF" placeholder="Filtrar por NF, fornecedor, empresa, pedido..." oninput="renderPorNF()">
+      <button class="btn btn-ghost btn-sm" onclick="ressincrQtds()" title="Busca novamente o pedido Bling de cada NF e preenche Qtd Pedido dos itens">🔄 Re-sync Qtd Pedido</button>
       <select id="filtroStatusNF" onchange="renderPorNF()"
         style="background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none">
         <option value="">Todos os status</option>
@@ -1190,6 +1191,33 @@ function selecionarStatus(id, status) {
   closeStatusMenu();
   renderPorNF();
   salvarCampo(id, 'status', status);
+}
+
+function ressincrQtds() {
+  const semQtd = CE.nfs.filter(n => (n.itens||[]).some(it => !it.qtdPedido)).length;
+  if (!semQtd) { toast('✅ Todas as NFs já têm Qtd Pedido preenchida.', 'ok'); return; }
+  confirm2(
+    '🔄 Re-sincronizar Qtd Pedido',
+    semQtd + ' NF(s) com itens sem Qtd Pedido.\n\nO sistema vai buscar cada pedido no Bling e preencher as quantidades.\nIsso pode levar alguns segundos por NF.',
+    () => {
+      setOverlay(true, 'Buscando pedidos no Bling... pode levar alguns segundos.');
+      google.script.run
+        .withSuccessHandler(res => {
+          setOverlay(false);
+          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+          toast('✅ ' + res.atualizadas + ' NF(s) atualizadas. Recarregando...', 'ok');
+          // Recarrega os dados da planilha
+          google.script.run
+            .withSuccessHandler(r2 => {
+              if (r2.ok) { CE.nfs = r2.nfs || []; atualizarHdrSub(); renderPorNF(); renderPorItem(); }
+            })
+            .withFailureHandler(() => {})
+            .ce_carregarNFs();
+        })
+        .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+        .ce_ressincronizarQtds();
+    }
+  );
 }
 
 function salvarCampo(id, campo, valor) {
