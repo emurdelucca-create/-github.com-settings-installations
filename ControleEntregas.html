@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Controle de Entregas</title>
+<style>
+:root {
+  --bg:     #080c14;
+  --card:   #0d1421;
+  --card2:  #111827;
+  --border: #1f2d40;
+  --cyan:   #00e5ff;
+  --orange: #ff6d00;
+  --green:  #00e676;
+  --yellow: #ffd600;
+  --red:    #ff4444;
+  --blue:   #448aff;
+  --purple: #b388ff;
+  --text:   #dde6f0;
+  --muted:  #4e6280;
+  --muted2: #7a90aa;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial, sans-serif; min-height: 100vh; }
+
+/* ── HEADER ── */
+.header {
+  background: linear-gradient(135deg,#0a1628 0%,#0f1f38 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px; height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 300;
+  box-shadow: 0 2px 12px rgba(0,0,0,.5);
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.header-icon { font-size: 22px; filter: drop-shadow(0 0 6px rgba(0,229,255,.5)); }
+.header-title { font-size: 16px; font-weight: 700; color: var(--cyan); letter-spacing: 1.5px; text-transform: uppercase; }
+.header-sub { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+.header-right { display: flex; gap: 8px; align-items: center; }
+
+/* ── BUTTONS ── */
+.btn { padding: 7px 16px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .18s; letter-spacing: .4px; white-space: nowrap; }
+.btn-ghost  { background: transparent; color: var(--cyan);   border: 1px solid rgba(0,229,255,.3); }
+.btn-ghost:hover:not(:disabled)  { background: rgba(0,229,255,.08); border-color: var(--cyan); }
+.btn-orange { background: linear-gradient(135deg,#e65100,#bf360c); color: #fff; box-shadow: 0 0 10px rgba(230,81,0,.3); }
+.btn-orange:hover:not(:disabled) { background: linear-gradient(135deg,#ff6d00,#e65100); }
+.btn-green  { background: rgba(0,230,118,.15); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+.btn-green:hover:not(:disabled)  { background: rgba(0,230,118,.25); }
+.btn-blue   { background: rgba(68,138,255,.15); color: var(--blue); border: 1px solid rgba(68,138,255,.3); }
+.btn-blue:hover:not(:disabled)   { background: rgba(68,138,255,.25); }
+.btn-sm  { padding: 5px 12px; font-size: 11px; }
+.btn-xs  { padding: 3px 8px;  font-size: 10px; border-radius: 4px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── NAV TABS ── */
+.nav-bar {
+  background: var(--card2); border-bottom: 1px solid var(--border);
+  display: flex; gap: 2px; padding: 8px 16px 0;
+  position: sticky; top: 60px; z-index: 200;
+  overflow-x: auto; scrollbar-width: none;
+}
+.nav-bar::-webkit-scrollbar { display: none; }
+.nav-tab {
+  flex-shrink: 0; padding: 8px 20px 9px;
+  border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none;
+  font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
+  color: var(--muted2); background: transparent; white-space: nowrap;
+}
+.nav-tab:hover  { color: var(--text); background: rgba(255,255,255,.04); }
+.nav-tab.active { color: var(--cyan); background: var(--card); border-color: var(--border); border-bottom-color: var(--card); margin-bottom: -1px; }
+
+/* ── VIEWS ── */
+.view { display: none; padding: 24px; }
+.view.active { display: block; }
+
+/* ── CARDS ── */
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px; margin-bottom: 20px;
+}
+.card-title { font-size: 13px; font-weight: 700; color: var(--cyan); margin-bottom: 16px; letter-spacing: .5px; text-transform: uppercase; }
+
+/* ── FORM ── */
+.form-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.form-field { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 10px; color: var(--muted2); text-transform: uppercase; letter-spacing: .9px; }
+.form-label .req { color: var(--red); margin-left: 2px; }
+.form-input {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 13px; padding: 8px 10px; outline: none;
+  transition: border-color .15s; font-family: inherit; min-width: 160px;
+}
+.form-input:focus { border-color: var(--cyan); }
+.form-input.err   { border-color: var(--red); animation: errPulse .6s ease; }
+.form-input[readonly] { color: var(--muted2); cursor: default; }
+@keyframes errPulse { 0%,100%{border-color:var(--red)} 50%{border-color:rgba(255,68,68,.3)} }
+.form-input-w200 { width: 200px; }
+.form-input-w140 { width: 140px; }
+.form-input-w120 { width: 120px; }
+.form-input-w100 { width: 100px; }
+
+/* XML upload zone */
+.xml-zone {
+  border: 2px dashed var(--border); border-radius: 10px;
+  padding: 32px; text-align: center; cursor: pointer;
+  transition: all .2s; margin-bottom: 20px;
+}
+.xml-zone:hover, .xml-zone.drag { border-color: var(--cyan); background: rgba(0,229,255,.04); }
+.xml-zone-icon { font-size: 36px; margin-bottom: 8px; }
+.xml-zone-title { font-size: 14px; font-weight: 700; color: var(--cyan); }
+.xml-zone-sub   { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.xml-ok { border-color: var(--green); background: rgba(0,230,118,.05); }
+.xml-ok .xml-zone-title { color: var(--green); }
+
+/* Validation error label */
+.err-label { font-size: 10px; color: var(--red); margin-top: 3px; display: none; font-weight: 600; animation: errPulse .6s ease infinite; }
+.err-label.show { display: block; }
+
+/* ── CONCILIATION ── */
+.concil-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.concil-stats { display: flex; gap: 16px; }
+.stat-chip {
+  padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+}
+.stat-ok   { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+.stat-warn { background: rgba(255,214,0,.1);  color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
+.stat-err  { background: rgba(255,68,68,.1);  color: var(--red);    border: 1px solid rgba(255,68,68,.3); }
+
+/* ── TABLE ── */
+.tbl-wrap { overflow-x: auto; }
+.tbl-toolbar {
+  padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.tbl-info { font-size: 11px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .8px; flex: 1; }
+.filter-inp {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 12px; padding: 5px 10px; outline: none;
+  transition: border-color .15s; font-family: inherit; width: 260px;
+}
+.filter-inp:focus { border-color: var(--cyan); }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  background: #0a1323; color: var(--muted2); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .8px; padding: 8px 10px;
+  text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap;
+  cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--cyan); }
+thead th.sorted-asc::after  { content: ' ▲'; color: var(--cyan); }
+thead th.sorted-desc::after { content: ' ▼'; color: var(--cyan); }
+thead th.r { text-align: right; }
+tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .1s; }
+tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
+tbody tr:hover { background: rgba(0,229,255,.03); }
+td { padding: 6px 8px; vertical-align: middle; }
+td.r { text-align: right; }
+
+.td-nf   { font-weight: 700; color: var(--cyan); font-family: monospace; }
+.td-muted{ color: var(--muted2); font-size: 11px; }
+.td-nome { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Status chips */
+.status-chip {
+  display: inline-block; padding: 3px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  transition: opacity .15s;
+}
+.status-chip:hover { opacity: .8; }
+.s-aguardando  { background: rgba(255,214,0,.12);  color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
+.s-recebido    { background: rgba(68,138,255,.12);  color: var(--blue);   border: 1px solid rgba(68,138,255,.3); }
+.s-conferencia { background: rgba(255,109,0,.12);   color: var(--orange); border: 1px solid rgba(255,109,0,.3); }
+.s-conferido   { background: rgba(0,229,255,.12);   color: var(--cyan);   border: 1px solid rgba(0,229,255,.3); }
+.s-armazenado  { background: rgba(0,230,118,.12);   color: var(--green);  border: 1px solid rgba(0,230,118,.3); }
+
+/* Inline toggle (sim/não) */
+.yn-toggle { display: inline-flex; gap: 4px; }
+.yn-btn {
+  padding: 3px 8px; border-radius: 10px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted2); font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: all .12s;
+}
+.yn-btn.sim-on  { background: rgba(0,230,118,.15); border-color: var(--green); color: var(--green); }
+.yn-btn.nao-on  { background: rgba(255,68,68,.1);  border-color: var(--red);   color: var(--red); }
+
+/* Resp select */
+.resp-sel {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text); font-size: 11px; padding: 3px 6px; outline: none;
+  cursor: pointer; font-family: inherit; max-width: 120px;
+}
+.resp-sel:focus { border-color: var(--cyan); }
+
+/* Inline text input for resp custom */
+.resp-inp {
+  background: #0a1220; border: 1px solid var(--cyan); border-radius: 5px;
+  color: var(--text); font-size: 11px; padding: 3px 6px; outline: none;
+  width: 100px; font-family: inherit;
+}
+
+/* Conciliation table rows */
+.match-ok   td { background: rgba(0,230,118,.04); }
+.match-warn td { background: rgba(255,214,0,.04); }
+.match-none td { background: rgba(255,68,68,.04); }
+
+/* ── SKU SELECT ── */
+.sku-wrap { position: relative; }
+.sku-inp {
+  background: #0a1220; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text); font-size: 11px; padding: 4px 7px; width: 120px;
+  outline: none; font-family: inherit;
+}
+.sku-inp:focus { border-color: var(--cyan); }
+.sku-dd {
+  position: absolute; top: calc(100% + 3px); left: 0; width: 260px;
+  background: #0d1929; border: 1px solid var(--border); border-radius: 7px;
+  max-height: 200px; overflow-y: auto; z-index: 500;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6); display: none;
+}
+.sku-opt {
+  padding: 7px 10px; font-size: 11px; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,.04); transition: background .1s;
+}
+.sku-opt:last-child { border-bottom: none; }
+.sku-opt:hover { background: rgba(0,229,255,.07); color: var(--cyan); }
+.sku-sku  { font-family: monospace; color: var(--cyan); font-size: 11px; }
+.sku-nome { color: var(--muted2); font-size: 10px; margin-top: 1px; }
+
+/* ── TOOLTIP DE ITENS ── */
+.item-tooltip {
+  position: fixed; z-index: 800;
+  background: #0d1929; border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; min-width: 300px; max-width: 420px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.7); pointer-events: none;
+  transition: opacity .15s;
+}
+.tt-title { font-size: 11px; color: var(--cyan); font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .8px; }
+.tt-item  { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); gap: 10px; }
+.tt-item:last-child { border-bottom: none; }
+.tt-sku  { font-family: monospace; color: var(--cyan); font-size: 11px; min-width: 80px; }
+.tt-desc { color: var(--muted2); font-size: 10px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-qtd  { color: var(--orange); font-weight: 700; font-size: 12px; min-width: 40px; text-align: right; }
+
+/* ── OVERLAY / MODAL ── */
+#overlay {
+  position: fixed; inset: 0; background: rgba(8,12,20,.9);
+  display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 900;
+}
+.spinner { width: 44px; height: 44px; border: 3px solid rgba(0,229,255,.18); border-top-color: var(--cyan); border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#overlayMsg { margin-top: 16px; color: var(--cyan); font-size: 13px; font-weight: 600; }
+
+.modal-bg { position: fixed; inset: 0; background: rgba(8,12,20,.85); display: none; align-items: center; justify-content: center; z-index: 800; }
+.modal-bg.open { display: flex; }
+.modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px 32px; max-width: 500px; width: 90%; box-shadow: 0 16px 48px rgba(0,0,0,.7); }
+.modal-title  { font-size: 16px; font-weight: 700; color: var(--cyan); margin-bottom: 12px; }
+.modal-body   { font-size: 13px; color: var(--text); line-height: 1.6; margin-bottom: 20px; white-space: pre-wrap; }
+.modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ── TOAST ── */
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 1000; animation: slideUp .25s ease; max-width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+.toast.ok  { background: #0d2b1a; color: var(--green); border: 1px solid rgba(0,230,118,.35); }
+.toast.err { background: #2a0d0d; color: var(--red);   border: 1px solid rgba(255,68,68,.35); }
+.toast.inf { background: #0d1e35; color: var(--cyan);  border: 1px solid rgba(0,229,255,.35); }
+@keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ── STEP INDICATOR ── */
+.steps { display: flex; gap: 0; margin-bottom: 20px; }
+.step {
+  flex: 1; text-align: center; padding: 10px 6px; font-size: 11px; font-weight: 700;
+  border-bottom: 2px solid var(--border); color: var(--muted); position: relative;
+}
+.step.done   { border-color: var(--green); color: var(--green); }
+.step.active { border-color: var(--cyan);  color: var(--cyan); }
+
+/* Entrega parcial badge */
+.parcial-badge { background: rgba(255,109,0,.12); color: var(--orange); border: 1px solid rgba(255,109,0,.3); border-radius: 10px; padding: 2px 7px; font-size: 9px; font-weight: 700; }
+
+.empty-row td { text-align: center; color: var(--muted); padding: 40px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="header-icon">📦</span>
+    <div>
+      <div class="header-title">Controle de Entregas</div>
+      <div class="header-sub" id="hdrSub">Carregando...</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-ghost btn-sm" onclick="openBlingModal()" title="Configurar Bling">🔗 Bling</button>
+    <button class="btn btn-green btn-sm" onclick="navTo('import')">+ Nova NF</button>
+  </div>
+</div>
+
+<!-- Nav tabs -->
+<div class="nav-bar">
+  <div class="nav-tab active" id="nav_import" onclick="navTo('import')">📥 Importar NF</div>
+  <div class="nav-tab" id="nav_porNF"  onclick="navTo('porNF')">📋 Por NF</div>
+  <div class="nav-tab" id="nav_porItem" onclick="navTo('porItem')">📦 Por Item</div>
+</div>
+
+<!-- ════════════════════ VIEW: IMPORTAR NF ════════════════════ -->
+<div class="view active" id="view_import">
+  <div style="max-width:960px;margin:0 auto">
+
+    <!-- Steps -->
+    <div class="steps">
+      <div class="step active" id="step1">1. Upload XML</div>
+      <div class="step" id="step2">2. Dados da NF</div>
+      <div class="step" id="step3">3. Conciliar Itens</div>
+    </div>
+
+    <!-- STEP 1: XML upload -->
+    <div id="passo1">
+      <div class="card">
+        <div class="card-title">📄 Upload da Nota Fiscal (XML)</div>
+        <div class="xml-zone" id="xmlZone" onclick="document.getElementById('xmlFile').click()"
+             ondragover="xmlDrag(event,true)" ondragleave="xmlDrag(event,false)" ondrop="xmlDrop(event)">
+          <input type="file" id="xmlFile" accept=".xml" style="display:none" onchange="onXmlSelect(this)">
+          <div class="xml-zone-icon">📄</div>
+          <div class="xml-zone-title" id="xmlZoneTitle">Clique ou arraste o arquivo XML da NF aqui</div>
+          <div class="xml-zone-sub" id="xmlZoneSub">Formato NF-e (.xml)</div>
+        </div>
+        <div style="text-align:right">
+          <button class="btn btn-orange" id="btnAvancar1" onclick="avancarPasso2()" disabled>Avançar →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: Dados da NF -->
+    <div id="passo2" style="display:none">
+      <div class="card">
+        <div class="card-title">📝 Dados da Nota Fiscal</div>
+        <div class="form-grid">
+          <!-- Auto-filled -->
+          <div class="form-field">
+            <span class="form-label">Nº NF <span style="color:var(--green);font-size:9px">AUTO</span></span>
+            <input class="form-input form-input-w100" id="f_nNF" readonly>
+          </div>
+          <div class="form-field">
+            <span class="form-label">Empresa Nossa <span style="color:var(--green);font-size:9px">AUTO</span></span>
+            <input class="form-input form-input-w140" id="f_empresa" readonly>
+          </div>
+          <div class="form-field">
+            <span class="form-label">Qtd. Volume NF <span style="color:var(--green);font-size:9px">AUTO</span></span>
+            <input class="form-input form-input-w100" id="f_qtdVolume" readonly>
+          </div>
+          <!-- Manual obrigatórios -->
+          <div class="form-field">
+            <span class="form-label">Pedido Bling <span class="req">*</span></span>
+            <input class="form-input form-input-w140" id="f_pedidoBling" placeholder="Nº do pedido" oninput="limparErr('f_pedidoBling')">
+            <span class="err-label" id="err_f_pedidoBling">Campo obrigatório</span>
+          </div>
+          <div class="form-field">
+            <span class="form-label">Fornecedor <span class="req">*</span></span>
+            <input class="form-input form-input-w200" id="f_fornecedor" placeholder="Nome do fornecedor" oninput="limparErr('f_fornecedor')">
+            <span class="err-label" id="err_f_fornecedor">Campo obrigatório</span>
+          </div>
+          <div class="form-field">
+            <span class="form-label">Data Entrega Agendada <span class="req">*</span></span>
+            <input class="form-input form-input-w140" id="f_dataEntrega" type="date" oninput="limparErr('f_dataEntrega')">
+            <span class="err-label" id="err_f_dataEntrega">Campo obrigatório</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="voltarPasso1()">← Voltar</button>
+          <button class="btn btn-orange" onclick="avancarPasso3()">Avançar para Conciliação →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Conciliação -->
+    <div id="passo3" style="display:none">
+      <div class="card">
+        <div class="concil-hdr">
+          <div class="card-title" style="margin-bottom:0">🔗 Conciliação de Itens</div>
+          <div class="concil-stats">
+            <span class="stat-chip stat-ok"  id="cntOk">0 conciliados</span>
+            <span class="stat-chip stat-warn" id="cntWarn">0 manuais</span>
+            <span class="stat-chip stat-err"  id="cntErr">0 sem SKU</span>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--muted2);margin:8px 0 14px">
+          Itens da NF conciliados automaticamente com o Pedido Bling pelo código de fornecedor.
+          Ajuste o SKU manualmente nos itens marcados em amarelo ou vermelho.
+        </p>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:32px">Nº</th>
+                <th>Cód. Forn. (NF)</th>
+                <th>Descrição NF</th>
+                <th class="r">Qtd NF</th>
+                <th>SKU</th>
+                <th>Nome SKU</th>
+                <th class="r">Qtd Pedido</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="concilBody"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="voltarPasso2()">← Voltar</button>
+          <button class="btn btn-green" onclick="salvarNF()">✅ Salvar NF</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════ VIEW: POR NF ════════════════════ -->
+<div class="view" id="view_porNF">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="tbl-toolbar">
+      <span class="tbl-info" id="porNF_info">0 NFs</span>
+      <input class="filter-inp" id="filtroNF" placeholder="Filtrar por NF, fornecedor, empresa, pedido..." oninput="renderPorNF()">
+      <select id="filtroStatusNF" onchange="renderPorNF()"
+        style="background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none">
+        <option value="">Todos os status</option>
+        <option>Aguardando Chegar</option>
+        <option>Recebido</option>
+        <option>Em conferência</option>
+        <option>Conferido</option>
+        <option>Armazenado</option>
+      </select>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortPorNF('dataCriacao')" title="Ordenar">Data</th>
+            <th onclick="sortPorNF('nNF')">Nº NF</th>
+            <th onclick="sortPorNF('pedidoBling')">Pedido Bling</th>
+            <th onclick="sortPorNF('fornecedor')">Fornecedor</th>
+            <th onclick="sortPorNF('empresa')">Empresa</th>
+            <th class="r" onclick="sortPorNF('qtdVolume')">Vol.</th>
+            <th onclick="sortPorNF('dataEntrega')">Entrega</th>
+            <th>Lançou Contas</th>
+            <th>Importou XML</th>
+            <th>Responsável</th>
+            <th onclick="sortPorNF('status')">Status</th>
+            <th style="width:60px">Itens</th>
+          </tr>
+        </thead>
+        <tbody id="porNF_body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ VIEW: POR ITEM ════════════════════ -->
+<div class="view" id="view_porItem">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="tbl-toolbar">
+      <span class="tbl-info" id="porItem_info">0 itens</span>
+      <input class="filter-inp" id="filtroItem" placeholder="Filtrar por SKU, NF, fornecedor, empresa..." oninput="renderPorItem()">
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Nº NF</th>
+            <th>Pedido Bling</th>
+            <th>Fornecedor</th>
+            <th>Empresa</th>
+            <th>Entrega</th>
+            <th>SKU</th>
+            <th>Descrição</th>
+            <th class="r">Qtd NF</th>
+            <th class="r">Qtd Pedido</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="porItem_body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Tooltip de itens -->
+<div class="item-tooltip" id="itemTooltip" style="display:none;opacity:0"></div>
+
+<!-- Overlay -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <div id="overlayMsg">Carregando...</div>
+</div>
+
+<!-- Modal Bling auth -->
+<div class="modal-bg" id="blingModal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title">🔗 Conectar ao Bling</div>
+    <div style="font-size:12px;color:var(--muted2);line-height:1.7;margin-bottom:16px">
+      Configure <code>BLING_CLIENT_ID</code> e <code>BLING_CLIENT_SECRET</code> nas
+      <em>Propriedades do Script</em> e depois:<br>
+      <strong style="color:var(--cyan)">Passo 1:</strong> Clique em "Abrir Bling" e autorize.<br>
+      <strong style="color:var(--cyan)">Passo 2:</strong> Copie a URL do Google após redirecionar e cole abaixo.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-ghost btn-sm" onclick="abrirBling()">🔗 Abrir Bling para autorizar</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="blingCode" type="text" placeholder="Cole aqui a URL ou o código"
+        style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px 10px;outline:none;font-family:monospace">
+      <button class="btn btn-green btn-sm" onclick="confirmarBlingCodigo()">Confirmar</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('blingModal')">Fechar</button>
+    </div>
+    <div id="blingErr" style="margin-top:8px;font-size:12px;color:var(--red);display:none"></div>
+  </div>
+</div>
+
+<!-- Modal confirm -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <div class="modal-title" id="confirmTitle">Confirmação</div>
+    <div class="modal-body"  id="confirmBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('confirmModal')">Cancelar</button>
+      <button class="btn btn-orange btn-sm" id="confirmOk">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Estado global ──────────────────────────────────────────
+const CE = {
+  nfs:        [],
+  skusBL:     [],
+  activeView: 'import',
+  // Import flow
+  xmlItens:   [],   // itens do XML
+  xmlDados:   {},   // nNF, empresa, qtdVolume
+  blingItens: [],   // itens do pedido Bling
+  concItens:  [],   // itens da conciliação
+  // Sort
+  sortFieldNF: 'dataCriacao',
+  sortDirNF:   -1,
+};
+
+// ── Navegação ──────────────────────────────────────────────
+function navTo(view) {
+  ['import','porNF','porItem'].forEach(v => {
+    document.getElementById('view_' + v).classList.toggle('active', v === view);
+    document.getElementById('nav_' + v).classList.toggle('active', v === view);
+  });
+  CE.activeView = view;
+  if (view === 'porNF')   renderPorNF();
+  if (view === 'porItem') renderPorItem();
+}
+
+// ── Boot ───────────────────────────────────────────────────
+window.onload = () => {
+  setOverlay(true, 'Carregando NFs da planilha...');
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) CE.nfs = res.nfs || [];
+      atualizarHdrSub();
+      setOverlay(false);
+    })
+    .withFailureHandler(() => setOverlay(false))
+    .ce_carregarNFs();
+
+  // Carrega SKUs BaseLinker em background
+  google.script.run
+    .withSuccessHandler(res => { if (res.ok) CE.skusBL = res.skus || []; })
+    .withFailureHandler(() => {})
+    .ce_buscarSKUsBL();
+};
+
+function atualizarHdrSub() {
+  const ag = CE.nfs.filter(n => n.status === 'Aguardando Chegar').length;
+  document.getElementById('hdrSub').textContent =
+    CE.nfs.length + ' NFs · ' + ag + ' aguardando';
+}
+
+// ── XML Parse ──────────────────────────────────────────────
+const CNPJ_MAP = {
+  '43339573000157': 'HUMBLE',
+  '44373737000125': 'NAJUMI',
+  '49640848000174': 'SKY',
+  '54518222000120': 'EDMOTOS',
+  '60743800000124': 'MOTO VIBE',
+};
+
+function xmlDrag(e, over) { e.preventDefault(); document.getElementById('xmlZone').classList.toggle('drag', over); }
+function xmlDrop(e) { e.preventDefault(); xmlDrag(e, false); processarXml(e.dataTransfer.files[0]); }
+function onXmlSelect(input) { if (input.files[0]) processarXml(input.files[0]); input.value = ''; }
+
+function processarXml(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(e.target.result, 'text/xml');
+      const get    = (sel) => { const el = doc.querySelector(sel); return el ? el.textContent.trim() : ''; };
+
+      // NF number
+      const nNF = get('ide nNF') || get('nNF');
+
+      // CNPJ destinatário
+      const cnpjDest = (get('dest CNPJ') || '').replace(/\D/g,'');
+      const empresa  = CNPJ_MAP[cnpjDest] || ('CNPJ: ' + cnpjDest);
+
+      // Volume de transporte
+      const qVol = get('transp vol qVol') || get('qVol') || '—';
+
+      // Itens
+      const dets = doc.querySelectorAll('det');
+      const itens = [];
+      dets.forEach(det => {
+        const cProd  = det.querySelector('cProd')?.textContent.trim()  || '';
+        const xProd  = det.querySelector('xProd')?.textContent.trim()  || '';
+        const qCom   = parseFloat(det.querySelector('qCom')?.textContent || '0');
+        const vUnCom = parseFloat(det.querySelector('vUnCom')?.textContent || '0');
+        itens.push({ cProd, descricaoNF: xProd, qtdNF: qCom, vUnCom,
+                     sku: '', nomeSKU: '', qtdPedido: 0, matched: false });
+      });
+
+      CE.xmlDados  = { nNF, empresa, qtdVolume: qVol };
+      CE.xmlItens  = itens;
+
+      // UI
+      document.getElementById('xmlZone').classList.add('xml-ok');
+      document.getElementById('xmlZoneTitle').textContent = '✅ ' + file.name + ' carregado';
+      document.getElementById('xmlZoneSub').textContent   = itens.length + ' itens · NF ' + nNF + ' · ' + empresa;
+      document.getElementById('btnAvancar1').disabled = false;
+
+    } catch(err) {
+      toast('❌ Erro ao ler XML: ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+// ── Import flow ─────────────────────────────────────────────
+function avancarPasso2() {
+  document.getElementById('passo1').style.display = 'none';
+  document.getElementById('passo2').style.display = 'block';
+  document.getElementById('step1').className = 'step done';
+  document.getElementById('step2').className = 'step active';
+  // Preenche campos automáticos
+  document.getElementById('f_nNF').value       = CE.xmlDados.nNF       || '';
+  document.getElementById('f_empresa').value   = CE.xmlDados.empresa   || '';
+  document.getElementById('f_qtdVolume').value = CE.xmlDados.qtdVolume || '';
+}
+
+function voltarPasso1() {
+  document.getElementById('passo2').style.display = 'none';
+  document.getElementById('passo1').style.display = 'block';
+  document.getElementById('step1').className = 'step active';
+  document.getElementById('step2').className = 'step';
+}
+
+function avancarPasso3() {
+  const erros = [];
+  ['f_pedidoBling','f_fornecedor','f_dataEntrega'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el.value.trim()) {
+      el.classList.add('err');
+      document.getElementById('err_' + id).classList.add('show');
+      erros.push(id);
+    }
+  });
+  if (erros.length) { toast('❌ Preencha todos os campos obrigatórios', 'err'); return; }
+
+  const numeroPedido = document.getElementById('f_pedidoBling').value.trim();
+  setOverlay(true, 'Buscando pedido Bling nº ' + numeroPedido + '...');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) {
+        toast('⚠ Pedido não encontrado: ' + res.error + ' — conciliação manual', 'inf');
+        CE.blingItens = [];
+      } else {
+        CE.blingItens = res.itens || [];
+        toast('✅ Pedido Bling encontrado: ' + CE.blingItens.length + ' itens', 'ok');
+      }
+      _conciliar();
+      document.getElementById('passo2').style.display = 'none';
+      document.getElementById('passo3').style.display = 'block';
+      document.getElementById('step2').className = 'step done';
+      document.getElementById('step3').className = 'step active';
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      toast('⚠ Erro ao buscar Bling: ' + e.message + ' — conciliação manual', 'inf');
+      CE.blingItens = [];
+      _conciliar();
+      document.getElementById('passo2').style.display = 'none';
+      document.getElementById('passo3').style.display = 'block';
+    })
+    .ce_buscarPedidoBling(numeroPedido);
+}
+
+function voltarPasso2() {
+  document.getElementById('passo3').style.display = 'none';
+  document.getElementById('passo2').style.display = 'block';
+  document.getElementById('step2').className = 'step active';
+  document.getElementById('step3').className = 'step';
+}
+
+// Auto-concilia: liga cProd da NF com codForn do pedido Bling; fallback SKU direto
+function _conciliar() {
+  const blingMap = {};
+  CE.blingItens.forEach(it => {
+    if (it.codForn) blingMap[it.codForn.trim().toLowerCase()] = it;
+    if (it.sku)     blingMap[it.sku.trim().toLowerCase()]     = it;
+  });
+
+  CE.concItens = CE.xmlItens.map(it => {
+    const key  = (it.cProd || '').trim().toLowerCase();
+    const bling = blingMap[key] || null;
+    const sku   = bling ? bling.sku  : '';
+    const nome  = bling ? (CE.skusBL.find(s => s.sku === sku)?.nome || sku) : '';
+    return {
+      ...it,
+      sku:       sku,
+      nomeSKU:   nome,
+      qtdPedido: bling ? bling.qtd : 0,
+      matched:   !!bling,
+    };
+  });
+
+  renderConciliacao();
+}
+
+function renderConciliacao() {
+  let ok = 0, warn = 0, none = 0;
+  const html = CE.concItens.map((it, i) => {
+    let rowClass = '';
+    if (it.sku && it.matched)   { ok++;   rowClass = 'match-ok'; }
+    else if (it.sku && !it.matched) { warn++; rowClass = 'match-warn'; }
+    else                             { none++;  rowClass = 'match-none'; }
+
+    const skuCell = `
+      <div class="sku-wrap" id="skuWrap${i}">
+        <input class="sku-inp" id="skuInp${i}" value="${escHtml(it.sku)}" placeholder="Buscar SKU..."
+          oninput="skuFilter(${i},this.value)" onfocus="skuOpen(${i})" onblur="skuBlur(${i})">
+        <div class="sku-dd" id="skuDd${i}"></div>
+      </div>`;
+
+    const statusLabel = it.sku
+      ? (it.matched ? '<span style="color:var(--green);font-size:10px">● Auto</span>'
+                    : '<span style="color:var(--yellow);font-size:10px">● Manual</span>')
+      : '<span style="color:var(--red);font-size:10px">● Sem SKU</span>';
+
+    return `<tr class="${rowClass}">
+      <td class="td-muted">${i+1}</td>
+      <td><code style="font-size:11px;color:var(--cyan)">${escHtml(it.cProd)}</code></td>
+      <td class="td-nome" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
+      <td class="r" style="font-weight:700;color:var(--orange)">${it.qtdNF}</td>
+      <td>${skuCell}</td>
+      <td class="td-nome td-muted" id="nomeSKU${i}">${escHtml(it.nomeSKU)}</td>
+      <td class="r td-muted">${it.qtdPedido || '—'}</td>
+      <td>${statusLabel}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('concilBody').innerHTML = html || '<tr><td colspan="8" class="td-muted" style="text-align:center;padding:20px">Nenhum item no XML</td></tr>';
+  document.getElementById('cntOk').textContent   = ok   + ' conciliados';
+  document.getElementById('cntWarn').textContent = warn + ' manuais';
+  document.getElementById('cntErr').textContent  = none + ' sem SKU';
+}
+
+// ── SKU autocomplete na conciliação ──────────────────────────
+function skuOpen(i) {
+  skuFilter(i, document.getElementById('skuInp' + i).value);
+  document.getElementById('skuDd' + i).style.display = 'block';
+}
+function skuBlur(i) {
+  setTimeout(() => { const dd = document.getElementById('skuDd'+i); if(dd) dd.style.display='none'; }, 180);
+}
+function skuFilter(i, q) {
+  const dd  = document.getElementById('skuDd' + i);
+  const hit = q.trim()
+    ? CE.skusBL.filter(s => s.sku.toLowerCase().includes(q.toLowerCase()) || s.nome.toLowerCase().includes(q.toLowerCase()))
+    : CE.skusBL;
+  if (!hit.length) {
+    dd.innerHTML = '<div class="sku-opt" style="color:var(--muted)">Nenhum SKU encontrado</div>';
+  } else {
+    dd.innerHTML = hit.slice(0,40).map(s =>
+      `<div class="sku-opt" onmousedown="skuSelect(${i},'${escJs(s.sku)}','${escJs(s.nome)}')">
+        <div class="sku-sku">${escHtml(s.sku)}</div>
+        <div class="sku-nome">${escHtml(s.nome)}</div>
+      </div>`
+    ).join('');
+  }
+}
+function skuSelect(i, sku, nome) {
+  CE.concItens[i].sku     = sku;
+  CE.concItens[i].nomeSKU = nome;
+  CE.concItens[i].matched = false;
+  document.getElementById('skuInp' + i).value = sku;
+  document.getElementById('nomeSKU' + i).textContent = nome;
+  const dd = document.getElementById('skuDd' + i);
+  if (dd) dd.style.display = 'none';
+  // Atualiza contadores
+  let ok=0,warn=0,none=0;
+  CE.concItens.forEach(it => { if(it.sku&&it.matched)ok++; else if(it.sku)warn++; else none++; });
+  document.getElementById('cntOk').textContent   = ok   + ' conciliados';
+  document.getElementById('cntWarn').textContent = warn + ' manuais';
+  document.getElementById('cntErr').textContent  = none + ' sem SKU';
+}
+
+// ── Salvar NF ─────────────────────────────────────────────
+function salvarNF() {
+  // Lê valores atuais dos inputs de SKU (caso o usuário tenha digitado sem selecionar)
+  CE.concItens.forEach((it,i) => {
+    const v = (document.getElementById('skuInp'+i)?.value || '').trim();
+    if (v) it.sku = v;
+    else   it.sku = '';
+  });
+
+  const dados = {
+    pedidoBling:  document.getElementById('f_pedidoBling').value.trim(),
+    fornecedor:   document.getElementById('f_fornecedor').value.trim(),
+    nNF:          document.getElementById('f_nNF').value.trim(),
+    empresa:      document.getElementById('f_empresa').value.trim(),
+    qtdVolume:    document.getElementById('f_qtdVolume').value.trim(),
+    dataEntrega:  document.getElementById('f_dataEntrega').value,
+    lancouContas: 'Não',
+    importouXML:  'Não',
+    responsavel:  '',
+    status:       'Aguardando Chegar',
+    itens: CE.concItens.map(it => ({
+      cProd:        it.cProd,
+      descricaoNF:  it.descricaoNF,
+      qtdNF:        it.qtdNF,
+      sku:          it.sku,
+      nomeSKU:      it.nomeSKU,
+      qtdPedido:    it.qtdPedido,
+    })),
+  };
+
+  setOverlay(true, 'Salvando NF na planilha...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+      dados.id         = res.id;
+      dados.dataCriacao = new Date().toLocaleDateString('pt-BR');
+      CE.nfs.unshift(dados);
+      atualizarHdrSub();
+      resetImport();
+      toast('✅ NF ' + dados.nNF + ' salva com sucesso!', 'ok');
+      navTo('porNF');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .ce_salvarNF(dados);
+}
+
+function resetImport() {
+  CE.xmlItens = []; CE.xmlDados = {}; CE.blingItens = []; CE.concItens = [];
+  document.getElementById('passo1').style.display = 'block';
+  document.getElementById('passo2').style.display = 'none';
+  document.getElementById('passo3').style.display = 'none';
+  ['step1','step2','step3'].forEach((s,i) => {
+    document.getElementById(s).className = 'step' + (i===0?' active':'');
+  });
+  document.getElementById('xmlZone').classList.remove('xml-ok');
+  document.getElementById('xmlZoneTitle').textContent = 'Clique ou arraste o arquivo XML da NF aqui';
+  document.getElementById('xmlZoneSub').textContent   = 'Formato NF-e (.xml)';
+  document.getElementById('btnAvancar1').disabled = true;
+  ['f_pedidoBling','f_fornecedor','f_dataEntrega'].forEach(id => {
+    document.getElementById(id).value = '';
+    limparErr(id);
+  });
+}
+
+function limparErr(id) {
+  document.getElementById(id).classList.remove('err');
+  const e = document.getElementById('err_' + id);
+  if (e) e.classList.remove('show');
+}
+
+// ── Por NF — render ────────────────────────────────────────
+const STATUS_CLASS = {
+  'Aguardando Chegar': 's-aguardando',
+  'Recebido':          's-recebido',
+  'Em conferência':    's-conferencia',
+  'Conferido':         's-conferido',
+  'Armazenado':        's-armazenado',
+};
+const STATUS_LIST = ['Aguardando Chegar','Recebido','Em conferência','Conferido','Armazenado'];
+
+function renderPorNF() {
+  const q       = (document.getElementById('filtroNF')?.value || '').toLowerCase().trim();
+  const qStatus = document.getElementById('filtroStatusNF')?.value || '';
+
+  let lista = CE.nfs;
+  if (q)       lista = lista.filter(n =>
+    [n.nNF,n.pedidoBling,n.fornecedor,n.empresa,n.responsavel].some(v => v.toLowerCase().includes(q)));
+  if (qStatus) lista = lista.filter(n => n.status === qStatus);
+
+  // Sort
+  lista = [...lista].sort((a,b) => {
+    const va = a[CE.sortFieldNF] || '';
+    const vb = b[CE.sortFieldNF] || '';
+    return va < vb ? CE.sortDirNF : va > vb ? -CE.sortDirNF : 0;
+  });
+
+  const RESPS = ['Eduardo','Junior'];
+  const body = lista.map(nf => {
+    const sc     = STATUS_CLASS[nf.status] || 's-aguardando';
+    const dataFmt = nf.dataEntrega || '—';
+    const criadoFmt = (nf.dataCriacao || '').slice(0,16);
+
+    const lancouHtml = `<div class="yn-toggle">
+      <button class="yn-btn ${nf.lancouContas==='Sim'?'sim-on':''}" onclick="toggleYN('${nf.id}','lancouContas','Sim')">Sim</button>
+      <button class="yn-btn ${nf.lancouContas!=='Sim'?'nao-on':''}" onclick="toggleYN('${nf.id}','lancouContas','Não')">Não</button>
+    </div>`;
+    const importouHtml = `<div class="yn-toggle">
+      <button class="yn-btn ${nf.importouXML==='Sim'?'sim-on':''}" onclick="toggleYN('${nf.id}','importouXML','Sim')">Sim</button>
+      <button class="yn-btn ${nf.importouXML!=='Sim'?'nao-on':''}" onclick="toggleYN('${nf.id}','importouXML','Não')">Não</button>
+    </div>`;
+
+    const isCustom = nf.responsavel && !RESPS.includes(nf.responsavel);
+    const respHtml = `<select class="resp-sel" onchange="mudaResponsavel('${nf.id}',this)">
+      <option value=""${!nf.responsavel?' selected':''}>—</option>
+      ${RESPS.map(r=>`<option${nf.responsavel===r?' selected':''}>${r}</option>`).join('')}
+      <option value="__outro__"${isCustom?' selected':''}>Outro...</option>
+      ${isCustom?`<option value="${escHtml(nf.responsavel)}" selected hidden>${escHtml(nf.responsavel)}</option>`:''}
+    </select>`;
+
+    const statusHtml = `<span class="status-chip ${sc}" onclick="ciclarStatus('${nf.id}')">${nf.status}</span>`;
+
+    const nItens = (nf.itens||[]).length;
+    const tooltipBtn = `<button class="btn btn-ghost btn-xs"
+      onmouseenter="showTooltip(event,'${nf.id}')"
+      onmouseleave="hideTooltip()"
+      style="font-size:11px"
+    >📦 ${nItens}</button>`;
+
+    return `<tr>
+      <td class="td-muted" style="font-size:11px">${criadoFmt}</td>
+      <td class="td-nf">${escHtml(nf.nNF)}</td>
+      <td style="font-weight:600;color:var(--blue)">${escHtml(nf.pedidoBling)}</td>
+      <td class="td-nome" title="${escHtml(nf.fornecedor)}">${escHtml(nf.fornecedor)}</td>
+      <td><span style="color:var(--green);font-weight:700;font-size:11px">${escHtml(nf.empresa)}</span></td>
+      <td class="r td-muted">${nf.qtdVolume||'—'}</td>
+      <td class="td-muted">${dataFmt}</td>
+      <td>${lancouHtml}</td>
+      <td>${importouHtml}</td>
+      <td>${respHtml}</td>
+      <td>${statusHtml}</td>
+      <td>${tooltipBtn}</td>
+    </tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="12">Nenhuma NF encontrada</td></tr>`;
+
+  document.getElementById('porNF_body').innerHTML = body;
+  document.getElementById('porNF_info').textContent = lista.length + ' NF(s)';
+}
+
+function sortPorNF(field) {
+  if (CE.sortFieldNF === field) CE.sortDirNF *= -1;
+  else { CE.sortFieldNF = field; CE.sortDirNF = 1; }
+  renderPorNF();
+}
+
+// ── Por Item — render ──────────────────────────────────────
+function renderPorItem() {
+  const q = (document.getElementById('filtroItem')?.value || '').toLowerCase().trim();
+  const rows = [];
+  CE.nfs.forEach(nf => {
+    (nf.itens || []).forEach(it => {
+      if (q && ![nf.nNF,nf.pedidoBling,nf.fornecedor,nf.empresa,it.sku,it.descricaoNF]
+        .some(v => String(v).toLowerCase().includes(q))) return;
+      rows.push({ nf, it });
+    });
+  });
+
+  const sc = STATUS_CLASS;
+  const body = rows.map(({ nf, it }) => {
+    const cls = sc[nf.status] || 's-aguardando';
+    return `<tr>
+      <td class="td-nf">${escHtml(nf.nNF)}</td>
+      <td style="color:var(--blue);font-weight:600">${escHtml(nf.pedidoBling)}</td>
+      <td class="td-nome" title="${escHtml(nf.fornecedor)}">${escHtml(nf.fornecedor)}</td>
+      <td style="color:var(--green);font-weight:700;font-size:11px">${escHtml(nf.empresa)}</td>
+      <td class="td-muted">${nf.dataEntrega||'—'}</td>
+      <td><code style="color:var(--cyan);font-size:11px">${escHtml(it.sku||'—')}</code></td>
+      <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
+      <td class="r" style="font-weight:700;color:var(--orange)">${it.qtdNF||0}</td>
+      <td class="r td-muted">${it.qtdPedido||'—'}</td>
+      <td><span class="status-chip ${cls}" style="cursor:default">${nf.status}</span></td>
+    </tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="10">Nenhum item encontrado</td></tr>`;
+
+  document.getElementById('porItem_body').innerHTML = body;
+  document.getElementById('porItem_info').textContent = rows.length + ' item(ns)';
+}
+
+// ── Inline edits ───────────────────────────────────────────
+function toggleYN(id, campo, novoSim) {
+  const nf = CE.nfs.find(n => n.id === id);
+  if (!nf) return;
+  const novo = nf[campo] === novoSim ? 'Não' : novoSim;
+  nf[campo] = novo;
+  renderPorNF();
+  salvarCampo(id, campo, novo);
+}
+
+function mudaResponsavel(id, sel) {
+  const nf = CE.nfs.find(n => n.id === id);
+  if (!nf) return;
+  if (sel.value === '__outro__') {
+    const nome = prompt('Digite o nome do responsável:');
+    if (!nome) { sel.value = nf.responsavel || ''; return; }
+    nf.responsavel = nome;
+    renderPorNF();
+    salvarCampo(id, 'responsavel', nome);
+    return;
+  }
+  nf.responsavel = sel.value;
+  salvarCampo(id, 'responsavel', sel.value);
+}
+
+function ciclarStatus(id) {
+  const nf  = CE.nfs.find(n => n.id === id);
+  if (!nf) return;
+  const idx = STATUS_LIST.indexOf(nf.status);
+  const next = STATUS_LIST[(idx + 1) % STATUS_LIST.length];
+  nf.status = next;
+  renderPorNF();
+  salvarCampo(id, 'status', next);
+}
+
+function salvarCampo(id, campo, valor) {
+  google.script.run
+    .withSuccessHandler(() => {})
+    .withFailureHandler(e => toast('⚠ Erro ao salvar: ' + e.message, 'err'))
+    .ce_atualizarCampo(id, campo, valor);
+}
+
+// ── Tooltip de itens ───────────────────────────────────────
+let _ttTimer = null;
+
+function showTooltip(event, nfId) {
+  clearTimeout(_ttTimer);
+  const nf  = CE.nfs.find(n => n.id === nfId);
+  const tt  = document.getElementById('itemTooltip');
+  if (!nf || !nf.itens?.length) { tt.style.display='none'; return; }
+
+  const rows = nf.itens.map(it =>
+    `<div class="tt-item">
+      <span class="tt-sku">${escHtml(it.sku||it.cProd||'—')}</span>
+      <span class="tt-desc" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF||'')}</span>
+      <span class="tt-qtd">${it.qtdNF}</span>
+    </div>`
+  ).join('');
+
+  tt.innerHTML = `<div class="tt-title">NF ${escHtml(nf.nNF)} · ${nf.itens.length} item(ns)</div>${rows}`;
+  tt.style.display = 'block';
+  positionTooltip(event, tt);
+  setTimeout(() => tt.style.opacity = '1', 10);
+}
+
+function positionTooltip(event, tt) {
+  const x = event.clientX + 12;
+  const y = event.clientY + 12;
+  const W = window.innerWidth, H = window.innerHeight;
+  tt.style.left = (x + 430 > W ? x - 450 : x) + 'px';
+  tt.style.top  = (y + tt.offsetHeight + 20 > H ? y - tt.offsetHeight - 20 : y) + 'px';
+}
+
+function hideTooltip() {
+  const tt = document.getElementById('itemTooltip');
+  tt.style.opacity = '0';
+  _ttTimer = setTimeout(() => { tt.style.display = 'none'; }, 150);
+}
+
+// ── Bling auth ─────────────────────────────────────────────
+function openBlingModal() { document.getElementById('blingModal').classList.add('open'); }
+
+function abrirBling() {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) window.open(res.url, '_blank');
+      else { document.getElementById('blingErr').textContent = res.error; document.getElementById('blingErr').style.display = ''; }
+    })
+    .withFailureHandler(e => toast('❌ ' + e.message, 'err'))
+    .ce_getAuthUrl();
+}
+
+function confirmarBlingCodigo() {
+  const code = document.getElementById('blingCode').value.trim();
+  if (!code) { toast('ℹ Cole o código primeiro', 'inf'); return; }
+  setOverlay(true, 'Autorizando Bling...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) { document.getElementById('blingErr').textContent = res.error; document.getElementById('blingErr').style.display=''; return; }
+      closeModal('blingModal');
+      document.getElementById('blingCode').value = '';
+      toast('✅ Bling autorizado!', 'ok');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .ce_trocarCodigo(code);
+}
+
+// ── Confirm modal ──────────────────────────────────────────
+function confirm2(title, body, onOk) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmBody').textContent  = body;
+  const btn = document.getElementById('confirmOk');
+  btn.onclick = () => { closeModal('confirmModal'); onOk(); };
+  document.getElementById('confirmModal').classList.add('open');
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── Helpers ────────────────────────────────────────────────
+function setOverlay(show, msg) {
+  document.getElementById('overlay').style.display = show ? 'flex' : 'none';
+  if (msg) document.getElementById('overlayMsg').textContent = msg;
+}
+
+function toast(msg, type) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type||'inf');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escJs(s) {
+  return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+</script>
+</body>
+</html>
