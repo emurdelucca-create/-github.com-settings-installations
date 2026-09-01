@@ -961,8 +961,12 @@ function _renderSubRow(nf) {
         <span style="color:var(--green);font-size:11px;font-weight:700">📦 ${totalPecas} peças</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${chipHtml}</div>
-      <button class="btn btn-ghost btn-xs" style="color:var(--blue);border-color:rgba(68,138,255,.3);white-space:nowrap"
-        onclick="criarPedidoCompraBase('${escJs(nf.id)}',${entIdx})">🛒 Criar Pedido na Base</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-ghost btn-xs" style="color:var(--blue);border-color:rgba(68,138,255,.3);white-space:nowrap"
+          onclick="criarPedidoCompraBase('${escJs(nf.id)}',${entIdx})">🛒 Criar Pedido na Base</button>
+        <button class="btn btn-ghost btn-xs" style="color:var(--green);border-color:rgba(0,230,118,.3);white-space:nowrap"
+          onclick="exportarEntregaCSV('${escJs(nf.id)}',${entIdx})">📥 Exportar CSV</button>
+      </div>
     </div>`;
   }).join('');
   return `<tr class="sub-row" id="subrow_${nf.id}">
@@ -1009,6 +1013,35 @@ function criarPedidoCompraBase(nfId, entIdx) {
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ Erro: ' + e.message, 'err'); })
     .ce_criarPedidoCompraBase(params);
+}
+
+// ── Exportar Entrega CSV (para importar na BaseLinker) ────────
+function exportarEntregaCSV(nfId, entIdx) {
+  const nf = CE.nfs.find(n => n.id === nfId);
+  if (!nf) return;
+  const ent = (nf.conferencia?.entregas || [])[entIdx];
+  if (!ent) { toast('Entrega não encontrada', 'err'); return; }
+  const linhas = (ent.itens || [])
+    .filter(ei => (ei.qtdConferida || 0) > 0)
+    .map(ei => {
+      const nfItem = (nf.itens || []).find(x => x.cProd === ei.cProd);
+      const sku    = nfItem?.sku || ei.sku || '';
+      const qtd    = ei.qtdConferida || 0;
+      const custo  = nfItem?.vUnCom != null ? String(nfItem.vUnCom).replace('.', ',') : '0';
+      return `${sku};${qtd};${custo};`;
+    });
+  if (!linhas.length) { toast('Nenhum item com quantidade nessa entrega', 'inf'); return; }
+  const csv  = linhas.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `entrega_NF${nf.nNF}_${ent.numero || (entIdx + 1)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('📥 CSV exportado: ' + linhas.length + ' item(ns)', 'ok');
 }
 
 // ── Navegação ──────────────────────────────────────────────
