@@ -275,22 +275,55 @@ function ce_checkAuth() {
 }
 
 // ── Bling — Buscar pedido de compra por número ────────────────
+// Extrai o número de um objeto de pedido tentando vários campos possíveis
+function _ce_pedidoNumero(p) {
+  return String(p.numero || p.numeroPedido || p.numeroOrdem || p.num || '');
+}
+
+// Diagnóstico: retorna os primeiros itens brutos da lista de pedidos de compra
+// Execute no editor GAS para ver os nomes reais dos campos da API
+function ce_debugBlingPedidoRaw() {
+  const token = _ce_getToken();
+  const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=1&limite=5', {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  const body = r.getContentText();
+  Logger.log('Status: ' + r.getResponseCode());
+  Logger.log('Body: ' + body);
+  const data = JSON.parse(body || '{}').data || [];
+  if (data.length) Logger.log('Keys do 1º item: ' + Object.keys(data[0]).join(', '));
+  return body;
+}
+
 function ce_buscarPedidoBling(numeroPedido) {
   try {
     const token = _ce_getToken();
     const numero = String(numeroPedido).trim();
 
-    // Tenta busca direta por número — sempre filtra pelo número mesmo se a API ignorar o parâmetro
-    const r1 = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?numero=' + encodeURIComponent(numero) + '&pagina=1&limite=50', {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    let pedidos = (JSON.parse(r1.getContentText() || '{}').data || [])
-      .filter(p => String(p.numero || p.numeroOrdem || '') === numero);
+    // Tenta busca direta por número (parâmetros alternativos)
+    const urls = [
+      CE_BLING_API + '/pedidos/compras?numero=' + encodeURIComponent(numero) + '&pagina=1&limite=50',
+      CE_BLING_API + '/pedidos/compras?numeroPedido=' + encodeURIComponent(numero) + '&pagina=1&limite=50',
+    ];
+    let pedidos = [];
+    let sampleKeys = '';
+    for (const url of urls) {
+      const r1 = UrlFetchApp.fetch(url, {
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      });
+      const items = JSON.parse(r1.getContentText() || '{}').data || [];
+      if (items.length && !sampleKeys) sampleKeys = Object.keys(items[0]).join(',');
+      pedidos = items.filter(p => _ce_pedidoNumero(p) === numero);
+      if (pedidos.length) break;
+      // Se a URL sem filtro retornou itens mas nenhum bate, não tentar a próxima variante
+      if (items.length) break;
+    }
 
-    // Se não encontrou, percorre páginas (até 10) buscando pelo número
+    // Se não encontrou, percorre páginas (até 15) buscando pelo número
     if (!pedidos.length) {
-      for (let pg = 1; pg <= 10 && !pedidos.length; pg++) {
+      for (let pg = 1; pg <= 15 && !pedidos.length; pg++) {
         Utilities.sleep(200);
         const rp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
           headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
@@ -298,11 +331,15 @@ function ce_buscarPedidoBling(numeroPedido) {
         });
         const items = JSON.parse(rp.getContentText() || '{}').data || [];
         if (!items.length) break;
-        pedidos = items.filter(p => String(p.numero || p.numeroOrdem || '') === numero);
+        if (!sampleKeys) sampleKeys = Object.keys(items[0]).join(',');
+        pedidos = items.filter(p => _ce_pedidoNumero(p) === numero);
       }
     }
 
-    if (!pedidos.length) return { ok: false, error: 'Pedido nº ' + numero + ' não encontrado no Bling' };
+    if (!pedidos.length) {
+      const hint = sampleKeys ? ' [campos disponíveis: ' + sampleKeys + ']' : '';
+      return { ok: false, error: 'Pedido nº ' + numero + ' não encontrado no Bling' + hint };
+    }
 
     // Busca detalhes do primeiro resultado
     const ped = pedidos[0];
