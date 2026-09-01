@@ -1409,53 +1409,47 @@ function toggleDivPanel() {
   document.getElementById('divPanelChevron').textContent = _divPanelOpen ? '▲ fechar' : '▼ expandir';
 }
 
+// Monta linhas de divergência: [{sku, codForn, qtdNF, qtdPedido, diff}]
+function _calcDivergencias() {
+  const linhas = [];
+
+  // 1. Diferença de quantidade em itens presentes nos dois lados
+  (CE._qtdDiff || []).forEach(it => {
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
+    linhas.push({ sku: it.sku || '', codForn: it.cProd || '', qtdNF: qtdConv, qtdPedido: it.qtdPedido, diff: qtdConv - it.qtdPedido });
+  });
+
+  // 2. Na NF mas não no pedido (qtdPedido = 0)
+  (CE.nfNaoNoPedido || []).forEach(it => {
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
+    linhas.push({ sku: it.sku || '', codForn: it.cProd || '', qtdNF: qtdConv, qtdPedido: 0, diff: qtdConv });
+  });
+
+  // 3. No pedido mas não na NF (qtdNF = 0)
+  (CE.blingNaoNaNF || []).forEach(bi => {
+    linhas.push({ sku: bi.sku || '', codForn: bi.codForn || '', qtdNF: 0, qtdPedido: bi.qtd || 0, diff: -(bi.qtd || 0) });
+  });
+
+  return linhas;
+}
+
 function exportarDivergencias() {
-  const nNF = document.getElementById('f_nNF')?.value.trim() || 'NF';
+  const nNF   = document.getElementById('f_nNF')?.value.trim() || 'NF';
+  const linhas = _calcDivergencias();
 
-  function _baixarCSV(linhas, nome) {
-    if (!linhas.length) return;
-    const conteudo = 'SKU;Cód. Fornecedor;Qtd\n' + linhas.join('\n');
-    const blob = new Blob([conteudo], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = nome; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  if (!linhas.length) { toast('✅ Sem divergências para exportar.', 'ok'); return; }
 
-  // A mais do pedido: itens no Bling não encontrados na NF + itens com qtd maior no pedido
-  const maisList = [
-    ...(CE.blingNaoNaNF || []).map(bi =>
-      `${bi.sku || ''};${bi.codForn || ''};${bi.qtd || 0}`
-    ),
-    ...(CE._qtdDiff || []).filter(it => it.qtdPedido > (it.multiplo ? it.qtdNF : +(it.qtdNF*(it.fator||1)).toFixed(3)))
-      .map(it => {
-        const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF*(it.fator||1)).toFixed(3);
-        return `${it.sku || ''};${it.cProd || ''};${it.qtdPedido - qtdConv}`;
-      }),
-  ];
+  const header  = 'SKU;Cód. Fornecedor;Qtd NF;Qtd Pedido;Diferença';
+  const conteudo = header + '\n' + linhas.map(l =>
+    `${l.sku};${l.codForn};${l.qtdNF};${l.qtdPedido};${l.diff > 0 ? '+' : ''}${l.diff}`
+  ).join('\n');
 
-  // A menos: itens na NF sem correspondência no pedido + itens com qtd maior na NF
-  const menosList = [
-    ...(CE.nfNaoNoPedido || []).map(it =>
-      `${it.sku || ''};${it.cProd || ''};${it.qtdNF || 0}`
-    ),
-    ...(CE._qtdDiff || []).filter(it => {
-        const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF*(it.fator||1)).toFixed(3);
-        return qtdConv > it.qtdPedido;
-      }).map(it => {
-        const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF*(it.fator||1)).toFixed(3);
-        return `${it.sku || ''};${it.cProd || ''};${qtdConv - it.qtdPedido}`;
-      }),
-  ];
-
-  if (!maisList.length && !menosList.length) {
-    toast('✅ Sem divergências para exportar.', 'ok');
-    return;
-  }
-
-  _baixarCSV(maisList, `div_mais_${nNF}.csv`);
-  setTimeout(() => _baixarCSV(menosList, `div_menos_${nNF}.csv`), 600);
-  toast('📥 Exportando CSVs de divergências...', 'ok');
+  const blob = new Blob([conteudo], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `divergencias_${nNF}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('📥 Exportado divergencias_' + nNF + '.csv', 'ok');
 }
 
 // Sempre mostra passo 3 para confirmação de quantidades e conciliação
@@ -1580,6 +1574,27 @@ function setFator(i, val) {
 
 // ── Salvar NF ─────────────────────────────────────────────
 function salvarNF() {
+  const divs = _calcDivergencias();
+  if (divs.length) {
+    const nNF = document.getElementById('f_nNF')?.value.trim() || '';
+    const resumo = divs.slice(0, 5).map(l => {
+      if (l.qtdNF === 0)     return `• ${l.sku||l.codForn}: no pedido (${l.qtdPedido}) mas não na NF`;
+      if (l.qtdPedido === 0) return `• ${l.sku||l.codForn}: na NF (${l.qtdNF}) mas não no pedido`;
+      return `• ${l.sku||l.codForn}: NF=${l.qtdNF} / Pedido=${l.qtdPedido} (${l.diff > 0 ? '+' : ''}${l.diff})`;
+    }).join('\n') + (divs.length > 5 ? `\n...e mais ${divs.length - 5} divergência(s)` : '');
+
+    confirm2(
+      '⚠ ' + divs.length + ' divergência(s) encontrada(s)',
+      resumo + '\n\nDeseja exportar o CSV de divergências antes de salvar?',
+      () => { exportarDivergencias(); setTimeout(_executarSalvarNF, 800); },
+      { okLabel: '📥 Exportar e Salvar', cancelLabel: 'Salvar sem exportar', onCancel: _executarSalvarNF }
+    );
+    return;
+  }
+  _executarSalvarNF();
+}
+
+function _executarSalvarNF() {
   const dados = {
     pedidoBling:  document.getElementById('f_pedidoBling').value.trim(),
     blingId:      document.getElementById('f_blingId').value.trim(),
@@ -2046,11 +2061,19 @@ function confirmarBlingCodigo() {
 }
 
 // ── Confirm modal ──────────────────────────────────────────
-function confirm2(title, body, onOk) {
+// opts: { okLabel, cancelLabel, onCancel }
+function confirm2(title, body, onOk, opts) {
   document.getElementById('confirmTitle').textContent = title;
   document.getElementById('confirmBody').textContent  = body;
-  const btn = document.getElementById('confirmOk');
-  btn.onclick = () => { closeModal('confirmModal'); onOk(); };
+  const btnOk     = document.getElementById('confirmOk');
+  const btnCancel = document.getElementById('confirmCancel');
+  btnOk.textContent = (opts && opts.okLabel) ? opts.okLabel : 'Confirmar';
+  if (btnCancel) btnCancel.textContent = (opts && opts.cancelLabel) ? opts.cancelLabel : 'Cancelar';
+  btnOk.onclick = () => { closeModal('confirmModal'); onOk(); };
+  if (btnCancel) btnCancel.onclick = () => {
+    closeModal('confirmModal');
+    if (opts && opts.onCancel) opts.onCancel();
+  };
   document.getElementById('confirmModal').classList.add('open');
 }
 
