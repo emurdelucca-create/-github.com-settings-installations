@@ -1543,16 +1543,17 @@ function skuSelect(i, sku, nome) {
   CE.concItens[i].sku     = sku;
   CE.concItens[i].nomeSKU = nome;
   CE.concItens[i].matched = false;
-  document.getElementById('skuInp' + i).value = sku;
-  document.getElementById('nomeSKU' + i).textContent = nome;
+  // Busca qtdPedido no pedido Bling pelo SKU selecionado
+  const blMatch = CE.blingItens.find(bi =>
+    (bi.sku     || '').trim().toLowerCase() === sku.trim().toLowerCase() ||
+    (bi.codForn || '').trim().toLowerCase() === sku.trim().toLowerCase()
+  );
+  CE.concItens[i].qtdPedido = blMatch ? blMatch.qtd : 0;
+  document.getElementById('skuInp'  + i).value       = sku;
+  document.getElementById('nomeSKU' + i).textContent  = nome;
   const dd = document.getElementById('skuDd' + i);
   if (dd) dd.style.display = 'none';
-  // Atualiza contadores
-  let ok=0,warn=0,none=0;
-  CE.concItens.forEach(it => { if(it.sku&&it.matched)ok++; else if(it.sku)warn++; else none++; });
-  document.getElementById('cntOk').textContent   = ok   + ' conciliados';
-  document.getElementById('cntWarn').textContent = warn + ' manuais';
-  document.getElementById('cntErr').textContent  = none + ' sem SKU';
+  renderConciliacao(); // re-render completo para atualizar qtdPedido e divergências
 }
 
 function setMultiplo(i, val) {
@@ -1563,6 +1564,34 @@ function setMultiplo(i, val) {
 function setFator(i, val) {
   const v = parseFloat(val);
   CE.concItens[i].fator = (isNaN(v) || v <= 0) ? 1 : v;
+  _atualizarDivergencias();
+}
+
+// Recalcula divergências a partir do estado atual de CE.concItens (sem re-renderizar a tabela)
+function _atualizarDivergencias() {
+  // SKUs atualmente atribuídos na conciliação
+  const matchedSkus = new Set();
+  CE.concItens.forEach((it, idx) => {
+    const sku = (document.getElementById('skuInp' + idx)?.value || it.sku || '').trim().toLowerCase();
+    if (sku) {
+      matchedSkus.add(sku);
+      // Também marca o codForn do item Bling correspondente
+      const bl = CE.blingItens.find(bi => (bi.sku || '').trim().toLowerCase() === sku);
+      if (bl?.codForn) matchedSkus.add(bl.codForn.trim().toLowerCase());
+    }
+  });
+
+  CE.blingNaoNaNF  = CE.blingItens.filter(bi =>
+    !matchedSkus.has((bi.sku || '').trim().toLowerCase()) &&
+    !matchedSkus.has((bi.codForn || '').trim().toLowerCase())
+  );
+  CE.nfNaoNoPedido = CE.concItens.filter(it => !it.qtdPedido);
+  CE._qtdDiff      = CE.concItens.filter(it => {
+    if (!it.qtdPedido) return false;
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
+    return qtdConv !== it.qtdPedido;
+  });
+  _renderDivergencias();
 }
 
 // ── Salvar NF ─────────────────────────────────────────────
