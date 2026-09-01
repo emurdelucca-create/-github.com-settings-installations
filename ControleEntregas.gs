@@ -40,8 +40,8 @@ const CE_BLING_REDIRECT  = 'https://www.google.com';
 // Colunas da sheet NFs (1-indexed para GAS getRange)
 // A=ID  B=PedidoBling  C=Fornecedor  D=NNF  E=Empresa  F=QtdVolume
 // G=DataEntrega  H=LancouContas  I=ImportouXML  J=Responsavel
-// K=Status  L=DataCriacao  M=ItensJSON  N=ConferenciaJSON
-const CE_NCOLS = 14;
+// K=Status  L=DataCriacao  M=ItensJSON  N=ConferenciaJSON  O=BlingId
+const CE_NCOLS = 15;
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
@@ -65,7 +65,7 @@ function _ce_aba() {
     aba.getRange(1, 1, 1, CE_NCOLS).setValues([[
       'ID','Pedido Bling','Fornecedor','Nº NF','Empresa Nossa',
       'Qtd. Volume NF','Data Entrega Agendada','Lançou Contas?',
-      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON','Conferência JSON',
+      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON','Conferência JSON','ID Bling',
     ]]);
     aba.setFrozenRows(1);
   }
@@ -98,6 +98,7 @@ function _ce_rowToObj(r) {
     conferencia: r[13] ? (function(v){
                    try { return typeof v==='string' ? JSON.parse(v) : v; } catch(e){ return null; }
                  })(r[13]) : null,
+    blingId:     String(r[14] || ''),
   };
 }
 
@@ -122,6 +123,7 @@ function ce_salvarNF(dados) {
       agora,
       JSON.stringify(dados.itens || []),
       '',
+      String(dados.blingId || ''),
     ]);
     return { ok: true, id };
   } catch(e) {
@@ -149,7 +151,7 @@ function ce_atualizarCampo(id, campo, valor) {
     const MAPA = {
       pedidoBling:  2, fornecedor: 3, nNF: 4, empresa: 5,
       qtdVolume:    6, dataEntrega: 7, lancouContas: 8,
-      importouXML:  9, responsavel: 10, status: 11, itens: 13, conferencia: 14,
+      importouXML:  9, responsavel: 10, status: 11, itens: 13, conferencia: 14, blingId: 15,
     };
     const col = MAPA[campo];
     if (!col) return { ok: false, error: 'Campo desconhecido: ' + campo };
@@ -339,10 +341,12 @@ function ce_debugBuscarPedido() {
   }
 }
 
-function ce_buscarPedidoBling(numeroPedido) {
+// numeroPedido = número sequencial exibido (ex: "1907")
+// blingIdOpt   = ID interno do Bling da URL (ex: "26740306720"), opcional
+function ce_buscarPedidoBling(numeroPedido, blingIdOpt) {
   try {
     const token  = _ce_getToken();
-    const valor  = String(numeroPedido).trim();
+    const valor  = String(blingIdOpt || numeroPedido).trim();
     const isId   = /^\d{8,}$/.test(valor); // ID interno do Bling tem ≥8 dígitos
 
     let ped = null;
@@ -401,7 +405,7 @@ function ce_buscarPedidoBling(numeroPedido) {
 
     return {
       ok: true,
-      pedido: { id: String(ped.id), numero: ped.numero || valor, fornecedor: det.fornecedor?.nome || '' },
+      pedido: { id: String(ped.id), numero: String(numeroPedido), fornecedor: det.fornecedor?.nome || '' },
       itens,
     };
   } catch(e) {
