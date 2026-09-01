@@ -341,49 +341,54 @@ function ce_debugBuscarPedido() {
 
 function ce_buscarPedidoBling(numeroPedido) {
   try {
-    const token = _ce_getToken();
-    const numero = String(numeroPedido).trim();
-    const numInt = parseInt(numero, 10);
+    const token  = _ce_getToken();
+    const valor  = String(numeroPedido).trim();
+    const isId   = /^\d{8,}$/.test(valor); // ID interno do Bling tem ≥8 dígitos
 
-    let pedidos = [];
+    let ped = null;
+    let det = {};
 
-    // Percorre páginas buscando pelo número sequencial (API ignora filtro ?numero=)
-    // Bling ordena do mais antigo para mais recente (pg 1 = pedido 1, 2, 3...)
-    // Pedido nº N está em torno da página ceil(N/100)
-    const startPg = Math.max(1, Math.floor(numInt / 100) - 1);
-    const endPg   = Math.ceil(numInt / 100) + 2; // margem de segurança
-    const maxPg   = Math.max(endPg, 30);
-
-    for (let pg = startPg; pg <= maxPg && !pedidos.length; pg++) {
-      Utilities.sleep(100);
-      const rp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
+    if (isId) {
+      // Busca direta pelo ID interno (da URL do Bling) — 1 request, instantâneo
+      const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + valor, {
         headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
         muteHttpExceptions: true,
       });
-      const items = JSON.parse(rp.getContentText() || '{}').data || [];
-      if (!items.length) {
-        // Página vazia pode ser gap; tenta mais uma antes de desistir
-        if (pg < maxPg) continue;
-        break;
+      det = JSON.parse(r.getContentText() || '{}').data || {};
+      if (!det.id) return { ok: false, error: 'Pedido ID ' + valor + ' não encontrado no Bling' };
+      ped = { id: String(det.id), numero: String(det.numero || valor) };
+    } else {
+      // Número sequencial (ex: "1907") — busca por paginação
+      // Bling ordena do mais antigo para o mais recente; pedido N ≈ página ceil(N/100)
+      const numInt  = parseInt(valor, 10);
+      const startPg = Math.max(1, Math.floor(numInt / 100) - 1);
+      const maxPg   = Math.ceil(numInt / 100) + 3;
+      let pedidos   = [];
+
+      for (let pg = startPg; pg <= maxPg && !pedidos.length; pg++) {
+        Utilities.sleep(100);
+        const rp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
+          headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+          muteHttpExceptions: true,
+        });
+        const items = JSON.parse(rp.getContentText() || '{}').data || [];
+        if (!items.length) continue;
+        pedidos = items.filter(p => _ce_pedidoMatchesNumero(p, valor));
+        const lastNum = items[items.length - 1]?.numero || 0;
+        if (!pedidos.length && lastNum > numInt + 200) break;
       }
-      pedidos = items.filter(p => _ce_pedidoMatchesNumero(p, numero));
-      // Se os números desta página já passaram do alvo, não tem mais nada a ver
-      const lastNum = items[items.length - 1]?.numero || 0;
-      if (!pedidos.length && lastNum > numInt + 200) break;
-    }
 
-    if (!pedidos.length) {
-      return { ok: false, error: 'Pedido nº ' + numero + ' não encontrado no Bling' };
-    }
+      if (!pedidos.length) return { ok: false, error: 'Pedido nº ' + valor + ' não encontrado no Bling' };
+      ped = pedidos[0];
 
-    // Busca detalhes do primeiro resultado
-    const ped = pedidos[0];
-    Utilities.sleep(200);
-    const r2 = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + ped.id, {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    const det = (JSON.parse(r2.getContentText() || '{}').data) || {};
+      // Busca detalhes pelo ID interno
+      Utilities.sleep(150);
+      const r2 = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + ped.id, {
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      });
+      det = JSON.parse(r2.getContentText() || '{}').data || {};
+    }
 
     const itens = (det.itens || []).map(it => ({
       produtoId: String(it.produto?.id    || ''),
@@ -396,7 +401,7 @@ function ce_buscarPedidoBling(numeroPedido) {
 
     return {
       ok: true,
-      pedido: { id: String(ped.id), numero, fornecedor: det.fornecedor?.nome || '' },
+      pedido: { id: String(ped.id), numero: ped.numero || valor, fornecedor: det.fornecedor?.nome || '' },
       itens,
     };
   } catch(e) {
