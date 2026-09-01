@@ -344,6 +344,28 @@ td.r { text-align: right; }
 
 /* Verification panel */
 .conf-verif-panel { border-radius: 10px; padding: 16px; margin-bottom: 16px; background: rgba(255,68,68,.06); border: 1px solid rgba(255,68,68,.3); }
+
+/* ── SUB-ROWS ── */
+.sub-row { display: none; }
+.sub-row.open { display: table-row; }
+.sub-row-cell { padding: 0 !important; background: rgba(0,0,0,.18) !important; border-bottom: 1px solid var(--border) !important; }
+.sub-row-inner { padding: 10px 18px 10px 48px; }
+.entrega-card { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.entrega-card-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex: 1; min-width: 0; }
+
+/* ── FILTER BUILDER ── */
+.filter-builder { display: none; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; margin: 0 14px 8px; padding: 12px 14px; }
+.filter-builder.open { display: block; }
+.filter-combinator { display: inline-flex; gap: 0; background: var(--card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+.filter-comb-btn { padding: 4px 12px; font-size: 11px; font-weight: 700; border: none; cursor: pointer; background: transparent; color: var(--muted2); transition: .15s; }
+.filter-comb-btn.on { background: var(--cyan); color: #000; }
+.filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.filter-sel { background: #0a1220; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 11px; padding: 4px 8px; outline: none; cursor: pointer; font-family: inherit; }
+.filter-sel:focus { border-color: var(--cyan); }
+.filter-val-inp { background: #0a1220; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 11px; padding: 4px 8px; outline: none; font-family: inherit; min-width: 130px; }
+.filter-val-inp:focus { border-color: var(--cyan); }
+.filter-active-badge { background: rgba(0,229,255,.15); color: var(--cyan); border: 1px solid rgba(0,229,255,.35); border-radius: 10px; padding: 1px 7px; font-size: 10px; font-weight: 700; display: inline-block; margin-left: 4px; }
+.filter-active { color: var(--cyan) !important; border-color: rgba(0,229,255,.4) !important; }
 </style>
 </head>
 <body>
@@ -504,7 +526,10 @@ td.r { text-align: right; }
         <option>Armazenado</option>
         <option>Parcialmente Recebido</option>
       </select>
+      <button class="btn btn-ghost btn-sm" id="filtroBtn_porNF" onclick="toggleFilterBuilder('porNF')">🔍 Filtros <span id="filtroBtn_badge_porNF" style="display:none" class="filter-active-badge">0</span></button>
+      <button class="btn btn-ghost btn-sm" id="expandAllBtn" onclick="toggleAllSubRows()">▶▶ Expandir</button>
     </div>
+    <div id="filterBuilder_porNF" class="filter-builder"></div>
     <!-- Conference action bar (shows when NFs are selected) -->
     <div class="conf-action-bar" id="confActionBar">
       <span style="font-size:12px;color:var(--cyan);font-weight:700" id="confSelCount">0 NF(s) selecionada(s)</span>
@@ -530,6 +555,7 @@ td.r { text-align: right; }
             <th onclick="sortPorNF('status')">Status</th>
             <th>Conferência</th>
             <th style="width:60px">Itens</th>
+            <th style="width:40px">Hist.</th>
           </tr>
         </thead>
         <tbody id="porNF_body"></tbody>
@@ -545,7 +571,9 @@ td.r { text-align: right; }
       <span class="tbl-info" id="porItem_info">0 itens</span>
       <input class="filter-inp" id="filtroItem" placeholder="Filtrar por SKU, NF, fornecedor, empresa..." oninput="renderPorItem()">
       <button class="btn btn-ghost btn-sm" id="btnConferir" onclick="toggleConferir()" title="Bater quantidade recebida vs pedida">⚖️ Conferir Qtd.</button>
+      <button class="btn btn-ghost btn-sm" id="filtroBtn_porItem" onclick="toggleFilterBuilder('porItem')">🔍 Filtros <span id="filtroBtn_badge_porItem" style="display:none" class="filter-active-badge">0</span></button>
     </div>
+    <div id="filterBuilder_porItem" class="filter-builder"></div>
     <div class="tbl-wrap">
       <table>
         <thead>
@@ -639,8 +667,10 @@ td.r { text-align: right; }
       <button id="saldoTab_geral" class="btn btn-ghost btn-sm" style="border-radius:0;border:none;border-right:1px solid var(--border);padding:10px 18px;font-size:12px;font-weight:700;color:var(--cyan)" onclick="switchSaldoTab('geral')">📊 Subtotal Geral</button>
       <button id="saldoTab_porNF" class="btn btn-ghost btn-sm" style="border-radius:0;border:none;padding:10px 18px;font-size:12px;font-weight:700;color:var(--muted2)" onclick="switchSaldoTab('porNF')">📋 Subtotal Por NF</button>
       <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" id="filtroBtn_saldo" onclick="toggleFilterBuilder('saldo')">🔍 Filtros <span id="filtroBtn_badge_saldo" style="display:none" class="filter-active-badge">0</span></button>
       <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="renderSaldo()">🔄 Atualizar</button>
     </div>
+    <div id="filterBuilder_saldo" class="filter-builder" style="margin:8px 14px 0"></div>
     <div id="saldoBody" style="padding:16px"></div>
   </div>
 </div>
@@ -737,6 +767,249 @@ const CE = {
   sortFieldNF: 'dataCriacao',
   sortDirNF:   -1,
 };
+
+// ── Filter state ──────────────────────────────────────────
+const _filterState = {
+  porNF:   { conditions: [], combinator: 'AND' },
+  porItem: { conditions: [], combinator: 'AND' },
+  saldo:   { conditions: [], combinator: 'AND' },
+};
+const _filterCols = {
+  porNF: [
+    {key:'nNF',label:'Nº NF'},{key:'pedidoBling',label:'Pedido Bling'},
+    {key:'fornecedor',label:'Fornecedor'},{key:'empresa',label:'Empresa'},
+    {key:'status',label:'Status'},{key:'dataEntrega',label:'Data Entrega'},
+    {key:'responsavel',label:'Responsável'},{key:'lancouContas',label:'Lançou Contas'},
+    {key:'importouXML',label:'Importou XML'},
+  ],
+  porItem: [
+    {key:'nNF',label:'Nº NF'},{key:'pedidoBling',label:'Pedido Bling'},
+    {key:'fornecedor',label:'Fornecedor'},{key:'empresa',label:'Empresa'},
+    {key:'dataEntrega',label:'Data Entrega'},{key:'sku',label:'SKU'},
+    {key:'cProd',label:'Cód. Fornecedor'},{key:'descricaoNF',label:'Descrição'},
+    {key:'status',label:'Status'},
+  ],
+  saldo: [
+    {key:'nNF',label:'Nº NF'},{key:'fornecedor',label:'Fornecedor'},
+    {key:'empresa',label:'Empresa'},{key:'sku',label:'SKU'},
+    {key:'cProd',label:'Cód. Fornecedor'},{key:'nome',label:'Nome do Produto'},
+  ],
+};
+const _filterOps = [
+  {key:'contains',label:'contém'},{key:'not_contains',label:'não contém'},
+  {key:'equals',label:'é igual a'},{key:'starts_with',label:'começa com'},
+  {key:'ends_with',label:'termina com'},
+];
+
+function _applyFilter(val, op, q) {
+  const v = String(val || '').toLowerCase();
+  const s = String(q || '').toLowerCase();
+  switch (op) {
+    case 'contains':     return v.includes(s);
+    case 'not_contains': return !v.includes(s);
+    case 'equals':       return v === s;
+    case 'starts_with':  return v.startsWith(s);
+    case 'ends_with':    return v.endsWith(s);
+    default:             return true;
+  }
+}
+
+function _applyFilters(items, page, getField) {
+  const state = _filterState[page];
+  const activeConds = state.conditions.filter(c => c.val && c.val.trim());
+  if (!activeConds.length) return items;
+  return items.filter(item => {
+    if (state.combinator === 'AND') {
+      return activeConds.every(c => _applyFilter(getField(item, c.col), c.op, c.val));
+    } else {
+      return activeConds.some(c => _applyFilter(getField(item, c.col), c.op, c.val));
+    }
+  });
+}
+
+function _renderFilterBuilderHtml(page) {
+  const state = _filterState[page];
+  const cols  = _filterCols[page];
+  const cond  = state.conditions;
+  let html = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--muted2)">Combinar com:</span>
+    <div class="filter-combinator">
+      <button class="filter-comb-btn ${state.combinator==='AND'?'on':''}" onclick="_setCombinator('${page}','AND')">E</button>
+      <button class="filter-comb-btn ${state.combinator==='OR'?'on':''}" onclick="_setCombinator('${page}','OR')">OU</button>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn btn-ghost btn-xs" onclick="_filterAdd('${page}')">+ Condição</button>
+    <button class="btn btn-ghost btn-xs" style="color:var(--red);border-color:rgba(255,68,68,.3)" onclick="_filterClear('${page}')">Limpar</button>
+  </div>`;
+  cond.forEach((c, i) => {
+    html += `<div class="filter-row">
+      <select class="filter-sel" onchange="_filterSetCol('${page}',${i},this.value)">
+        ${cols.map(col => `<option value="${escHtml(col.key)}"${c.col===col.key?' selected':''}>${escHtml(col.label)}</option>`).join('')}
+      </select>
+      <select class="filter-sel" onchange="_filterSetOp('${page}',${i},this.value)">
+        ${_filterOps.map(op => `<option value="${escHtml(op.key)}"${c.op===op.key?' selected':''}>${escHtml(op.label)}</option>`).join('')}
+      </select>
+      <input class="filter-val-inp" type="text" value="${escHtml(c.val)}" placeholder="Valor..."
+        oninput="_filterSetVal('${page}',${i},this.value)">
+      <button class="btn btn-ghost btn-xs" style="color:var(--red);border-color:rgba(255,68,68,.3)" onclick="_filterRemove('${page}',${i})">✕</button>
+    </div>`;
+  });
+  return html;
+}
+
+function toggleFilterBuilder(page) {
+  const el = document.getElementById('filterBuilder_' + page);
+  if (!el) return;
+  el.classList.toggle('open');
+  if (el.classList.contains('open')) {
+    if (_filterState[page].conditions.length === 0) {
+      _filterState[page].conditions.push({ col: _filterCols[page][0].key, op: 'contains', val: '' });
+    }
+    _rerenderFilterUi(page);
+  }
+}
+
+function _filterAdd(page) {
+  _filterState[page].conditions.push({ col: _filterCols[page][0].key, op: 'contains', val: '' });
+  _rerenderFilterUi(page);
+  if (_filterState[page].conditions.some(c => c.val)) _rerenderData(page);
+}
+
+function _filterRemove(page, i) {
+  _filterState[page].conditions.splice(i, 1);
+  _rerenderFilterUi(page);
+  _rerenderData(page);
+}
+
+function _filterClear(page) {
+  _filterState[page].conditions = [];
+  _rerenderFilterUi(page);
+  _rerenderData(page);
+  _updateFilterBadge(page);
+}
+
+function _setCombinator(page, comb) {
+  _filterState[page].combinator = comb;
+  _rerenderFilterUi(page);
+  if (_filterState[page].conditions.some(c => c.val)) _rerenderData(page);
+}
+
+function _filterSetCol(page, i, val) {
+  _filterState[page].conditions[i].col = val;
+  if (_filterState[page].conditions.some(c => c.val)) _rerenderData(page);
+}
+
+function _filterSetOp(page, i, val) {
+  _filterState[page].conditions[i].op = val;
+  if (_filterState[page].conditions.some(c => c.val)) _rerenderData(page);
+}
+
+let _filterValDebounceTimer = null;
+function _filterSetVal(page, i, val) {
+  _filterState[page].conditions[i].val = val;
+  clearTimeout(_filterValDebounceTimer);
+  _filterValDebounceTimer = setTimeout(() => { _rerenderData(page); _updateFilterBadge(page); }, 250);
+}
+
+function _updateFilterBadge(page) {
+  const badge = document.getElementById('filtroBtn_badge_' + page);
+  const btn   = document.getElementById('filtroBtn_' + page);
+  const count = _filterState[page].conditions.filter(c => c.val && c.val.trim()).length;
+  if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-block' : 'none'; }
+  if (btn)   btn.classList.toggle('filter-active', count > 0);
+}
+
+function _rerenderFilterUi(page) {
+  const el = document.getElementById('filterBuilder_' + page);
+  if (el) el.innerHTML = _renderFilterBuilderHtml(page);
+  _updateFilterBadge(page);
+}
+
+function _rerenderData(page) {
+  if (page === 'porNF')   renderPorNF();
+  else if (page === 'porItem') renderPorItem();
+  else if (page === 'saldo')   renderSaldo();
+}
+
+// ── Sub-row helpers ────────────────────────────────────────
+let _allSubRowsExpanded = false;
+
+function _renderSubRow(nf) {
+  const entregas = nf.conferencia?.entregas || [];
+  const nfItens  = nf.itens || [];
+  if (!entregas.length) {
+    return `<tr class="sub-row" id="subrow_${nf.id}">
+      <td colspan="15" class="sub-row-cell">
+        <div class="sub-row-inner" style="color:var(--muted2);font-size:12px;font-style:italic">Nenhuma entrega registrada.</div>
+      </td></tr>`;
+  }
+  const cardsHtml = entregas.map((ent, entIdx) => {
+    const totalPecas = ent.totalPecas || (ent.itens||[]).reduce((a, ei) => a + (ei.qtdConferida||0), 0);
+    const chipHtml = (ent.itens||[]).filter(ei => (ei.qtdConferida||0) > 0).map(ei => {
+      const nfItem = nfItens.find(x => x.cProd === ei.cProd);
+      return `<span style="background:rgba(68,138,255,.08);border:1px solid rgba(68,138,255,.18);border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
+        <span style="color:var(--orange);font-family:monospace">${escHtml(ei.cProd)}</span>
+        ${nfItem?.sku ? `<span style="color:var(--muted2);margin:0 3px">${escHtml(nfItem.sku)}</span>` : ''}
+        <span style="color:var(--cyan);font-weight:700">×${ei.qtdConferida}</span>
+      </span>`;
+    }).join(' ');
+    return `<div class="entrega-card">
+      <div class="entrega-card-meta">
+        <span class="conf-entrega-badge">${ent.numero}ª Entrega</span>
+        <span style="color:var(--muted2);font-size:11px">📅 ${escHtml(ent.data||'')}</span>
+        <span style="color:var(--muted2);font-size:11px">👤 ${escHtml(ent.responsavel||'—')}</span>
+        <span style="color:var(--green);font-size:11px;font-weight:700">📦 ${totalPecas} peças</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${chipHtml}</div>
+      <button class="btn btn-ghost btn-xs" style="color:var(--blue);border-color:rgba(68,138,255,.3);white-space:nowrap"
+        onclick="criarPedidoCompraBase('${escJs(nf.id)}',${entIdx})">🛒 Criar Pedido na Base</button>
+    </div>`;
+  }).join('');
+  return `<tr class="sub-row" id="subrow_${nf.id}">
+    <td colspan="15" class="sub-row-cell">
+      <div class="sub-row-inner">${cardsHtml}</div>
+    </td></tr>`;
+}
+
+function toggleSubRow(nfId) {
+  const sr  = document.getElementById('subrow_' + nfId);
+  const btn = document.getElementById('togBtn_' + nfId);
+  if (!sr) return;
+  const isOpen = sr.classList.toggle('open');
+  if (btn) btn.textContent = isOpen ? '▼' : '▶';
+}
+
+function toggleAllSubRows() {
+  _allSubRowsExpanded = !_allSubRowsExpanded;
+  document.querySelectorAll('.sub-row').forEach(sr => sr.classList.toggle('open', _allSubRowsExpanded));
+  document.querySelectorAll('[id^="togBtn_"]').forEach(btn => { btn.textContent = _allSubRowsExpanded ? '▼' : '▶'; });
+  const expandBtn = document.getElementById('expandAllBtn');
+  if (expandBtn) expandBtn.textContent = _allSubRowsExpanded ? '◀◀ Recolher' : '▶▶ Expandir';
+}
+
+// ── Criar Pedido na Base ───────────────────────────────────
+function criarPedidoCompraBase(nfId, entIdx) {
+  const nf = CE.nfs.find(n => n.id === nfId);
+  if (!nf) return;
+  const ent = (nf.conferencia?.entregas || [])[entIdx];
+  if (!ent) return;
+  const dataEntrega = (ent.data || '').slice(0, 10);
+  const nomeAuxiliar = nf.nNF + ' - ' + dataEntrega;
+  const itens = (ent.itens || []).filter(ei => (ei.qtdConferida || 0) > 0).map(ei => {
+    const nfItem = (nf.itens || []).find(x => x.cProd === ei.cProd);
+    return { sku: nfItem?.sku || ei.sku || '', cProd: ei.cProd, descricaoNF: nfItem?.descricaoNF || ei.descricaoNF || '', qtdConferida: ei.qtdConferida };
+  });
+  const params = { nfId, nomeAuxiliar, fornecedor: nf.fornecedor, empresa: nf.empresa, itens };
+  setOverlay(true, 'Criando pedido de compra: ' + nomeAuxiliar + '...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (res.ok) toast('✅ Pedido criado na Base! ID: ' + res.orderId, 'ok');
+      else toast('❌ Erro ao criar pedido: ' + res.error, 'err');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ Erro: ' + e.message, 'err'); })
+    .ce_criarPedidoCompraBase(params);
+}
 
 // ── Navegação ──────────────────────────────────────────────
 function navTo(view) {
@@ -1176,8 +1449,11 @@ function renderPorNF() {
 
   let lista = CE.nfs;
   if (q)       lista = lista.filter(n =>
-    [n.nNF,n.pedidoBling,n.fornecedor,n.empresa,n.responsavel].some(v => v.toLowerCase().includes(q)));
+    [n.nNF,n.pedidoBling,n.fornecedor,n.empresa,n.responsavel].some(v => String(v).toLowerCase().includes(q)));
   if (qStatus) lista = lista.filter(n => n.status === qStatus);
+
+  // Apply advanced filters
+  lista = _applyFilters(lista, 'porNF', (nf, col) => col === 'dataEntrega' ? fmtData(nf.dataEntrega) : String(nf[col] || ''));
 
   // Sort
   lista = [...lista].sort((a,b) => {
@@ -1232,7 +1508,9 @@ function renderPorNF() {
       style="font-size:11px"
     >📦 ${nItens}</button>`;
 
-    return `<tr style="${isChecked?'background:rgba(0,229,255,.04)':''}">
+    const subRowIsOpen = document.getElementById('subrow_' + nf.id)?.classList.contains('open') || _allSubRowsExpanded;
+
+    const mainRow = `<tr style="${isChecked?'background:rgba(0,229,255,.04)':''}">
       <td><input type="checkbox" class="cb-nf" data-id="${nf.id}" ${isChecked?'checked':''} onclick="toggleCbNF(this,'${nf.id}')"></td>
       <td class="td-muted" style="font-size:11px">${criadoFmt}</td>
       <td class="td-nf">${escHtml(nf.nNF)}</td>
@@ -1247,8 +1525,10 @@ function renderPorNF() {
       <td>${statusHtml}</td>
       <td>${confHtml}</td>
       <td>${tooltipBtn}</td>
+      <td><button class="btn btn-ghost btn-xs" id="togBtn_${nf.id}" onclick="event.stopPropagation();toggleSubRow('${nf.id}')" style="font-size:10px">${subRowIsOpen?'▼':'▶'}</button></td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="14">Nenhuma NF encontrada</td></tr>`;
+    return mainRow + _renderSubRow(nf);
+  }).join('') || `<tr class="empty-row"><td colspan="15">Nenhuma NF encontrada</td></tr>`;
 
   document.getElementById('porNF_body').innerHTML = body;
   document.getElementById('porNF_info').textContent = lista.length + ' NF(s)';
@@ -1274,13 +1554,19 @@ function toggleConferir() {
 
 function renderPorItem() {
   const q = (document.getElementById('filtroItem')?.value || '').toLowerCase().trim();
-  const rows = [];
+  let rows = [];
   CE.nfs.forEach(nf => {
     (nf.itens || []).forEach(it => {
       if (q && ![nf.nNF,nf.pedidoBling,nf.fornecedor,nf.empresa,it.sku,it.descricaoNF,it.cProd]
         .some(v => String(v).toLowerCase().includes(q))) return;
       rows.push({ nf, it });
     });
+  });
+  // Apply advanced filters
+  rows = _applyFilters(rows, 'porItem', (row, col) => {
+    const nfField = {nNF:row.nf.nNF, pedidoBling:row.nf.pedidoBling, fornecedor:row.nf.fornecedor, empresa:row.nf.empresa, dataEntrega:fmtData(row.nf.dataEntrega), status:row.nf.status}[col];
+    if (nfField !== undefined) return String(nfField);
+    return String({sku:row.it.sku, cProd:row.it.cProd, descricaoNF:row.it.descricaoNF}[col] || '');
   });
 
   const sc = STATUS_CLASS;
@@ -1781,6 +2067,7 @@ function renderConferencia() {
 
   if (CONF.modoConf === 'mesclado' && nfs.length >= 2) {
     document.getElementById('confNFSections').innerHTML = _renderConfMesclado(nfs);
+    setTimeout(() => { const nfs2 = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id)); const it2 = _buildMergedItems(nfs2); for (let i = 0; i < it2.length; i++) { const inp = document.getElementById('mescConf_' + i); if (inp && inp.value && parseFloat(inp.value) > 0) mescConfChanged(i); } }, 0);
   } else {
     document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
   }
@@ -1792,6 +2079,7 @@ function setModoConf(modo) {
   const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
   if (modo === 'mesclado') {
     document.getElementById('confNFSections').innerHTML = _renderConfMesclado(nfs);
+    setTimeout(() => { const nfs2 = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id)); const it2 = _buildMergedItems(nfs2); for (let i = 0; i < it2.length; i++) { const inp = document.getElementById('mescConf_' + i); if (inp && inp.value && parseFloat(inp.value) > 0) mescConfChanged(i); } }, 0);
   } else {
     document.getElementById('confNFSections').innerHTML = nfs.map(nf => _renderConfNFSection(nf)).join('');
   }
@@ -2364,6 +2652,18 @@ function _executarFinalizar(dadosConf, nfIds) {
   proximo();
 }
 
+// ── Proportional distribution ─────────────────────────────
+function _propDistribuir(total, faltantes) {
+  const sumFalt = faltantes.reduce((a, b) => a + b, 0);
+  if (sumFalt === 0 || total <= 0) return faltantes.map(() => 0);
+  total = Math.max(0, Math.min(Math.round(total), sumFalt));
+  const alloc = faltantes.map(f => sumFalt > 0 ? Math.floor(total * f / sumFalt) : 0);
+  let rem = total - alloc.reduce((a, b) => a + b, 0);
+  const idxSorted = faltantes.map((f, i) => ({f, i})).sort((a, b) => b.f - a.f);
+  for (let k = 0; k < rem; k++) alloc[idxSorted[k % idxSorted.length].i]++;
+  return alloc;
+}
+
 // ── Conferência Mesclada ──────────────────────────────────
 function _buildMergedItems(nfs) {
   const order = [];
@@ -2410,112 +2710,103 @@ function _renderConfMesclado(nfs) {
   const items = _buildMergedItems(nfs);
   if (!items.length) return '<div style="padding:30px;text-align:center;color:var(--muted2)">Nenhum item a conferir.</div>';
 
-  // Build NF header rows
-  const th1 = nfs.map((nf, j) => {
-    const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
-    const span = isStylu ? 4 : 2; // QTD NF + [QTD/CX + Nº Cx +] Conf
-    return `<th class="r" colspan="${span}" style="color:var(--cyan);font-size:10px;background:rgba(0,229,255,.05);border-right:1px solid var(--border)">NF ${escHtml(nf.nNF)}<span style="color:var(--muted2);font-weight:400"> · ${escHtml(nf.fornecedor)}</span></th>`;
-  }).join('') + '<th class="r" style="font-size:10px">Tot. NF</th><th class="r" style="color:var(--green);font-size:10px">Tot. Conf</th>';
+  // Header row 1: Cód, SKU, Nome (rowspan 2), per NF (colspan 2), Σ Falt. rowspan 2, Conf Total rowspan 2
+  const th1 = nfs.map((nf) =>
+    `<th colspan="2" style="color:var(--cyan);font-size:10px;background:rgba(0,229,255,.05);border-right:1px solid var(--border);text-align:center">NF ${escHtml(nf.nNF)}<span style="color:var(--muted2);font-weight:400"> · ${escHtml(nf.fornecedor)}</span></th>`
+  ).join('') + '<th class="r" rowspan="2" style="font-size:10px;vertical-align:bottom">Σ Falt.</th><th class="r" rowspan="2" style="color:var(--green);font-size:10px;vertical-align:bottom">Conf Total</th>';
 
-  const th2 = nfs.map((nf, j) => {
-    const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
-    const sth = isStylu ? '<th class="r" style="font-size:10px">QTD/Cx</th><th class="r" style="font-size:10px">Nº Cx</th>' : '';
-    return `<th class="r" style="font-size:10px">QTD</th>${sth}<th class="r" style="font-size:10px;border-right:1px solid var(--border)">Conf</th>`;
-  }).join('') + '<th></th><th></th>';
+  const th2 = nfs.map(() =>
+    `<th class="r" style="font-size:10px;color:var(--orange)">Falt.</th><th class="r" style="font-size:10px;color:var(--cyan);border-right:1px solid var(--border)">→Dist</th>`
+  ).join('');
+
+  // Compute per-NF faltante totals for footer
+  const footFaltJ = nfs.map((_, j) => items.reduce((a, item) => a + (item.nfSlots[j] ? item.nfSlots[j].faltante : 0), 0));
+  const totalSumFalt = footFaltJ.reduce((a, b) => a + b, 0);
 
   const rows = items.map((item, i) => {
-    const totalQtd = item.nfSlots.reduce((a, s) => a + (s ? s.qtdNF : 0), 0);
-    let initConf = 0;
-    const nfCells = nfs.map((nf, j) => {
+    const faltantes = nfs.map((_, j) => item.nfSlots[j] ? item.nfSlots[j].faltante : 0);
+    const sumFaltante = faltantes.reduce((a, b) => a + b, 0);
+    let prefill = 0;
+    item.nfSlots.forEach(s => { if (s && s.rascQtd !== '' && !isNaN(Number(s.rascQtd))) prefill += Number(s.rascQtd); });
+    const prefillVal = prefill > 0 ? prefill : '';
+    const nfCells = nfs.map((_, j) => {
       const s = item.nfSlots[j];
-      const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
-      if (!s) {
-        const emptyCols = isStylu ? '<td class="r" style="color:var(--muted2)">—</td><td class="r"></td><td class="r"></td>' : '';
-        return `<td class="r" style="color:var(--muted2)">—</td>${emptyCols}<td class="r" style="border-right:1px solid var(--border)">—</td>`;
-      }
-      const pf   = s.rascQtd !== '' ? s.rascQtd : '';
-      const pfCx = s.rascCaixas !== '' ? s.rascCaixas : '';
-      if (pf !== '' && !isNaN(Number(pf))) initConf += Number(pf);
-      const styluCols = isStylu ? `
-        <td class="r td-muted" style="font-size:11px">${s.styluQtd||'—'}</td>
-        <td class="r"><input type="number" min="0" class="conf-inp" id="mescCx_${i}_${j}" style="width:55px"
-          oninput="mescCxChanged(${i},${j},${s.styluQtd||0})"
-          placeholder="0" value="${escHtml(String(pfCx))}"></td>` : '';
-      return `<td class="r" style="color:var(--orange);font-weight:700">${s.qtdNF}</td>
-        ${styluCols}
-        <td class="r" style="border-right:1px solid var(--border)"><input type="number" min="0" class="conf-inp ${pf!==''?'filled':''}"
-          id="mescQtd_${i}_${j}" style="width:70px" oninput="mescQtdChanged(${i})"
-          placeholder="${s.faltante}" value="${escHtml(String(pf))}"></td>`;
+      const falt = s ? s.faltante : 0;
+      return `<td class="r" style="color:var(--orange);font-weight:700">${s ? falt : '—'}</td>
+        <td class="r" style="border-right:1px solid var(--border)"><span id="mescDist_${i}_${j}" style="font-family:monospace;font-size:12px">0</span></td>`;
     }).join('');
     return `<tr>
       <td><code style="color:var(--orange);font-size:11px">${escHtml(item.cProd||'—')}</code></td>
       <td><code style="color:var(--cyan);font-size:11px">${escHtml(item.sku||'—')}</code></td>
       <td class="td-nome td-muted" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>
       ${nfCells}
-      <td class="r" style="color:var(--orange);font-weight:700">${totalQtd}</td>
-      <td class="r" style="color:var(--green);font-weight:700" id="mescTotalConf_${i}">${initConf}</td>
+      <td class="r" style="color:var(--orange);font-weight:700">${sumFaltante}</td>
+      <td class="r">
+        <input type="number" min="0" class="conf-inp${prefillVal!==''?' filled':''}" id="mescConf_${i}"
+          style="width:75px" oninput="mescConfChanged(${i})"
+          placeholder="${sumFaltante}" value="${prefillVal}">
+        <span id="mescTotalConf_${i}" style="display:none">${prefillVal||0}</span>
+      </td>
     </tr>`;
   }).join('');
 
-  const totalQtdAll = items.reduce((a, item) => a + item.nfSlots.reduce((b, s) => b + (s ? s.qtdNF : 0), 0), 0);
+  const footCells = nfs.map((_, j) =>
+    `<td class="r" style="color:var(--orange);font-weight:700">${footFaltJ[j]}</td>
+     <td class="r" style="border-right:1px solid var(--border);color:var(--green);font-weight:700"><span id="mescFootDist_${j}">0</span></td>`
+  ).join('');
 
-  return `<div class="conf-nf-section">
+  const html = `<div class="conf-nf-section">
     <div class="tbl-wrap"><table>
-      <thead><tr><th rowspan="2">Cód. Forn.</th><th rowspan="2">SKU</th><th rowspan="2">Nome</th>${th1}</tr><tr>${th2}</tr></thead>
+      <thead>
+        <tr><th rowspan="2">Cód. Forn.</th><th rowspan="2">SKU</th><th rowspan="2">Nome</th>${th1}</tr>
+        <tr>${th2}</tr>
+      </thead>
       <tbody>${rows}</tbody>
       <tfoot><tr style="background:rgba(255,255,255,.04);border-top:2px solid var(--border)">
         <td colspan="3" style="padding:6px 8px;color:var(--muted2);font-size:11px;font-weight:700;text-transform:uppercase">Total</td>
-        ${nfs.map((nf,j) => {
-          const isStylu = (nf.fornecedor||'').toLowerCase().includes('stylu');
-          const extra = isStylu ? '<td></td><td></td>' : '';
-          const nfTotal = items.reduce((a, item) => a + (item.nfSlots[j] ? item.nfSlots[j].qtdNF : 0), 0);
-          return `<td class="r" style="color:var(--orange);font-weight:700">${nfTotal}</td>${extra}<td class="r" style="color:var(--green);font-weight:700;border-right:1px solid var(--border)" id="mescFootConf_${j}">0</td>`;
-        }).join('')}
-        <td class="r" style="color:var(--orange);font-weight:700">${totalQtdAll}</td>
-        <td class="r" style="color:var(--green);font-weight:700" id="mescFootTotal">0</td>
+        ${footCells}
+        <td class="r" style="color:var(--orange);font-weight:700">${totalSumFalt}</td>
+        <td class="r" style="color:var(--green);font-weight:700"><span id="mescFootTotal">0</span></td>
       </tr></tfoot>
     </table></div>
   </div>`;
+  return html;
 }
 
-function mescQtdChanged(i) {
-  let rowTotal = 0;
-  const nfs = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
-  nfs.forEach((nf, j) => {
-    const el = document.getElementById(`mescQtd_${i}_${j}`);
-    if (el) {
-      el.classList.toggle('filled', el.value !== '' && Number(el.value) >= 0);
-      rowTotal += parseFloat(el.value) || 0;
-    }
+function mescConfChanged(i) {
+  const nfs   = CE.nfs.filter(nf => CONF.nfIds.includes(nf.id));
+  const items = _buildMergedItems(nfs);
+  const item  = items[i];
+  if (!item) return;
+  const inp = document.getElementById('mescConf_' + i);
+  const X   = inp ? (parseFloat(inp.value) || 0) : 0;
+  const faltantes = nfs.map((_, j) => item.nfSlots[j] ? item.nfSlots[j].faltante : 0);
+  const alloc = _propDistribuir(X, faltantes);
+  const total = alloc.reduce((a, b) => a + b, 0);
+  nfs.forEach((_, j) => {
+    const distEl = document.getElementById('mescDist_' + i + '_' + j);
+    if (distEl) distEl.textContent = alloc[j];
   });
-  const rowEl = document.getElementById('mescTotalConf_' + i);
-  if (rowEl) rowEl.textContent = rowTotal;
-  // Update column footers
-  const items = _buildMergedItems(nfs); // lightweight, just structure
-  nfs.forEach((nf, j) => {
-    let colTotal = 0;
+  const totalEl = document.getElementById('mescTotalConf_' + i);
+  if (totalEl) totalEl.textContent = total;
+  // Update column footer distributions
+  nfs.forEach((_, j) => {
+    let colDist = 0;
     items.forEach((_, ii) => {
-      const el = document.getElementById(`mescQtd_${ii}_${j}`);
-      if (el) colTotal += parseFloat(el.value) || 0;
+      const el = document.getElementById('mescDist_' + ii + '_' + j);
+      if (el) colDist += parseInt(el.textContent) || 0;
     });
-    const footEl = document.getElementById(`mescFootConf_${j}`);
-    if (footEl) footEl.textContent = colTotal;
+    const footEl = document.getElementById('mescFootDist_' + j);
+    if (footEl) footEl.textContent = colDist;
   });
+  // Update grand total
   let grandTotal = 0;
   items.forEach((_, ii) => {
     const el = document.getElementById('mescTotalConf_' + ii);
-    if (el) grandTotal += parseFloat(el.textContent) || 0;
+    if (el) grandTotal += parseInt(el.textContent) || 0;
   });
   const grandEl = document.getElementById('mescFootTotal');
   if (grandEl) grandEl.textContent = grandTotal;
-}
-
-function mescCxChanged(i, j, qtdCaixa) {
-  const cxEl  = document.getElementById(`mescCx_${i}_${j}`);
-  const qtdEl = document.getElementById(`mescQtd_${i}_${j}`);
-  if (!cxEl || !qtdEl || !qtdCaixa) return;
-  qtdEl.value = +(parseFloat(cxEl.value || 0) * qtdCaixa).toFixed(3);
-  mescQtdChanged(i);
 }
 
 function _coletarItensMesclado() {
@@ -2541,11 +2832,11 @@ function _coletarItensMesclado() {
     items.forEach((item, i) => {
       const slot = item.nfSlots[j];
       if (!slot) return;
-      const qtdEl = document.getElementById(`mescQtd_${i}_${j}`);
-      const cxEl  = isStylu ? document.getElementById(`mescCx_${i}_${j}`) : null;
-      const qtd   = qtdEl ? (parseFloat(qtdEl.value) || 0) : 0;
-      const entry = { cProd: item.cProd, sku: item.sku, descricaoNF: item.nome, qtdConferida: qtd };
-      if (cxEl) entry.caixas = parseFloat(cxEl.value) || 0;
+      const distEl  = document.getElementById('mescDist_' + i + '_' + j);
+      const qtd     = distEl ? (parseInt(distEl.textContent) || 0) : 0;
+      const styluQtd = slot.styluQtd || 0;
+      const entry   = { cProd: item.cProd, sku: item.sku, descricaoNF: item.nome, qtdConferida: qtd };
+      if (isStylu) entry.caixas = styluQtd > 0 ? Math.ceil(qtd / styluQtd) : 0;
       itensConf.push(entry);
     });
     result[nf.id] = { nf, resp, entregas, entregaNum, itensConf, isStylu, prevTotais };
@@ -2660,7 +2951,9 @@ function _renderSaldoGeral(dados) {
       map[k].nfs.push(nf.nNF);
     });
   });
-  const itens = Object.values(map).sort((a,b) => b.saldo - a.saldo);
+  let itens = Object.values(map).sort((a,b) => b.saldo - a.saldo);
+  // Apply advanced filters
+  itens = _applyFilters(itens, 'saldo', (it, col) => String(({sku:it.sku,cProd:it.cProd,nome:it.nome,nNF:it.nfs.join(' ')})[col]||''));
   const totalSaldo = itens.reduce((a, it) => a + it.saldo, 0);
   const rows = itens.map(it => `<tr>
     <td><code style="color:var(--orange);font-size:11px">${escHtml(it.cProd||'—')}</code></td>
@@ -2688,6 +2981,13 @@ function _renderSaldoGeral(dados) {
 }
 
 function _renderSaldoPorNF(dados) {
+  // Apply advanced filters
+  dados = _applyFilters(dados, 'saldo', (d, col) => String(({
+    nNF: d.nf.nNF, fornecedor: d.nf.fornecedor, empresa: d.nf.empresa,
+    sku: d.itensPendentes.map(it=>it.sku).join(' '),
+    cProd: d.itensPendentes.map(it=>it.cProd).join(' '),
+    nome: d.itensPendentes.map(it=>it.nome).join(' '),
+  })[col]||''));
   return dados.map(({ nf, itensPendentes }) => {
     const totalSaldo = itensPendentes.reduce((a, it) => a + it.saldo, 0);
     const rows = itensPendentes.map(it => `<tr>

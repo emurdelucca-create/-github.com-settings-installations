@@ -443,6 +443,79 @@ function ce_buscarMapCodFornSKU() {
   }
 }
 
+// ── BaseLinker — Criar Pedido de Compra ───────────────────────
+function ce_criarPedidoCompraBase(params) {
+  try {
+    const apiKey = PropertiesService.getScriptProperties().getProperty('BASELINKER_API_KEY');
+    if (!apiKey) return { ok: false, error: 'BASELINKER_API_KEY não configurada nas Propriedades do Script' };
+
+    function blPost(method, parameters) {
+      const payload = 'token=' + encodeURIComponent(apiKey) +
+        '&method=' + encodeURIComponent(method) +
+        '&parameters=' + encodeURIComponent(JSON.stringify(parameters));
+      const res = UrlFetchApp.fetch('https://api.baselinker.com/connector.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        payload: payload,
+        muteHttpExceptions: true,
+      });
+      return JSON.parse(res.getContentText() || '{}');
+    }
+
+    // Step 1: Get warehouse "Armazenamento"
+    const warehousesRes = blPost('getInventoryWarehouses', {});
+    const warehousesList = warehousesRes.warehouses || [];
+    const warehouse = warehousesList.find(w => (w.name || '').toLowerCase().includes('armazenamento'));
+    const warehouseId = warehouse ? warehouse.warehouse_id : null;
+    if (!warehouseId) return { ok: false, error: 'Warehouse "Armazenamento" não encontrado no BaseLinker' };
+
+    // Step 2: Get contractors to find supplier and payer
+    const contractorsRes = blPost('getContractors', {});
+    const contractors = contractorsRes.contractors || {};
+    const fornecedorLow = (params.fornecedor || '').toLowerCase();
+    const empresaLow    = (params.empresa || '').toLowerCase();
+    let supplierId = null, payerId = null;
+    Object.entries(contractors).forEach(([id, c]) => {
+      const nameLow = (c.name || '').toLowerCase();
+      if (!supplierId && fornecedorLow && nameLow.includes(fornecedorLow)) supplierId = parseInt(id);
+      if (!payerId    && empresaLow    && nameLow.includes(empresaLow))    payerId    = parseInt(id);
+    });
+
+    // Step 3: Resolve product IDs by SKU
+    const resolvedItems = [];
+    const itens = params.itens || [];
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      let productId = 0;
+      if (item.sku) {
+        Utilities.sleep(100);
+        const pRes  = blPost('getInventoryProductsList', { filter_sku: item.sku, page: 1 });
+        const pList = pRes.products || {};
+        const pKeys = Object.keys(pList);
+        if (pKeys.length > 0) productId = parseInt(pKeys[0]);
+      }
+      resolvedItems.push({ ...item, productId });
+    }
+
+    // Step 4: Build and create purchase order
+    const orderProducts = resolvedItems
+      .filter(p => (p.qtdConferida || 0) > 0)
+      .map(p => ({ product_id: p.productId || 0, variant_id: 0, quantity: p.qtdConferida, price_netto: 0 }));
+
+    const orderParams = { name: params.nomeAuxiliar, warehouse_id: warehouseId, products: orderProducts };
+    if (supplierId) orderParams.supplier_id = supplierId;
+    if (payerId)    orderParams.payer_id    = payerId;
+
+    const orderRes = blPost('addInventoryPurchaseOrder', orderParams);
+    if (orderRes.status !== 'SUCCESS') {
+      return { ok: false, error: orderRes.error_message || JSON.stringify(orderRes) };
+    }
+    return { ok: true, orderId: orderRes.order_id };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // Mapa cód.fornecedor → qtd/caixa (planilha Stylu)
 function ce_buscarQtdCaixaStylu() {
   try {
