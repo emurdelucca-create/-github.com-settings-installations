@@ -944,18 +944,27 @@ function _renderSubRow(nf) {
       </td></tr>`;
   }
   const cardsHtml = entregas.map((ent, entIdx) => {
+    const isFinal    = ent.tipo === 'final';
     const totalPecas = ent.totalPecas || (ent.itens||[]).reduce((a, ei) => a + (ei.qtdConferida||0), 0);
-    const chipHtml = (ent.itens||[]).filter(ei => (ei.qtdConferida||0) > 0).map(ei => {
+    const itensFiltrados = (ent.itens||[]).filter(ei => (ei.qtdConferida||0) > 0);
+    if (isFinal && !itensFiltrados.length) return ''; // não exibe card final vazio
+    const chipColor  = isFinal ? 'rgba(0,229,255,.08)' : 'rgba(68,138,255,.08)';
+    const chipBorder = isFinal ? 'rgba(0,229,255,.22)' : 'rgba(68,138,255,.18)';
+    const chipHtml   = itensFiltrados.map(ei => {
       const nfItem = nfItens.find(x => x.cProd === ei.cProd);
-      return `<span style="background:rgba(68,138,255,.08);border:1px solid rgba(68,138,255,.18);border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
+      return `<span style="background:${chipColor};border:1px solid ${chipBorder};border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
         <span style="color:var(--orange);font-family:monospace">${escHtml(ei.cProd)}</span>
         ${nfItem?.sku ? `<span style="color:var(--muted2);margin:0 3px">${escHtml(nfItem.sku)}</span>` : ''}
-        <span style="color:var(--cyan);font-weight:700">×${ei.qtdConferida}</span>
+        <span style="color:${isFinal?'var(--cyan)':'var(--cyan)'};font-weight:700">×${ei.qtdConferida}</span>
       </span>`;
     }).join(' ');
-    return `<div class="entrega-card">
+    const badge = isFinal
+      ? `<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(0,229,255,.12);color:var(--cyan);border:1px solid rgba(0,229,255,.3)">✅ Conferência Final</span>`
+      : `<span class="conf-entrega-badge">${ent.numero}ª Entrega</span>`;
+    const cardBorder = isFinal ? 'border:1px solid rgba(0,229,255,.25);background:rgba(0,229,255,.03)' : 'border:1px solid var(--border)';
+    return `<div class="entrega-card" style="${cardBorder}">
       <div class="entrega-card-meta">
-        <span class="conf-entrega-badge">${ent.numero}ª Entrega</span>
+        ${badge}
         <span style="color:var(--muted2);font-size:11px">📅 ${escHtml(ent.data||'')}</span>
         <span style="color:var(--muted2);font-size:11px">👤 ${escHtml(ent.responsavel||'—')}</span>
         <span style="color:var(--green);font-size:11px;font-weight:700">📦 ${totalPecas} peças</span>
@@ -2659,8 +2668,9 @@ function _executarFinalizar(dadosConf, nfIds) {
       return;
     }
     const d = dadosConf[nfIds[idx]];
-    const totalPecas = d.itensConf.reduce((a, it) => a + (it.qtdConferida||0), 0);
-    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: d.itensConf };
+    const itensFinal = d.itensConf.filter(it => (it.qtdConferida||0) > 0);
+    const totalPecas = itensFinal.reduce((a, it) => a + (it.qtdConferida||0), 0);
+    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: itensFinal, tipo: 'final' };
     const novasEntregas = [...d.entregas, novaEntrega];
 
     const allTotais = {};
