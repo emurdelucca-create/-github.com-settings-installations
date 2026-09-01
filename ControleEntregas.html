@@ -477,6 +477,7 @@ td.r { text-align: right; }
             <span class="stat-chip stat-ok"  id="cntOk">0 conciliados</span>
             <span class="stat-chip stat-warn" id="cntWarn">0 manuais</span>
             <span class="stat-chip stat-err"  id="cntErr">0 sem SKU</span>
+            <span class="stat-chip" id="cntDiv" style="display:none;background:rgba(255,140,0,.15);color:#ff8c00;border:1px solid rgba(255,140,0,.3)">0 divergências</span>
           </div>
         </div>
         <p style="font-size:11px;color:var(--muted2);margin:8px 0 14px">
@@ -502,6 +503,17 @@ td.r { text-align: right; }
             </thead>
             <tbody id="concilBody"></tbody>
           </table>
+        </div>
+        <div id="divPanel" style="display:none;margin-top:14px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,140,0,.3)">
+          <div style="background:rgba(255,140,0,.1);padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none" onclick="toggleDivPanel()">
+            <span style="font-size:13px">⚠</span>
+            <span style="font-size:12px;font-weight:700;color:#ff8c00" id="divPanelTitle">Divergências</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted2)" id="divPanelChevron">▼ expandir</span>
+          </div>
+          <div id="divPanelBody" style="display:none;padding:12px 14px;background:rgba(255,140,0,.04)">
+            <div id="divBlingNaoNF"></div>
+            <div id="divNFNaoPedido" style="margin-top:10px"></div>
+          </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" onclick="voltarPasso2()">← Voltar</button>
@@ -1245,6 +1257,8 @@ function _conciliar() {
     if (it.sku)     blingMap[it.sku.trim().toLowerCase()]     = it;
   });
 
+  const matchedBlingKeys = new Set();
+
   CE.concItens = CE.xmlItens.map((it, i) => {
     const keyLow = (it.cProd || '').trim().toLowerCase();
 
@@ -1268,7 +1282,12 @@ function _conciliar() {
     if (!sku && CE.blingItens[i]) {
       bling = CE.blingItens[i];
       sku   = bling.sku;
-      auto  = false; // marca amarelo para revisão
+      auto  = false;
+    }
+
+    if (bling) {
+      if (bling.sku)     matchedBlingKeys.add(bling.sku.trim().toLowerCase());
+      if (bling.codForn) matchedBlingKeys.add(bling.codForn.trim().toLowerCase());
     }
 
     const nome = sku ? (CE.skusBL.find(s => s.sku === sku)?.nome || sku) : '';
@@ -1283,7 +1302,73 @@ function _conciliar() {
     };
   });
 
+  // Itens no pedido Bling que não foram encontrados na NF
+  CE.blingNaoNaNF = CE.blingItens.filter(bi => {
+    const k1 = (bi.sku     || '').trim().toLowerCase();
+    const k2 = (bi.codForn || '').trim().toLowerCase();
+    return !matchedBlingKeys.has(k1) && !matchedBlingKeys.has(k2);
+  });
+
+  // Itens na NF que não encontraram correspondência no pedido (qtdPedido = 0)
+  CE.nfNaoNoPedido = CE.concItens.filter(it => !it.qtdPedido);
+
   renderConciliacao();
+}
+
+function _renderDivergencias() {
+  const blingNaoNF  = CE.blingNaoNaNF  || [];
+  const nfNaoPedido = CE.nfNaoNoPedido || [];
+  const total = blingNaoNF.length + nfNaoPedido.length;
+
+  const chip = document.getElementById('cntDiv');
+  chip.style.display = total > 0 ? '' : 'none';
+  chip.textContent = total + ' divergência' + (total !== 1 ? 's' : '');
+
+  const panel = document.getElementById('divPanel');
+  panel.style.display = total > 0 ? '' : 'none';
+  if (!total) return;
+
+  document.getElementById('divPanelTitle').textContent =
+    total + ' divergência' + (total !== 1 ? 's' : '') + ' entre pedido e NF';
+
+  const rowStyle = 'display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px';
+  const labelStyle = 'font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap';
+
+  let htmlBling = '';
+  if (blingNaoNF.length) {
+    htmlBling = `<div style="font-size:11px;font-weight:700;color:#ff8c00;margin-bottom:6px">
+      📦 No pedido Bling, mas não encontrados na NF (${blingNaoNF.length}):
+    </div>` + blingNaoNF.map(bi => `
+      <div style="${rowStyle}">
+        <span style="${labelStyle};background:rgba(255,140,0,.15);color:#ff8c00">Pedido</span>
+        <code style="color:var(--orange);min-width:80px">${escHtml(bi.codForn||bi.sku||'—')}</code>
+        <span style="color:var(--text)">${escHtml(bi.descricao||bi.sku||'—')}</span>
+        <span style="margin-left:auto;color:var(--muted2)">Qtd pedido: <strong style="color:var(--orange)">${bi.qtd}</strong></span>
+      </div>`).join('');
+  }
+
+  let htmlNF = '';
+  if (nfNaoPedido.length) {
+    htmlNF = `<div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:6px">
+      📄 Na NF, mas sem correspondência no pedido (${nfNaoPedido.length}):
+    </div>` + nfNaoPedido.map(it => `
+      <div style="${rowStyle}">
+        <span style="${labelStyle};background:rgba(255,68,68,.15);color:var(--red)">NF</span>
+        <code style="color:var(--cyan);min-width:80px">${escHtml(it.cProd||'—')}</code>
+        <span style="color:var(--text)">${escHtml(it.descricaoNF||'—')}</span>
+        <span style="margin-left:auto;color:var(--muted2)">Qtd NF: <strong style="color:var(--yellow)">${it.qtdNF}</strong></span>
+      </div>`).join('');
+  }
+
+  document.getElementById('divBlingNaoNF').innerHTML  = htmlBling;
+  document.getElementById('divNFNaoPedido').innerHTML = htmlNF;
+}
+
+let _divPanelOpen = false;
+function toggleDivPanel() {
+  _divPanelOpen = !_divPanelOpen;
+  document.getElementById('divPanelBody').style.display = _divPanelOpen ? '' : 'none';
+  document.getElementById('divPanelChevron').textContent = _divPanelOpen ? '▲ fechar' : '▼ expandir';
 }
 
 // Sempre mostra passo 3 para confirmação de quantidades e conciliação
@@ -1353,6 +1438,7 @@ function renderConciliacao() {
   document.getElementById('cntOk').textContent   = ok   + ' conciliados';
   document.getElementById('cntWarn').textContent = warn + ' manuais';
   document.getElementById('cntErr').textContent  = none + ' sem SKU';
+  _renderDivergencias();
 }
 
 // ── SKU autocomplete na conciliação ──────────────────────────
