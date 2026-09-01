@@ -34,7 +34,7 @@ const CE_STYLU_CAIXA  = 3;  // col D (0-indexed)
 
 // Bling
 const CE_BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
-const CE_BLING_API       = 'https://www.bling.com.br/Api/v3';
+const CE_BLING_API       = 'https://api.bling.com.br/Api/v3';
 const CE_BLING_REDIRECT  = 'https://www.google.com';
 
 // Colunas da sheet NFs (1-indexed para GAS getRange)
