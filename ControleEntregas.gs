@@ -319,50 +319,61 @@ function ce_debugBlingPedidoRaw() {
   return body;
 }
 
+// Diagnóstico específico: testa busca de um pedido por número paginando até encontrar
+// Mude o numero abaixo e execute no GAS para testar
+function ce_debugBuscarPedido() {
+  const NUMERO_TESTE = '1907';
+  const token = _ce_getToken();
+  for (let pg = 1; pg <= 25; pg++) {
+    const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    const items = JSON.parse(r.getContentText() || '{}').data || [];
+    if (!items.length) { Logger.log('Página ' + pg + ': vazia — fim da lista'); break; }
+    const nums = items.map(p => p.numero).join(',');
+    Logger.log('Página ' + pg + ': números ' + items[0].numero + ' a ' + items[items.length-1].numero);
+    const found = items.find(p => String(p.numero) === NUMERO_TESTE);
+    if (found) { Logger.log('✅ ENCONTRADO na página ' + pg + ': ' + JSON.stringify(found)); break; }
+    Utilities.sleep(100);
+  }
+}
+
 function ce_buscarPedidoBling(numeroPedido) {
   try {
     const token = _ce_getToken();
     const numero = String(numeroPedido).trim();
+    const numInt = parseInt(numero, 10);
 
     let pedidos = [];
-    let sampleKeys = '';
 
-    // 1. Tenta ?numero=X — se a API filtrar de verdade, retorna ≤5 resultados
-    //    Nesse caso confia no primeiro sem re-filtrar (campo "numero" pode não existir na lista)
-    const r1 = UrlFetchApp.fetch(
-      CE_BLING_API + '/pedidos/compras?numero=' + encodeURIComponent(numero) + '&pagina=1&limite=50', {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    const r1items = JSON.parse(r1.getContentText() || '{}').data || [];
-    if (r1items.length && !sampleKeys) sampleKeys = Object.keys(r1items[0]).join(',');
-    if (r1items.length > 0 && r1items.length <= 5) {
-      // Poucos resultados → API filtrou; tenta match, senão usa o primeiro
-      pedidos = r1items.filter(p => _ce_pedidoMatchesNumero(p, numero));
-      if (!pedidos.length) pedidos = [r1items[0]];
-    } else if (r1items.length > 0) {
-      // API retornou muitos (ignorou o filtro) — tenta match explícito
-      pedidos = r1items.filter(p => _ce_pedidoMatchesNumero(p, numero));
-    }
+    // Percorre páginas buscando pelo número sequencial (API ignora filtro ?numero=)
+    // Bling ordena do mais antigo para mais recente (pg 1 = pedido 1, 2, 3...)
+    // Pedido nº N está em torno da página ceil(N/100)
+    const startPg = Math.max(1, Math.floor(numInt / 100) - 1);
+    const endPg   = Math.ceil(numInt / 100) + 2; // margem de segurança
+    const maxPg   = Math.max(endPg, 30);
 
-    // 2. Se não encontrou, percorre páginas (até 30) buscando pelo número
-    if (!pedidos.length) {
-      for (let pg = 1; pg <= 30 && !pedidos.length; pg++) {
-        Utilities.sleep(150);
-        const rp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
-          headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-          muteHttpExceptions: true,
-        });
-        const items = JSON.parse(rp.getContentText() || '{}').data || [];
-        if (!items.length) break;
-        if (!sampleKeys) sampleKeys = Object.keys(items[0]).join(',');
-        pedidos = items.filter(p => _ce_pedidoMatchesNumero(p, numero));
+    for (let pg = startPg; pg <= maxPg && !pedidos.length; pg++) {
+      Utilities.sleep(100);
+      const rp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=' + pg + '&limite=100', {
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      });
+      const items = JSON.parse(rp.getContentText() || '{}').data || [];
+      if (!items.length) {
+        // Página vazia pode ser gap; tenta mais uma antes de desistir
+        if (pg < maxPg) continue;
+        break;
       }
+      pedidos = items.filter(p => _ce_pedidoMatchesNumero(p, numero));
+      // Se os números desta página já passaram do alvo, não tem mais nada a ver
+      const lastNum = items[items.length - 1]?.numero || 0;
+      if (!pedidos.length && lastNum > numInt + 200) break;
     }
 
     if (!pedidos.length) {
-      const hint = sampleKeys ? ' [campos: ' + sampleKeys + ']' : '';
-      return { ok: false, error: 'Pedido nº ' + numero + ' não encontrado no Bling' + hint };
+      return { ok: false, error: 'Pedido nº ' + numero + ' não encontrado no Bling' };
     }
 
     // Busca detalhes do primeiro resultado
