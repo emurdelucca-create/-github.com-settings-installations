@@ -605,6 +605,8 @@ td.r { text-align: right; }
             <th>Descrição</th>
             <th class="r">Qtd Recebida</th>
             <th class="r">Qtd Pedido</th>
+            <th class="r">Conferido</th>
+            <th class="r">Faltante</th>
             <th id="thConferir" style="display:none" class="r">Diferença</th>
             <th>Status</th>
           </tr>
@@ -866,8 +868,9 @@ function _renderFilterBuilderHtml(page) {
       <select class="filter-sel" onchange="_filterSetOp('${page}',${i},this.value)">
         ${_filterOps.map(op => `<option value="${escHtml(op.key)}"${c.op===op.key?' selected':''}>${escHtml(op.label)}</option>`).join('')}
       </select>
-      <input class="filter-val-inp" type="text" value="${escHtml(c.val)}" placeholder="Valor..."
-        oninput="_filterSetVal('${page}',${i},this.value)">
+      <input class="filter-val-inp" type="text" value="${escHtml(c.val)}" placeholder="Valor (cole múltiplos com Enter ou ;)..."
+        oninput="_filterSetVal('${page}',${i},this.value)"
+        onpaste="_filterPasteMulti('${page}',${i},event)">
       <button class="btn btn-ghost btn-xs" style="color:var(--red);border-color:rgba(255,68,68,.3)" onclick="_filterRemove('${page}',${i})">✕</button>
     </div>`;
   });
@@ -926,6 +929,25 @@ function _filterSetVal(page, i, val) {
   _filterState[page].conditions[i].val = val;
   clearTimeout(_filterValDebounceTimer);
   _filterValDebounceTimer = setTimeout(() => { _rerenderData(page); _updateFilterBadge(page); }, 250);
+}
+
+function _filterPasteMulti(page, i, event) {
+  const text = (event.clipboardData || window.clipboardData).getData('text');
+  const values = text.split(/[\n\r;]+/).map(v => v.trim()).filter(v => v);
+  if (values.length <= 1) return; // let default paste handle single value
+  event.preventDefault();
+  const cond = _filterState[page].conditions[i];
+  const col = cond.col;
+  const op  = 'contains';
+  // Replace current condition + append extras
+  _filterState[page].conditions[i] = { col, op, val: values[0] };
+  for (let j = 1; j < values.length; j++) {
+    _filterState[page].conditions.push({ col, op, val: values[j] });
+  }
+  _filterState[page].combinator = 'OR';
+  _rerenderFilterUi(page);
+  _rerenderData(page);
+  _updateFilterBadge(page);
 }
 
 function _updateFilterBadge(page) {
@@ -1833,6 +1855,20 @@ function renderPorItem() {
     const qtdRecv = it.qtdNFConvertida != null ? it.qtdNFConvertida : it.qtdNF || 0;
     const qtdPed  = it.qtdPedido || 0;
 
+    // Compute conferido from conference history
+    let conferido = 0;
+    if (nf.conferencia && nf.conferencia.entregas) {
+      nf.conferencia.entregas.forEach(ent => {
+        (ent.itens || []).forEach(ei => {
+          if (ei.cProd === it.cProd) conferido += (ei.qtdConferida || 0);
+        });
+      });
+    }
+    const faltante = qtdRecv - conferido;
+    const confColor = conferido > 0 ? (faltante <= 0 ? 'var(--green)' : 'var(--cyan)') : 'var(--muted2)';
+    const faltColor = faltante <= 0 ? 'var(--green)' : 'var(--red)';
+    const faltLbl   = faltante <= 0 ? '✅ 0' : String(faltante);
+
     let diffCell = '';
     if (_conferirOn) {
       if (!qtdPed) {
@@ -1856,10 +1892,12 @@ function renderPorItem() {
       <td class="td-nome td-muted" title="${escHtml(it.descricaoNF)}">${escHtml(it.descricaoNF)}</td>
       <td class="r" style="font-weight:700;color:var(--orange)">${qtdRecv}</td>
       <td class="r td-muted">${(it.qtdPedido != null && it.qtdPedido !== '') ? it.qtdPedido : '—'}</td>
+      <td class="r" style="font-weight:700;color:${confColor}">${conferido > 0 ? conferido : '—'}</td>
+      <td class="r" style="font-weight:700;color:${faltColor}">${faltLbl}</td>
       ${_conferirOn ? diffCell : ''}
       <td><span class="status-chip ${cls}" style="cursor:default">${nf.status}</span></td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="${_conferirOn ? 12 : 11}">Nenhum item encontrado</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="${_conferirOn ? 14 : 13}">Nenhum item encontrado</td></tr>`;
 
   document.getElementById('porItem_body').innerHTML = body;
   document.getElementById('porItem_info').textContent = rows.length + ' item(ns)';
