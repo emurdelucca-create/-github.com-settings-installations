@@ -275,7 +275,17 @@ function ce_checkAuth() {
 }
 
 // ── Bling — Buscar pedido de compra por número ────────────────
-// Extrai o número de um objeto de pedido tentando vários campos possíveis
+// Verifica se um objeto de pedido corresponde ao número buscado
+// Checa campos conhecidos e também todos os valores primitivos do objeto
+function _ce_pedidoMatchesNumero(p, numero) {
+  const known = String(p.numero || p.numeroPedido || p.numeroOrdem || p.num || '');
+  if (known === numero) return true;
+  // Brute-force: qualquer valor primitivo que bate
+  return Object.values(p).some(v => {
+    const t = typeof v;
+    return (t === 'string' || t === 'number') && String(v) === numero;
+  });
+}
 function _ce_pedidoNumero(p) {
   return String(p.numero || p.numeroPedido || p.numeroOrdem || p.num || '');
 }
@@ -314,16 +324,15 @@ function ce_buscarPedidoBling(numeroPedido) {
     const r1items = JSON.parse(r1.getContentText() || '{}').data || [];
     if (r1items.length && !sampleKeys) sampleKeys = Object.keys(r1items[0]).join(',');
     if (r1items.length > 0 && r1items.length <= 5) {
-      // Poucos resultados → API filtrou; tenta match por número, senão usa o primeiro
-      pedidos = r1items.filter(p => _ce_pedidoNumero(p) === numero);
+      // Poucos resultados → API filtrou; tenta match, senão usa o primeiro
+      pedidos = r1items.filter(p => _ce_pedidoMatchesNumero(p, numero));
       if (!pedidos.length) pedidos = [r1items[0]];
-    } else {
-      // API ignorou o filtro ou retornou muitos — tenta match explícito
-      pedidos = r1items.filter(p => _ce_pedidoNumero(p) === numero);
+    } else if (r1items.length > 0) {
+      // API retornou muitos (ignorou o filtro) — tenta match explícito
+      pedidos = r1items.filter(p => _ce_pedidoMatchesNumero(p, numero));
     }
 
     // 2. Se não encontrou, percorre páginas (até 30) buscando pelo número
-    //    Bling lista do mais antigo para o mais recente, então pedidos altos ficam no fim
     if (!pedidos.length) {
       for (let pg = 1; pg <= 30 && !pedidos.length; pg++) {
         Utilities.sleep(150);
@@ -334,7 +343,7 @@ function ce_buscarPedidoBling(numeroPedido) {
         const items = JSON.parse(rp.getContentText() || '{}').data || [];
         if (!items.length) break;
         if (!sampleKeys) sampleKeys = Object.keys(items[0]).join(',');
-        pedidos = items.filter(p => _ce_pedidoNumero(p) === numero);
+        pedidos = items.filter(p => _ce_pedidoMatchesNumero(p, numero));
       }
     }
 
