@@ -15,433 +15,145 @@
       --green:   #00e676;
       --yellow:  #ffd600;
       --red:     #ff4444;
+      --purple:  #b388ff;
       --text:    #dde6f0;
       --muted:   #4e6280;
       --muted2:  #7a90aa;
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Segoe UI', Arial, sans-serif;
-      min-height: 100vh;
-    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial, sans-serif; min-height: 100vh; }
 
     /* ── HEADER ── */
     .header {
-      background: linear-gradient(135deg, #0a1628 0%, #0f1f38 100%);
+      background: linear-gradient(135deg,#0a1628 0%,#0f1f38 100%);
       border-bottom: 1px solid var(--border);
-      padding: 0 24px;
-      height: 60px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 200;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+      padding: 0 24px; height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200;
+      box-shadow: 0 2px 12px rgba(0,0,0,.5);
     }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .header-icon {
-      font-size: 22px;
-      filter: drop-shadow(0 0 6px rgba(0,229,255,0.5));
-    }
-
-    .header-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--cyan);
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-    }
-
-    .header-ts {
-      font-size: 11px;
-      color: var(--muted2);
-      margin-top: 2px;
-    }
-
-    .header-right {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .header-icon { font-size: 22px; filter: drop-shadow(0 0 6px rgba(0,229,255,.5)); }
+    .header-title { font-size: 16px; font-weight: 700; color: var(--cyan); letter-spacing: 1.5px; text-transform: uppercase; }
+    .header-ts { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+    .header-right { display: flex; gap: 10px; align-items: center; }
 
     /* ── BUTTONS ── */
-    .btn {
-      padding: 8px 18px;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.18s;
-      letter-spacing: 0.4px;
-      white-space: nowrap;
-    }
+    .btn { padding: 8px 18px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .18s; letter-spacing: .4px; white-space: nowrap; }
+    .btn-refresh { background: transparent; color: var(--cyan); border: 1px solid rgba(0,229,255,.35); }
+    .btn-refresh:hover:not(:disabled) { background: rgba(0,229,255,.08); border-color: var(--cyan); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
 
-    .btn-refresh {
-      background: transparent;
-      color: var(--cyan);
-      border: 1px solid rgba(0,229,255,0.35);
+    /* ── MACRO TABS ── */
+    .macro-tabs {
+      display: flex; gap: 0;
+      background: var(--card2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
     }
-    .btn-refresh:hover:not(:disabled) {
-      background: rgba(0,229,255,0.08);
-      border-color: var(--cyan);
+    .macro-tab {
+      padding: 12px 28px 11px;
+      font-size: 13px; font-weight: 700;
+      cursor: pointer; border: none; background: transparent;
+      color: var(--muted2);
+      border-bottom: 3px solid transparent;
+      transition: all .15s;
+      letter-spacing: .3px;
     }
-
-    .btn-run {
-      background: linear-gradient(135deg, #e65100 0%, #bf360c 100%);
-      color: #fff;
-      box-shadow: 0 0 10px rgba(230,81,0,0.3);
-    }
-    .btn-run:hover:not(:disabled) {
-      background: linear-gradient(135deg, #ff6d00 0%, #e65100 100%);
-      box-shadow: 0 0 16px rgba(255,109,0,0.45);
-    }
-
-    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .macro-tab:hover { color: var(--text); }
+    .macro-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
 
     /* ── STATS BAR ── */
-    .stats-bar {
-      display: flex;
-      gap: 1px;
-      background: var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .stat-item {
-      flex: 1;
-      background: var(--card);
-      padding: 14px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 90px;
-    }
-
-    .stat-value {
-      font-size: 30px;
-      font-weight: 700;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .stat-label {
-      font-size: 10px;
-      color: var(--muted2);
-      text-transform: uppercase;
-      letter-spacing: 0.9px;
-      margin-top: 5px;
-      white-space: nowrap;
-    }
-
-    .c-cyan   { color: var(--cyan);   text-shadow: 0 0 10px rgba(0,229,255,0.35); }
-    .c-orange { color: var(--orange); text-shadow: 0 0 10px rgba(255,109,0,0.35); }
-    .c-green  { color: var(--green);  }
+    .stats-bar { display: flex; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
+    .stat-item { flex: 1; background: var(--card); padding: 14px 20px; display: flex; flex-direction: column; align-items: center; min-width: 90px; }
+    .stat-value { font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+    .stat-label { font-size: 10px; color: var(--muted2); text-transform: uppercase; letter-spacing: .9px; margin-top: 5px; white-space: nowrap; }
+    .c-cyan   { color: var(--cyan);   text-shadow: 0 0 10px rgba(0,229,255,.35); }
+    .c-orange { color: var(--orange); text-shadow: 0 0 10px rgba(255,109,0,.35); }
+    .c-green  { color: var(--green); }
     .c-yellow { color: var(--yellow); }
-    .c-red    { color: var(--red);    }
+    .c-red    { color: var(--red); }
 
     /* ── FILTERS ── */
     .filters {
-      padding: 10px 24px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      flex-wrap: wrap;
-      border-bottom: 1px solid var(--border);
-      background: var(--card2);
+      padding: 10px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border); background: var(--card2);
     }
-
-    .filter-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .filter-label {
-      font-size: 10px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding-right: 4px;
-      white-space: nowrap;
-    }
-
-    .fbtn {
-      padding: 5px 13px;
-      border-radius: 20px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
+    .filter-group { display: flex; align-items: center; gap: 6px; }
+    .filter-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding-right: 4px; white-space: nowrap; }
+    .fbtn { padding: 5px 13px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
     .fbtn:hover { border-color: #3d5068; color: var(--text); }
-
-    .fbtn.ap  { background: rgba(0,229,255,0.1); border-color: var(--cyan);   color: var(--cyan);   }
-    .fbtn.aA  { background: rgba(0,230,118,0.1); border-color: var(--green);  color: var(--green);  }
-    .fbtn.aB  { background: rgba(255,214,0,0.1); border-color: var(--yellow); color: var(--yellow); }
-    .fbtn.aC  { background: rgba(255,68,68,0.1); border-color: var(--red);    color: var(--red);    }
-
+    .fbtn.ap  { background: rgba(0,229,255,.1);  border-color: var(--cyan);   color: var(--cyan);   }
+    .fbtn.aA  { background: rgba(0,230,118,.1);  border-color: var(--green);  color: var(--green);  }
+    .fbtn.aB  { background: rgba(255,214,0,.1);  border-color: var(--yellow); color: var(--yellow); }
+    .fbtn.aC  { background: rgba(255,68,68,.1);  border-color: var(--red);    color: var(--red);    }
     .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
     /* ── SKU CHIP INPUT ── */
-    .sku-search-wrap {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 1;
-      min-width: 0;
-    }
-    .chip-input-box {
-      background: #0a1220;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 8px;
-      min-width: 220px;
-      max-width: 520px;
-      cursor: text;
-      transition: border-color 0.15s;
-      flex: 1;
-    }
+    .sku-search-wrap { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .chip-input-box { background: #0a1220; border: 1px solid var(--border); border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; min-width: 220px; max-width: 520px; cursor: text; transition: border-color .15s; flex: 1; }
     .chip-input-box:focus-within { border-color: var(--cyan); }
     #chipList { display: flex; flex-wrap: wrap; gap: 4px; }
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      background: rgba(0,229,255,0.1);
-      border: 1px solid rgba(0,229,255,0.28);
-      color: var(--cyan);
-      border-radius: 4px;
-      padding: 2px 5px 2px 7px;
-      font-size: 11px;
-      font-weight: 600;
-      font-family: 'Courier New', monospace;
-      white-space: nowrap;
-      max-width: 170px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .chip-x {
-      cursor: pointer;
-      opacity: 0.55;
-      font-size: 14px;
-      line-height: 1;
-      flex-shrink: 0;
-      font-family: sans-serif;
-    }
+    .chip { display: inline-flex; align-items: center; gap: 3px; background: rgba(0,229,255,.1); border: 1px solid rgba(0,229,255,.28); color: var(--cyan); border-radius: 4px; padding: 2px 5px 2px 7px; font-size: 11px; font-weight: 600; font-family: 'Courier New', monospace; white-space: nowrap; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+    .chip-x { cursor: pointer; opacity: .55; font-size: 14px; line-height: 1; flex-shrink: 0; font-family: sans-serif; }
     .chip-x:hover { opacity: 1; color: var(--red); }
-    #chipRaw {
-      border: none;
-      background: transparent;
-      color: var(--text);
-      font-size: 12px;
-      outline: none;
-      min-width: 100px;
-      flex: 1;
-      padding: 2px 0;
-      font-family: inherit;
-    }
+    #chipRaw { border: none; background: transparent; color: var(--text); font-size: 12px; outline: none; min-width: 100px; flex: 1; padding: 2px 0; font-family: inherit; }
     #chipRaw::placeholder { color: var(--muted); }
-    .sku-mode-btn {
-      padding: 5px 9px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted2);
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .sku-mode-btn.active { background: rgba(0,229,255,0.08); border-color: var(--cyan); color: var(--cyan); }
-    .sku-clear {
-      padding: 5px 10px;
-      border-radius: 6px;
-      border: 1px solid rgba(255,68,68,0.25);
-      background: transparent;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
+    .sku-mode-btn { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
+    .sku-mode-btn.active { background: rgba(0,229,255,.08); border-color: var(--cyan); color: var(--cyan); }
+    .sku-clear { padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,68,68,.25); background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     .sku-clear:hover { color: var(--red); border-color: var(--red); }
-
-    .count-pill {
-      margin-left: auto;
-      background: rgba(0,229,255,0.08);
-      border: 1px solid rgba(0,229,255,0.25);
-      color: var(--cyan);
-      font-size: 11px;
-      font-weight: 700;
-      padding: 4px 12px;
-      border-radius: 12px;
-      white-space: nowrap;
-    }
+    .count-pill { margin-left: auto; background: rgba(0,229,255,.08); border: 1px solid rgba(0,229,255,.25); color: var(--cyan); font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 12px; white-space: nowrap; }
 
     /* ── TABLE ── */
-    .table-wrap {
-      padding: 0 24px 32px;
-      overflow-x: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      margin-top: 16px;
-    }
-
-    thead th {
-      background: #0a1323;
-      color: var(--muted2);
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.9px;
-      padding: 9px 14px;
-      text-align: left;
-      border-bottom: 2px solid var(--border);
-      white-space: nowrap;
-    }
+    .table-wrap { padding: 0 24px 32px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+    thead th { background: #0a1323; color: var(--muted2); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .9px; padding: 9px 14px; text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; }
     thead th.r { text-align: right; }
-
-    tbody tr {
-      border-bottom: 1px solid rgba(255,255,255,0.03);
-      transition: background 0.1s;
-    }
-    tbody tr:nth-child(even) { background: rgba(255,255,255,0.013); }
-    tbody tr:hover { background: rgba(0,229,255,0.04); }
-
-    td {
-      padding: 9px 14px;
-      vertical-align: middle;
-    }
+    thead th.expand-th { cursor: pointer; user-select: none; }
+    thead th.expand-th:hover { color: var(--cyan); }
+    tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .1s; }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,.013); }
+    tbody tr:hover { background: rgba(0,229,255,.04); }
+    td { padding: 9px 14px; vertical-align: middle; }
     td.r { text-align: right; font-variant-numeric: tabular-nums; }
-
-    .td-sku {
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      color: var(--cyan);
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-
-    .td-loc {
-      font-size: 11px;
-      color: var(--muted2);
-      max-width: 160px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
+    .col-method { background: rgba(0,229,255,.03); }
+    .col-method-hd { background: rgba(0,229,255,.07) !important; color: var(--cyan) !important; border-left: 1px solid rgba(0,229,255,.12); }
+    .td-sku { font-family: 'Courier New', monospace; font-size: 13px; color: var(--cyan); font-weight: 600; letter-spacing: .3px; }
+    .td-loc { font-size: 11px; color: var(--muted2); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .td-stock { color: var(--text); }
     .td-zero  { color: var(--muted); }
-
-    .mov-hi {
-      font-weight: 700;
-      font-size: 17px;
-      color: var(--orange);
-    }
-    .mov-lo {
-      font-weight: 600;
-      font-size: 14px;
-      color: #c04a00;
-    }
+    .mov-hi   { font-weight: 700; font-size: 17px; color: var(--orange); }
+    .mov-lo   { font-weight: 600; font-size: 14px; color: #c04a00; }
     .mov-zero { color: var(--muted); font-size: 12px; }
-
-    .abc-dot {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 26px; height: 26px;
-      border-radius: 50%;
-      font-weight: 700;
-      font-size: 12px;
-    }
-    .abc-dot.A { background: rgba(0,230,118,0.14); color: var(--green); border: 1px solid rgba(0,230,118,0.35); }
-    .abc-dot.B { background: rgba(255,214,0,0.14); color: var(--yellow); border: 1px solid rgba(255,214,0,0.35); }
-    .abc-dot.C { background: rgba(255,68,68,0.14); color: var(--red);    border: 1px solid rgba(255,68,68,0.35); }
-
-    .peds-v { color: var(--orange); font-weight: 600; }
+    .abc-dot { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-weight: 700; font-size: 12px; }
+    .abc-dot.A { background: rgba(0,230,118,.14); color: var(--green);  border: 1px solid rgba(0,230,118,.35); }
+    .abc-dot.B { background: rgba(255,214,0,.14);  color: var(--yellow); border: 1px solid rgba(255,214,0,.35); }
+    .abc-dot.C { background: rgba(255,68,68,.14);  color: var(--red);    border: 1px solid rgba(255,68,68,.35); }
+    .peds-v   { color: var(--orange); font-weight: 600; }
+    .mov-v    { color: var(--purple); font-weight: 600; }
+    .method-v { color: var(--muted2); font-size: 12px; }
 
     /* ── EMPTY ── */
-    .empty {
-      text-align: center;
-      padding: 70px 20px;
-      color: var(--muted);
-    }
-    .empty-icon { font-size: 44px; margin-bottom: 12px; opacity: 0.5; }
+    .empty { text-align: center; padding: 70px 20px; color: var(--muted); }
+    .empty-icon { font-size: 44px; margin-bottom: 12px; opacity: .5; }
     .empty-msg  { font-size: 14px; }
 
     /* ── LOADING OVERLAY ── */
-    #overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(8,12,20,0.88);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-    }
-
-    .spinner {
-      width: 44px; height: 44px;
-      border: 3px solid rgba(0,229,255,0.18);
-      border-top-color: var(--cyan);
-      border-radius: 50%;
-      animation: spin 0.75s linear infinite;
-    }
+    #overlay { position: fixed; inset: 0; background: rgba(8,12,20,.88); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 999; }
+    .spinner { width: 44px; height: 44px; border: 3px solid rgba(0,229,255,.18); border-top-color: var(--cyan); border-radius: 50%; animation: spin .75s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    #overlay-msg {
-      margin-top: 16px;
-      color: var(--cyan);
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
+    #overlay-msg { margin-top: 16px; color: var(--cyan); font-size: 13px; font-weight: 600; letter-spacing: .3px; }
 
     /* ── TOAST ── */
-    .toast {
-      position: fixed;
-      bottom: 20px; right: 20px;
-      padding: 11px 18px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      z-index: 1000;
-      animation: slideUp 0.25s ease;
-      max-width: 380px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    }
-    .toast.ok  { background: #0d2b1a; color: var(--green);  border: 1px solid rgba(0,230,118,0.35); }
-    .toast.err { background: #2a0d0d; color: var(--red);    border: 1px solid rgba(255,68,68,0.35);  }
-    .toast.inf { background: #0d1e35; color: var(--cyan);   border: 1px solid rgba(0,229,255,0.35);  }
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 11px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 1000; animation: slideUp .25s ease; max-width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+    .toast.ok  { background: #0d2b1a; color: var(--green);  border: 1px solid rgba(0,230,118,.35); }
+    .toast.err { background: #2a0d0d; color: var(--red);    border: 1px solid rgba(255,68,68,.35);  }
+    .toast.inf { background: #0d1e35; color: var(--cyan);   border: 1px solid rgba(0,229,255,.35);  }
     @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    /* ── expand toggle hint ── */
+    .th-expand-hint { font-size: 14px; margin-left: 4px; opacity: .7; }
   </style>
 </head>
 <body>
@@ -449,7 +161,7 @@
 <!-- Loading overlay -->
 <div id="overlay">
   <div class="spinner"></div>
-  <div id="overlay-msg">Carregando dados...</div>
+  <div id="overlay-msg">Carregando dados da API BaseLinker...<br><span style="font-size:11px;opacity:.7;margin-top:6px;display:block">Isso pode levar 1-3 minutos</span></div>
 </div>
 
 <!-- Header -->
@@ -463,8 +175,13 @@
   </div>
   <div class="header-right">
     <button class="btn btn-refresh" id="btnRefresh" onclick="loadData()" disabled>🔄 Atualizar Dados</button>
-    <button class="btn btn-run"     id="btnRun"     onclick="runScript()" disabled>▶ Gerar Planejada</button>
   </div>
+</div>
+
+<!-- Macro tabs -->
+<div class="macro-tabs">
+  <button class="macro-tab active" id="tab_com"  onclick="setTab('com')">📦 Com Estoque</button>
+  <button class="macro-tab"        id="tab_sem"  onclick="setTab('sem')">📊 Sem Estoque</button>
 </div>
 
 <!-- Stats bar -->
@@ -495,10 +212,10 @@
 <div class="filters">
   <div class="filter-group">
     <span class="filter-label">Período</span>
-    <button class="fbtn"    id="p5"  onclick="setPeriodo('mov5')">0-5 dias</button>
-    <button class="fbtn ap" id="p7"  onclick="setPeriodo('mov7')">0-7 dias</button>
-    <button class="fbtn"    id="p10" onclick="setPeriodo('mov10')">0-10 dias</button>
-    <button class="fbtn"    id="p15" onclick="setPeriodo('mov15')">0-15 dias</button>
+    <button class="fbtn"    id="p5"  onclick="setPeriodo('5')">0-5 dias</button>
+    <button class="fbtn ap" id="p7"  onclick="setPeriodo('7')">0-7 dias</button>
+    <button class="fbtn"    id="p10" onclick="setPeriodo('10')">0-10 dias</button>
+    <button class="fbtn"    id="p15" onclick="setPeriodo('15')">0-15 dias</button>
   </div>
   <div class="sep"></div>
   <div class="filter-group">
@@ -513,34 +230,69 @@
     <div class="chip-input-box" id="chipBox" onclick="focusChipInput()">
       <div id="chipList"></div>
       <input id="chipRaw" type="text" placeholder="Cole ou digite SKUs..."
-             onkeydown="chipKeydown(event)"
-             onpaste="chipPaste(event)">
+             onkeydown="chipKeydown(event)" onpaste="chipPaste(event)">
     </div>
-    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')" title="Cada chip contém o texto no SKU">Contém</button>
-    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')"    title="Chip igual ao SKU exato">Exato</button>
-    <button class="sku-clear" id="skuClear" onclick="clearAllChips()" title="Limpar todos os SKUs" style="display:none">✕ Limpar</button>
+    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')">Contém</button>
+    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')">Exato</button>
+    <button class="sku-clear" id="skuClear" onclick="clearAllChips()" style="display:none">✕ Limpar</button>
   </div>
   <span class="count-pill" id="pill">0 SKUs</span>
 </div>
 
-<!-- Table -->
-<div class="table-wrap">
-  <table id="tbl">
+<!-- Table: Com Estoque -->
+<div class="table-wrap" id="view_com">
+  <table>
+    <thead>
+      <tr id="thead_com">
+        <th>SKU</th>
+        <th class="td-loc">Loc. Picking</th>
+        <th class="td-loc">Loc. Armazém</th>
+        <th class="r">Picking</th>
+        <th class="r">Armazém</th>
+        <th class="r" id="movTh">A Mover 0-7</th>
+        <th>ABC</th>
+        <!-- Pedidos separação — cabeçalho clicável -->
+        <th class="r expand-th" onclick="toggleExpand()" title="Clique para expandir por método de entrega">
+          Sep. Geral<span class="th-expand-hint" id="expandIcon">▶</span>
+        </th>
+        <!-- Colunas de método — ocultas inicialmente -->
+        <th class="r col-method-hd" id="th_ed"  style="display:none">Entr. Direta</th>
+        <th class="r col-method-hd" id="th_me2" style="display:none">ME2</th>
+        <th class="r col-method-hd" id="th_ret" style="display:none">Retirada</th>
+        <th class="r col-method-hd" id="th_xpr" style="display:none">Shopee Xpress</th>
+        <!-- Movimentação -->
+        <th class="r" style="color:var(--purple)">Movimentação</th>
+      </tr>
+    </thead>
+    <tbody id="tbody_com"></tbody>
+  </table>
+  <div id="empty_com" class="empty" style="display:none">
+    <div class="empty-icon">📭</div>
+    <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
+  </div>
+</div>
+
+<!-- Table: Sem Estoque -->
+<div class="table-wrap" id="view_sem" style="display:none">
+  <table>
     <thead>
       <tr>
         <th>SKU</th>
-        <th>Localização A8</th>
-        <th>Localização A9</th>
-        <th class="r">Picking atual</th>
-        <th class="r">Bruto A9</th>
-        <th class="r" id="movTh">A Mover 0-7</th>
+        <th class="r" id="vendTh">Vendas 0-7</th>
         <th>ABC</th>
-        <th class="r">Pedidos</th>
+        <th class="r expand-th" onclick="toggleExpand()" title="Clique para expandir por método de entrega">
+          Sep. Geral<span class="th-expand-hint" id="expandIcon2">▶</span>
+        </th>
+        <th class="r col-method-hd" id="th2_ed"  style="display:none">Entr. Direta</th>
+        <th class="r col-method-hd" id="th2_me2" style="display:none">ME2</th>
+        <th class="r col-method-hd" id="th2_ret" style="display:none">Retirada</th>
+        <th class="r col-method-hd" id="th2_xpr" style="display:none">Shopee Xpress</th>
+        <th class="r" style="color:var(--purple)">Movimentação</th>
       </tr>
     </thead>
-    <tbody id="tbody"></tbody>
+    <tbody id="tbody_sem"></tbody>
   </table>
-  <div id="empty" class="empty" style="display:none">
+  <div id="empty_sem" class="empty" style="display:none">
     <div class="empty-icon">📭</div>
     <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
   </div>
@@ -548,21 +300,21 @@
 
 <script>
   // ── State ───────────────────────────────────────────────────
-  let allData  = [];
-  let periodo  = 'mov7';
-  let abcSet   = new Set(['A','B','C']);
-  let skuChips = []; // uppercase strings
-  let skuMode  = 'contains'; // 'contains' | 'exact'
+  let allData   = [];
+  let periodo   = '7';
+  let abcSet    = new Set(['A','B','C']);
+  let skuChips  = [];
+  let skuMode   = 'contains';
+  let activeTab = 'com';
+  let expanded  = false;
 
-  const periLabels = { mov5:'0-5', mov7:'0-7', mov10:'0-10', mov15:'0-15' };
-  const periIds    = { mov5:'5',   mov7:'7',   mov10:'10',   mov15:'15'   };
+  const periLabels = { '5':'0-5', '7':'0-7', '10':'0-10', '15':'0-15' };
 
   // ── Boot ────────────────────────────────────────────────────
   window.onload = loadData;
 
-  // ── Load data from server ───────────────────────────────────
   function loadData() {
-    setOverlay(true, 'Carregando dados da planilha...');
+    setOverlay(true);
     setBtns(false);
     google.script.run
       .withSuccessHandler(onData)
@@ -579,14 +331,44 @@
     render();
   }
 
+  // ── Tab switching ────────────────────────────────────────────
+  function setTab(tab) {
+    activeTab = tab;
+    document.getElementById('tab_com').className  = 'macro-tab' + (tab === 'com' ? ' active' : '');
+    document.getElementById('tab_sem').className  = 'macro-tab' + (tab === 'sem' ? ' active' : '');
+    document.getElementById('view_com').style.display = tab === 'com' ? '' : 'none';
+    document.getElementById('view_sem').style.display = tab === 'sem' ? '' : 'none';
+    render();
+  }
+
+  // ── Expand/collapse delivery method columns ──────────────────
+  function toggleExpand() {
+    expanded = !expanded;
+    const show = expanded ? '' : 'none';
+    const icon = expanded ? '▼' : '▶';
+    ['th_ed','th_me2','th_ret','th_xpr'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = expanded ? '' : 'none';
+    });
+    ['th2_ed','th2_me2','th2_ret','th2_xpr'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = expanded ? '' : 'none';
+    });
+    const ei  = document.getElementById('expandIcon');  if (ei)  ei.textContent  = icon;
+    const ei2 = document.getElementById('expandIcon2'); if (ei2) ei2.textContent = icon;
+    // Re-render to show/hide method cells in rows
+    render();
+  }
+
   // ── Filter controls ─────────────────────────────────────────
   function setPeriodo(p) {
     periodo = p;
-    Object.keys(periIds).forEach(k => {
-      document.getElementById('p' + periIds[k]).className = 'fbtn' + (k === p ? ' ap' : '');
+    ['5','7','10','15'].forEach(k => {
+      document.getElementById('p' + k).className = 'fbtn' + (k === p ? ' ap' : '');
     });
-    document.getElementById('movTh').textContent  = 'A Mover ' + periLabels[p];
-    document.getElementById('sMovLbl').textContent = 'A mover (' + periLabels[p] + ')';
+    const lbl = periLabels[p];
+    document.getElementById('movTh').textContent   = 'A Mover ' + lbl;
+    document.getElementById('vendTh').textContent  = 'Vendas ' + lbl;
+    const sml = document.getElementById('sMovLbl');
+    if (sml) sml.textContent = 'A mover (' + lbl + ')';
     render();
   }
 
@@ -599,31 +381,16 @@
     render();
   }
 
-  // ── SKU chip controls ────────────────────────────────────────
+  // ── SKU chips ────────────────────────────────────────────────
   function focusChipInput() { document.getElementById('chipRaw').focus(); }
-
   function addChips(values) {
-    const fresh = values
-      .map(v => v.trim().toUpperCase())
-      .filter(v => v.length > 0 && !skuChips.includes(v));
+    const fresh = values.map(v => v.trim().toUpperCase()).filter(v => v && !skuChips.includes(v));
     if (!fresh.length) return;
     skuChips.push(...fresh);
-    renderChips();
-    render();
+    renderChips(); render();
   }
-
-  function removeChip(val) {
-    skuChips = skuChips.filter(c => c !== val);
-    renderChips();
-    render();
-  }
-
-  function clearAllChips() {
-    skuChips = [];
-    renderChips();
-    render();
-  }
-
+  function removeChip(val) { skuChips = skuChips.filter(c => c !== val); renderChips(); render(); }
+  function clearAllChips() { skuChips = []; renderChips(); render(); }
   function renderChips() {
     document.getElementById('chipList').innerHTML = skuChips.map(c =>
       `<span class="chip" title="${c}"><span>${c}</span><span class="chip-x" onclick="removeChip('${c.replace(/'/g,"\\'")}')">×</span></span>`
@@ -631,7 +398,6 @@
     document.getElementById('skuClear').style.display = skuChips.length ? '' : 'none';
     document.getElementById('chipRaw').placeholder = skuChips.length ? '' : 'Cole ou digite SKUs...';
   }
-
   function chipKeydown(e) {
     const inp = e.target;
     if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
@@ -642,114 +408,125 @@
       removeChip(skuChips[skuChips.length - 1]);
     }
   }
-
   function chipPaste(e) {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData('text');
-    // split on newlines, tabs, commas, semicolons
     const parts = text.split(/[\n\r\t,;]+/);
     addChips(parts);
     e.target.value = '';
   }
-
   function setSkuMode(mode) {
     skuMode = mode;
     document.getElementById('skuModeContains').className = 'sku-mode-btn' + (mode === 'contains' ? ' active' : '');
     document.getElementById('skuModeExact').className    = 'sku-mode-btn' + (mode === 'exact'    ? ' active' : '');
     render();
   }
-
   function skuMatch(sku) {
     if (!skuChips.length) return true;
     const s = String(sku).toUpperCase();
     return skuChips.some(chip => skuMode === 'exact' ? s === chip : s.includes(chip));
   }
 
-  // ── Render table ────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────
   function render() {
-    const filtered = allData
-      .filter(r => abcSet.has(r.abc) && r[periodo] > 0 && skuMatch(r.sku))
-      .sort((a,b) => b[periodo] - a[periodo]);
+    activeTab === 'com' ? renderCom() : renderSem();
+  }
 
-    const totMov = filtered.reduce((s,r) => s + r[periodo], 0);
+  function renderCom() {
+    const movKey = 'mov' + periodo;
+    const filtered = allData
+      .filter(r => abcSet.has(r.abc) && r[movKey] > 0 && skuMatch(r.sku))
+      .sort((a,b) => b[movKey] - a[movKey]);
+
+    updateStats(filtered, movKey);
+
+    const tbody = document.getElementById('tbody_com');
+    const empty = document.getElementById('empty_com');
+
+    if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+    empty.style.display = 'none';
+
+    tbody.innerHTML = filtered.map(r => {
+      const mov = r[movKey];
+      const movCls = mov >= 20 ? 'mov-hi' : mov > 0 ? 'mov-lo' : 'mov-zero';
+      const pick  = r.pick  > 0 ? `<span class="td-stock">${r.pick}</span>`  : `<span class="td-zero">0</span>`;
+      const arm   = r.arm   > 0 ? `<span class="td-stock">${r.arm}</span>`   : `<span class="td-zero">0</span>`;
+      const abc   = r.abc   ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
+      const peds  = r.pedTotal > 0 ? `<span class="peds-v">${r.pedTotal}</span>` : `<span class="td-zero">—</span>`;
+      const pedMov = r.pedMov > 0 ? `<span class="mov-v">${r.pedMov}</span>` : `<span class="td-zero">—</span>`;
+      const methodCols = expanded ? `
+        <td class="r col-method"><span class="method-v">${r.entrDireta || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.me2       || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.retirada  || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.xpress    || '—'}</span></td>` : '';
+      return `<tr>
+        <td class="td-sku">${r.sku}</td>
+        <td class="td-loc" title="${r.locF||''}">${r.locF||'—'}</td>
+        <td class="td-loc" title="${r.locG||''}">${r.locG||'—'}</td>
+        <td class="r">${pick}</td>
+        <td class="r">${arm}</td>
+        <td class="r"><span class="${movCls}">${mov}</span></td>
+        <td>${abc}</td>
+        <td class="r">${peds}</td>
+        ${methodCols}
+        <td class="r">${pedMov}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderSem() {
+    const vKey = 'v' + periodo;
+    const filtered = allData
+      .filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku))
+      .sort((a,b) => b[vKey] - a[vKey]);
+
+    updateStats(filtered, 'mov' + periodo);
+
+    const tbody = document.getElementById('tbody_sem');
+    const empty = document.getElementById('empty_sem');
+
+    if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+    empty.style.display = 'none';
+
+    tbody.innerHTML = filtered.map(r => {
+      const vend   = r[vKey];
+      const vendCls = vend >= 20 ? 'mov-hi' : vend > 0 ? 'mov-lo' : 'mov-zero';
+      const abc    = r.abc ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
+      const peds   = r.pedTotal > 0 ? `<span class="peds-v">${r.pedTotal}</span>` : `<span class="td-zero">—</span>`;
+      const pedMov = r.pedMov > 0 ? `<span class="mov-v">${r.pedMov}</span>` : `<span class="td-zero">—</span>`;
+      const methodCols = expanded ? `
+        <td class="r col-method"><span class="method-v">${r.entrDireta || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.me2       || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.retirada  || '—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.xpress    || '—'}</span></td>` : '';
+      return `<tr>
+        <td class="td-sku">${r.sku}</td>
+        <td class="r"><span class="${vendCls}">${vend}</span></td>
+        <td>${abc}</td>
+        <td class="r">${peds}</td>
+        ${methodCols}
+        <td class="r">${pedMov}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function updateStats(filtered, movKey) {
+    const totMov = filtered.reduce((s,r) => s + (r[movKey] || 0), 0);
     document.getElementById('sTotal').textContent = filtered.length;
     document.getElementById('sMov').textContent   = totMov;
     document.getElementById('sA').textContent     = filtered.filter(r=>r.abc==='A').length;
     document.getElementById('sB').textContent     = filtered.filter(r=>r.abc==='B').length;
     document.getElementById('sC').textContent     = filtered.filter(r=>r.abc==='C').length;
     document.getElementById('pill').textContent   = filtered.length + ' SKUs';
-
-    const tbody = document.getElementById('tbody');
-    const empty = document.getElementById('empty');
-
-    if (!filtered.length) {
-      tbody.innerHTML = '';
-      empty.style.display = '';
-      return;
-    }
-    empty.style.display = 'none';
-
-    tbody.innerHTML = filtered.map(r => {
-      const mov = r[periodo];
-      const movCls = mov >= 20 ? 'mov-hi' : mov > 0 ? 'mov-lo' : 'mov-zero';
-      const movTxt = mov > 0 ? mov : '—';
-
-      const loc = r.locF || '—';
-      const pick = r.pick > 0 ? `<span class="td-stock">${r.pick}</span>` : `<span class="td-zero">0</span>`;
-      const brut = r.bruto > 0 ? `<span class="td-stock">${r.bruto}</span>` : `<span class="td-zero">0</span>`;
-      const abc  = r.abc ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
-      const peds = r.peds > 0 ? `<span class="peds-v">${r.peds}</span>` : `<span class="td-zero">—</span>`;
-
-      const locG = r.locG || '—';
-
-      return `<tr>
-        <td class="td-sku">${r.sku}</td>
-        <td class="td-loc" title="${r.locF}">${loc}</td>
-        <td class="td-loc" title="${r.locG || ''}">${locG}</td>
-        <td class="r">${pick}</td>
-        <td class="r">${brut}</td>
-        <td class="r"><span class="${movCls}">${movTxt}</span></td>
-        <td>${abc}</td>
-        <td class="r">${peds}</td>
-      </tr>`;
-    }).join('');
-  }
-
-  // ── Run script ───────────────────────────────────────────────
-  function runScript() {
-    setBtns(false);
-    setOverlay(true, '▶ Gerando aba Planejada... Isso pode levar 1-2 minutos.');
-    google.script.run
-      .withSuccessHandler(res => {
-        setOverlay(false);
-        setBtns(true);
-        if (res.ok) {
-          toast('✅ Planejada gerada — ' + res.count + ' SKUs. Atualizando...', 'ok');
-          setTimeout(loadData, 1800);
-        } else {
-          toast('❌ ' + (res.error || 'Erro desconhecido'), 'err');
-        }
-      })
-      .withFailureHandler(e => {
-        setOverlay(false);
-        setBtns(true);
-        toast('❌ ' + e.message, 'err');
-      })
-      .me_dash_gerarPlanejada();
   }
 
   // ── Helpers ─────────────────────────────────────────────────
-  function setOverlay(show, msg) {
-    const el = document.getElementById('overlay');
-    el.style.display = show ? 'flex' : 'none';
-    if (msg) document.getElementById('overlay-msg').textContent = msg;
+  function setOverlay(show) {
+    document.getElementById('overlay').style.display = show ? 'flex' : 'none';
   }
-
   function setBtns(enabled) {
     document.getElementById('btnRefresh').disabled = !enabled;
-    document.getElementById('btnRun').disabled     = !enabled;
   }
-
   function toast(msg, type) {
     const t = document.createElement('div');
     t.className = 'toast ' + (type || 'inf');

@@ -44,7 +44,7 @@ const ME = {
 
   ABC_A: 0.70, ABC_B: 0.90,
   HEADER_ROWS: 5,
-  NCOLS: 35,
+  NCOLS: 35, // A–AI (35 colunas)
 
   SNAPSHOT_SHEET: 'SNAPSHOT_BL',
 };
@@ -62,14 +62,11 @@ const ME_AABBCC_W = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📋 Mov. Estoque')
-    .addItem('🔴 Corretiva',       'meGerarCorretiva')
-    .addItem('🟡 Planejada',       'meGerarPlanejada')
-    .addItem('🟢 Excesso',         'meGerarExcesso')
+    .addItem('🔴 Corretiva',   'meGerarCorretiva')
+    .addItem('🟡 Planejada',   'meGerarPlanejada')
+    .addItem('🟢 Excesso',     'meGerarExcesso')
     .addSeparator()
-    .addItem('🔄 Atualizar Todas',             'meGerarTodas')
-    .addSeparator()
-    .addItem('📸 Atualizar Snapshot BL',       'me_atualizarSnapshotEstoque')
-    .addItem('⏰ Configurar Trigger Horário',  'me_configurarTriggerHorario')
+    .addItem('🔄 Atualizar Todas', 'meGerarTodas')
     .addToUi();
 }
 
@@ -192,26 +189,13 @@ function _me_carregarVendas(mapaCompostos) {
 
 // ============================================================
 // 3. DADOS API — stock / localizações / dimensões
-//    Lógica A8/A9:
-//    • Warehouses secundários (≠ bl_44285/50394/51442) → mapeados
-//      por prefixo de localização para zona A8 ou A9.
-//    • bl_44285 (Padrão master) → stock distribuído pelo prefixo
-//      da location string (A8 → picking, A9 → armPad).
+//    Usa quantidade direta por armazém (sem análise de prefixo):
+//    • WH_PADRAO (bl_44285)        → picking
+//    • WH_ARMAZENAMENTO (bl_50394) → estoque caixa fechada (arm)
+//    • WH_CHEGOU (bl_51442)        → chegou
 // ============================================================
-function _me_carregarDadosAPI(mapaCompostos, bypassSnapshot) {
-  const KNOWN     = new Set([ME.WH_PADRAO, ME.WH_ARMAZENAMENTO, ME.WH_CHEGOU]);
+function _me_carregarDadosAPI(mapaCompostos) {
   const compostos = new Set(Object.keys(mapaCompostos || {}));
-
-  // Usa cache (SNAPSHOT_BL) quando disponível, exceto quando chamado pelo próprio atualizador
-  if (!bypassSnapshot) {
-    const snapAba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ME.SNAPSHOT_SHEET);
-    if (snapAba && snapAba.getLastRow() > 2) {
-      const info = String(snapAba.getRange(1, 1).getValue());
-      Logger.log('[API] Usando SNAPSHOT_BL: ' + info);
-      return _me_carregarDoSnapshot(snapAba, compostos);
-    }
-    Logger.log('[API] Sem snapshot — chamando getInventoryProductsData diretamente');
-  }
 
   // Passo 1: lista de produtos (paginada)
   const pidToSku = {};
@@ -237,83 +221,23 @@ function _me_carregarDadosAPI(mapaCompostos, bypassSnapshot) {
     if (i + LOTE < allPids.length) Utilities.sleep(300);
   }
 
-  // Passo 3: consolida por SKU — detecção de zona A8/A9 POR PRODUTO
-  // IDs de sub-warehouse são únicos por produto×localização no BaseLinker.
-  // O mapa global (abordagem anterior) falhava porque sub-warehouses de um
-  // produto apareciam no stock de outros produtos com stock "fantasma".
-  // Solução: para cada produto, usar SOMENTE suas próprias location strings.
+  // Passo 3: consolida por SKU usando IDs de armazém diretamente
   const stockLocDim = {};
 
   Object.entries(rawData).forEach(([pid, p]) => {
     const sku = pidToSku[pid];
     if (!sku) return;
-    if (compostos.has(sku)) return; // ignora compostos/kits
+    if (compostos.has(sku)) return;
 
     const s = p.stock     || {};
     const l = p.locations || {};
 
-    // Stock nos armazéns principais
-    const padraoStock = Number(s[ME.WH_PADRAO] || 0);
+    const picking = Number(s[ME.WH_PADRAO]        || 0);
+    const arm     = Number(s[ME.WH_ARMAZENAMENTO] || 0);
+    const chg     = Number(s[ME.WH_CHEGOU]        || 0);
 
-    // Location string do armazém Padrão → determina zona(s) deste produto
-    const padraoLocs = _me_parseLocs(l[ME.WH_PADRAO] || '');
-    const padA8 = padraoLocs.filter(x => x.toUpperCase().startsWith('A8'));
-    const padA9 = padraoLocs.filter(x => x.toUpperCase().startsWith('A9'));
-    const isPureA8 = padA8.length > 0 && padA9.length === 0;
-    const isPureA9 = padA9.length > 0 && padA8.length === 0;
-    const isMisto  = padA8.length > 0 && padA9.length > 0;
-
-    const a8Locs = [...padA8];
-    const a9Locs = [...padA9];
-    let picking = 0, armPad = 0;
-
-    if (isPureA8) {
-      // Produto somente na zona A8 → todo estoque Padrão é picking
-      picking = padraoStock;
-    } else if (isPureA9) {
-      // Produto somente na zona A9 → todo estoque Padrão é armPad
-      // (NÃO usa sub-warehouses: evita stock "fantasma" de outros produtos)
-      armPad = padraoStock;
-    } else if (isMisto) {
-      // Produto em ambas as zonas: divide pelo sub-warehouse DESTE produto
-      // onde a location string esteja preenchida com prefixo A8 ou A9.
-      let subA8 = 0, subA9 = 0;
-      Object.keys(s).forEach(wid => {
-        if (KNOWN.has(wid)) return;
-        const locStr = l[wid] || '';
-        if (!locStr) return; // sem location para este produto → ignora (pode ser fantasma)
-        const locs = _me_parseLocs(locStr);
-        const wa8 = locs.filter(x => x.toUpperCase().startsWith('A8'));
-        const wa9 = locs.filter(x => x.toUpperCase().startsWith('A9'));
-        const qty = Number(s[wid] || 0);
-        if (wa8.length > 0 && wa9.length === 0) {
-          subA8 += qty;
-          wa8.forEach(x => a8Locs.push(x));
-        } else if (wa9.length > 0 && wa8.length === 0) {
-          subA9 += qty;
-          wa9.forEach(x => a9Locs.push(x));
-        }
-      });
-      if (subA8 + subA9 > 0) {
-        picking = subA8;
-        armPad  = subA9;
-      } else {
-        // Fallback: sem sub-warehouses identificados — atribui ao picking
-        picking = padraoStock;
-        armPad  = 0;
-      }
-    } else {
-      // Sem location no Padrão → fallback picking
-      picking = padraoStock;
-    }
-
-    const arm = Number(s[ME.WH_ARMAZENAMENTO] || 0);
-    const chg = Number(s[ME.WH_CHEGOU]        || 0);
-
-    const locF   = [...new Set(a8Locs)].join(' / ');
-    const locA9s = [...new Set(a9Locs)].join(' / ');
-    const locArm = _me_parseLocs(l[ME.WH_ARMAZENAMENTO] || '').join(' / ');
-    const locG   = locA9s || locArm;
+    const locF = String(l[ME.WH_PADRAO]        || '');
+    const locG = String(l[ME.WH_ARMAZENAMENTO] || '');
 
     const h    = Number(p.height || 0);
     const w    = Number(p.width  || 0);
@@ -322,11 +246,10 @@ function _me_carregarDadosAPI(mapaCompostos, bypassSnapshot) {
     const vol  = h && w && c ? h * w * c : 0;
 
     if (!stockLocDim[sku]) {
-      stockLocDim[sku] = { picking:0, armPad:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+      stockLocDim[sku] = { picking:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
     }
     const d = stockLocDim[sku];
     d.picking += picking;
-    d.armPad  += armPad;
     d.arm     += arm;
     d.chg     += chg;
     if (locF && !d.locF) d.locF = locF;
@@ -337,79 +260,32 @@ function _me_carregarDadosAPI(mapaCompostos, bypassSnapshot) {
   return stockLocDim;
 }
 
-// ============================================================
-// 3b. SNAPSHOT DE ESTOQUE — chama getInventoryProductsData,
-//     processa stockLocDim e armazena em SNAPSHOT_BL.
-//     Execute manualmente ou via trigger horário.
-//
-//     Nota: a API BaseLinker NÃO expõe criação/leitura de
-//     inventários (stocktake). O snapshot é gerado diretamente
-//     via getInventoryProductsData e serve como cache horário.
-// ============================================================
-function me_atualizarSnapshotEstoque() {
-  // Abre dialog de upload dos CSVs de Padrão e Armazenamento.
-  // O CHEGOU é buscado via API automaticamente pelo SnapshotBL.gs.
-  showSnapshotUpload();
-}
-
-// Lê SNAPSHOT_BL e reconstrói stockLocDim processado
-function _me_carregarDoSnapshot(aba, compostos) {
-  const dados = aba.getDataRange().getValues();
-  // linha 0 = info | linha 1 = cabeçalho | dados a partir da linha 2
-  // colunas: SKU | picking | armPad | arm | chg | locF | locG | peso | vol
-  const stockLocDim = {};
-
-  for (let i = 2; i < dados.length; i++) {
-    const sku = String(dados[i][0] || '').trim();
-    if (!sku || compostos.has(sku)) continue;
-    stockLocDim[sku] = {
-      picking: Number(dados[i][1] || 0),
-      armPad:  Number(dados[i][2] || 0),
-      arm:     Number(dados[i][3] || 0),
-      chg:     Number(dados[i][4] || 0),
-      locF:    String(dados[i][5] || ''),
-      locG:    String(dados[i][6] || ''),
-      h: 0, w: 0, c: 0,
-      peso:    Number(dados[i][7] || 0),
-      vol:     Number(dados[i][8] || 0),
-    };
-  }
-
-  return stockLocDim;
-}
-
-// Configura trigger automático de hora em hora
-function me_configurarTriggerHorario() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'me_atualizarSnapshotEstoque')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-
-  ScriptApp.newTrigger('me_atualizarSnapshotEstoque')
-    .timeBased()
-    .everyHours(1)
-    .create();
-
-  SpreadsheetApp.getUi().alert('✅ Trigger configurado!\nme_atualizarSnapshotEstoque rodará automaticamente a cada hora.');
-}
 
 // ============================================================
 // 4. PEDIDOS ABERTOS (payment_done > 0)
-//    Agrupa por método de entrega
+//    Agrupa por método de entrega + status Movimentação separado
 // ============================================================
 function _me_carregarPedidos() {
   const pedMap = {};
+  const MOV_STATUS = 269416;
 
-  function add(sku, metodo, qty) {
-    if (!pedMap[sku]) pedMap[sku] = { total:0, entrDireta:0, me2:0, retirada:0, xpress:0 };
+  function addSep(sku, metodo, qty) {
+    if (!pedMap[sku]) pedMap[sku] = { total:0, entrDireta:0, me2:0, retirada:0, xpress:0, mov:0 };
     const m = String(metodo).toLowerCase();
     pedMap[sku].total += qty;
-    if      (m.includes('entrega direta') || m.includes('flex'))        pedMap[sku].entrDireta += qty;
+    if      (m.includes('entrega direta') || m.includes('flex'))       pedMap[sku].entrDireta += qty;
     else if (m.includes('me2') || m.includes('mercado envios') ||
-             m.includes('agên') || m.includes('agen'))                  pedMap[sku].me2        += qty;
-    else if (m.includes('retirada'))                                     pedMap[sku].retirada   += qty;
-    else if (m.includes('xpress'))                                       pedMap[sku].xpress     += qty;
+             m.includes('agên') || m.includes('agen'))                 pedMap[sku].me2        += qty;
+    else if (m.includes('retirada'))                                    pedMap[sku].retirada   += qty;
+    else if (m.includes('xpress'))                                      pedMap[sku].xpress     += qty;
   }
 
+  function addMov(sku, qty) {
+    if (!pedMap[sku]) pedMap[sku] = { total:0, entrDireta:0, me2:0, retirada:0, xpress:0, mov:0 };
+    pedMap[sku].mov += qty;
+  }
+
+  // Separação / Embalagem / Expedição
   for (const sid of ME.STATUS_IDS) {
     let idFrom = 0;
     for (let iter = 0; iter < 200; iter++) {
@@ -422,7 +298,7 @@ function _me_carregarPedidos() {
         (o.products || []).forEach(prod => {
           const sku = String(prod.sku || '').trim();
           const qty = Number(prod.quantity) || 0;
-          if (sku && qty) add(sku, metodo, qty);
+          if (sku && qty) addSep(sku, metodo, qty);
         });
       });
       if (batch.length < 100) break;
@@ -430,6 +306,25 @@ function _me_carregarPedidos() {
     }
     Utilities.sleep(100);
   }
+
+  // Movimentação (status separado — sem distinção de método)
+  let idFrom = 0;
+  for (let iter = 0; iter < 200; iter++) {
+    const r     = _me_bl_call('getOrders', { status_id: MOV_STATUS, id_from: idFrom });
+    const batch = r.orders || [];
+    if (!batch.length) break;
+    batch.forEach(o => {
+      if (!(Number(o.payment_done) > 0)) return;
+      (o.products || []).forEach(prod => {
+        const sku = String(prod.sku || '').trim();
+        const qty = Number(prod.quantity) || 0;
+        if (sku && qty) addMov(sku, qty);
+      });
+    });
+    if (batch.length < 100) break;
+    idFrom = batch[batch.length - 1].order_id;
+  }
+
   return pedMap;
 }
 
@@ -438,33 +333,31 @@ function _me_carregarPedidos() {
 // ============================================================
 function _me_montarItens(vendas, stockLocDim, pedMap, mapaCompostos) {
   const allSkus = new Set([...Object.keys(vendas), ...Object.keys(stockLocDim)]);
-  Object.keys(mapaCompostos).forEach(pai => allSkus.delete(pai)); // exclui PAIs/Compostos
+  Object.keys(mapaCompostos).forEach(pai => allSkus.delete(pai));
 
   return [...allSkus].map(sku => {
-    const v  = vendas[sku]      || { v5:0, v7:0, v10:0, v15:0 };
-    const s  = stockLocDim[sku] || { picking:0, armPad:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
-    const p  = pedMap[sku]      || { total:0, entrDireta:0, me2:0, retirada:0, xpress:0 };
+    const v = vendas[sku]      || { v5:0, v7:0, v10:0, v15:0 };
+    const s = stockLocDim[sku] || { picking:0, arm:0, chg:0, locF:'', locG:'', h:0, w:0, c:0, peso:0, vol:0 };
+    const p = pedMap[sku]      || { total:0, entrDireta:0, me2:0, retirada:0, xpress:0, mov:0 };
 
-    const totalStock = s.picking + s.armPad + s.arm + s.chg;
+    const totalStock = s.picking + s.arm + s.chg;
 
     function dif(vd) { return s.picking - vd; }
     function mov(vd) {
       const raw = vd - s.picking;
-      // raw > 0: déficit (precisa mover pra picking) — capado pelo totalStock, mínimo 0
-      // raw ≤ 0: excesso em picking — retorna negativo (usado pelo filtro da aba Excesso)
       return raw > 0 ? Math.max(0, Math.min(raw, totalStock)) : raw;
     }
 
     return {
       sku,
-      picking: s.picking, armPad: s.armPad, arm: s.arm, chg: s.chg,
+      picking: s.picking, arm: s.arm, chg: s.chg,
       locF: s.locF, locG: s.locG,
       v5: v.v5, v7: v.v7, v10: v.v10, v15: v.v15,
       dif5:  dif(v.v5),  dif7:  dif(v.v7),  dif10: dif(v.v10), dif15: dif(v.v15),
       mov5:  mov(v.v5),  mov7:  mov(v.v7),   mov10: mov(v.v10), mov15: mov(v.v15),
       h: s.h, w: s.w, c: s.c, peso: s.peso, vol: s.vol,
       pedTotal: p.total, entrDireta: p.entrDireta, me2: p.me2,
-      retirada: p.retirada, xpress: p.xpress,
+      retirada: p.retirada, xpress: p.xpress, pedMov: p.mov,
       abc: '', pctAbc: 0, aabbcc: '', pctAabbcc: 0,
     };
   });
@@ -550,33 +443,33 @@ function _me_escreverAba(tipoAba, todosItens) {
 
   const linhas = itens.map(x => [
     String(x.sku),                                                   // A
-    x.picking, x.armPad, x.arm, x.chg,                              // B-E
-    x.locF, x.locG,                                                  // F-G
-    x.v5, x.v7, x.v10, x.v15,                                       // H-K
-    x.dif5, x.dif7, x.dif10, x.dif15,                               // L-O
-    m(x.mov5), m(x.mov7), m(x.mov10), m(x.mov15),                  // P-S
-    x.abc,    x.pctAbc,                                              // T-U
-    x.aabbcc, x.pctAabbcc,                                           // V-W
-    x.h, x.w, x.c, x.peso, x.vol,                                   // X-AB
-    '', '',                                                           // AC-AD (em branco)
-    x.pedTotal, x.entrDireta, x.me2, x.retirada, x.xpress,          // AE-AI
+    x.picking, x.arm, x.chg,                                        // B-D
+    x.locF, x.locG,                                                  // E-F
+    x.v5, x.v7, x.v10, x.v15,                                       // G-J
+    x.dif5, x.dif7, x.dif10, x.dif15,                               // K-N
+    m(x.mov5), m(x.mov7), m(x.mov10), m(x.mov15),                  // O-R
+    x.abc,    x.pctAbc,                                              // S-T
+    x.aabbcc, x.pctAabbcc,                                           // U-V
+    x.h, x.w, x.c, x.peso, x.vol,                                   // W-AA
+    '', '',                                                           // AB-AC (em branco)
+    x.pedTotal, x.entrDireta, x.me2, x.retirada, x.xpress, x.pedMov, // AD-AI
   ]);
 
   aba.getRange(PRIMA, 1, linhas.length, ME.NCOLS).setValues(linhas);
 
-  // Percentuais (U=21, W=23)
-  aba.getRange(PRIMA, 21, linhas.length, 1).setNumberFormat('0.0%');
-  aba.getRange(PRIMA, 23, linhas.length, 1).setNumberFormat('0.0%');
+  // Percentuais (T=20, V=22)
+  aba.getRange(PRIMA, 20, linhas.length, 1).setNumberFormat('0.0%');
+  aba.getRange(PRIMA, 22, linhas.length, 1).setNumberFormat('0.0%');
 
-  // Colorir Diferença negativa (L-O = cols 12-15)
+  // Colorir Diferença negativa (K-N = cols 11-14)
   _me_colorirCols(aba, itens, PRIMA,
-    [12,13,14,15], (x,c) => [x.dif5,x.dif7,x.dif10,x.dif15][c-12] < 0, '#ffcdd2');
+    [11,12,13,14], (x,c) => [x.dif5,x.dif7,x.dif10,x.dif15][c-11] < 0, '#ffcdd2');
 
-  // Colorir Movimentar positivo (P-S = cols 16-19)
+  // Colorir Movimentar positivo (O-R = cols 15-18)
   _me_colorirCols(aba, itens, PRIMA,
-    [16,17,18,19], (x,c) => [x.mov5,x.mov7,x.mov10,x.mov15][c-16] > 0, '#fff9c4');
+    [15,16,17,18], (x,c) => [x.mov5,x.mov7,x.mov10,x.mov15][c-15] > 0, '#fff9c4');
 
-  // Colorir curvas
+  // Colorir curvas (S=19, U=21)
   _me_colorirABC(aba, itens, PRIMA);
   _me_colorirAABBCC(aba, itens, PRIMA);
 
@@ -600,68 +493,60 @@ function _me_escreverCabecalho(aba) {
   // Linha 1 — grupos (índices 0-based = coluna - 1)
   H[0][0]  = 'SKU';
   H[0][1]  = 'Qntd. Estoque';
-  H[0][5]  = 'Endereço';
-  H[0][7]  = 'Qntd. Vend.';
-  H[0][11] = 'Diferença';
-  H[0][15] = 'Movimentar';
-  H[0][19] = 'Curva ABC';
-  H[0][21] = 'Curva AABBCC';
-  H[0][23] = 'Medidas Produto';
-  H[0][28] = 'Classificação Medida';
-  H[0][29] = 'Classificação Peso';
-  H[0][30] = 'Qntd. / Método Entrega';
+  H[0][4]  = 'Endereço';
+  H[0][6]  = 'Qntd. Vend.';
+  H[0][10] = 'Diferença';
+  H[0][14] = 'Movimentar';
+  H[0][18] = 'Curva ABC';
+  H[0][20] = 'Curva AABBCC';
+  H[0][22] = 'Medidas Produto';
+  H[0][29] = 'Qntd. / Método Entrega';
 
   // Linha 2 — Armazém
   H[1][1] = 'Armazém';
 
   // Linha 3 — sub-armazéns
-  H[2][1] = 'Padrão';
-  H[2][3] = 'Armazenamento';
-  H[2][4] = 'CHEGOU';
-
-  // Linha 4 — zonas
-  H[3][1] = 'A8';
-  H[3][2] = 'A9';
+  H[2][1] = 'Padrão (Picking)';
+  H[2][2] = 'Armazenamento';
+  H[2][3] = 'CHEGOU';
 
   // Linha 5 — nomes das colunas (35 elementos)
   H[4] = [
     '',                                                         // A
-    'Picking','Armazenamento','Armazenamento','CHEGOU',         // B-E
-    'Picking','Armazenamento',                                  // F-G
-    '0-5','0-7','0-10','0-15',                                  // H-K
-    '0-5','0-7','0-10','0-15',                                  // L-O
-    '0-5','0-7','0-10','0-15',                                  // P-S
-    'Curva','%',                                                // T-U
-    'Curva','%',                                                // V-W
-    'Altura','Largura','Comprimento','Peso','cm³',              // X-AB
-    '','',                                                      // AC-AD
-    'Geral (Todos os Métodos)',                                  // AE
-    'Entrega Direta',                                           // AF
-    'ME2 - Mercado Envios Places',                              // AG
-    'Retirada pelo Comprador',                                  // AH
-    'Shopee Xpress',                                            // AI
+    'Picking','Armazenamento','CHEGOU',                         // B-D
+    'Picking','Armazenamento',                                  // E-F
+    '0-5','0-7','0-10','0-15',                                  // G-J
+    '0-5','0-7','0-10','0-15',                                  // K-N
+    '0-5','0-7','0-10','0-15',                                  // O-R
+    'Curva','%',                                                // S-T
+    'Curva','%',                                                // U-V
+    'Altura','Largura','Comprimento','Peso','cm³',              // W-AA
+    '','',                                                      // AB-AC
+    'Geral (Todos os Métodos)',                                  // AD
+    'Entrega Direta',                                           // AE
+    'ME2 - Mercado Envios Places',                              // AF
+    'Retirada pelo Comprador',                                  // AG
+    'Shopee Xpress',                                            // AH
+    'Movimentação',                                             // AI
   ];
 
   aba.getRange(1, 1, 5, N).setValues(H);
 
-  // ── Merges linha 1 (row=1-indexed, col=1-indexed, span) ──
+  // ── Merges linha 1 ──
   [
-    [1, 2, 4],   // B-E  Qntd. Estoque
-    [1, 6, 2],   // F-G  Endereço
-    [1, 8, 4],   // H-K  Qntd. Vend.
-    [1, 12, 4],  // L-O  Diferença
-    [1, 16, 4],  // P-S  Movimentar
-    [1, 20, 2],  // T-U  Curva ABC
-    [1, 22, 2],  // V-W  Curva AABBCC
-    [1, 24, 5],  // X-AB Medidas Produto
-    [1, 31, 5],  // AE-AI Qntd./Método
+    [1, 2, 3],   // B-D  Qntd. Estoque
+    [1, 5, 2],   // E-F  Endereço
+    [1, 7, 4],   // G-J  Qntd. Vend.
+    [1, 11, 4],  // K-N  Diferença
+    [1, 15, 4],  // O-R  Movimentar
+    [1, 19, 2],  // S-T  Curva ABC
+    [1, 21, 2],  // U-V  Curva AABBCC
+    [1, 23, 5],  // W-AA Medidas Produto
+    [1, 30, 6],  // AD-AI Qntd./Método
   ].forEach(([row, col, span]) => aba.getRange(row, col, 1, span).merge());
 
   // ── Merges linha 2 ──
-  aba.getRange(2, 2, 1, 4).merge(); // B-E "Armazém"
-
-  // ── Merges linha 3 ──
-  aba.getRange(3, 2, 1, 2).merge(); // B-C "Padrão"
+  aba.getRange(2, 2, 1, 3).merge(); // B-D "Armazém"
 
   _me_estilizarCabecalho(aba);
 }
@@ -729,7 +614,7 @@ function _me_colorirABC(aba, itens, prima) {
     const g = x.abc;
     if (!g || !BG[g]) return;
     if (!grps[g]) grps[g] = [];
-    grps[g].push('T' + (prima + i));
+    grps[g].push('S' + (prima + i));
   });
   Object.keys(grps).forEach(g => aba.getRangeList(grps[g]).setBackground(BG[g]).setFontColor(FG[g]));
 }
@@ -750,7 +635,7 @@ function _me_colorirAABBCC(aba, itens, prima) {
     const g = x.aabbcc;
     if (!g || !BG[g]) return;
     if (!grps[g]) grps[g] = [];
-    grps[g].push('V' + (prima + i));
+    grps[g].push('U' + (prima + i));
   });
   Object.keys(grps).forEach(g => aba.getRangeList(grps[g]).setBackground(BG[g]).setFontColor(FG[g]));
 }
