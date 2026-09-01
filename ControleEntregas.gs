@@ -294,15 +294,28 @@ function _ce_pedidoNumero(p) {
 // Execute no editor GAS para ver os nomes reais dos campos da API
 function ce_debugBlingPedidoRaw() {
   const token = _ce_getToken();
-  const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=1&limite=5', {
+  // 1. Lista sem filtro
+  const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?pagina=1&limite=3', {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
     muteHttpExceptions: true,
   });
   const body = r.getContentText();
-  Logger.log('Status: ' + r.getResponseCode());
+  Logger.log('=== SEM FILTRO === Status: ' + r.getResponseCode());
   Logger.log('Body: ' + body);
   const data = JSON.parse(body || '{}').data || [];
-  if (data.length) Logger.log('Keys do 1º item: ' + Object.keys(data[0]).join(', '));
+  if (data.length) {
+    Logger.log('Keys do 1º item: ' + Object.keys(data[0]).join(', '));
+    Logger.log('Valores do 1º item: ' + JSON.stringify(data[0]));
+  } else {
+    Logger.log('Array vazio! Total no response: ' + JSON.stringify(JSON.parse(body||'{}').total));
+  }
+  // 2. Tenta buscar por número específico
+  const r2 = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras?numero=1907&pagina=1&limite=5', {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  Logger.log('=== ?numero=1907 === Status: ' + r2.getResponseCode());
+  Logger.log('Body: ' + r2.getContentText());
   return body;
 }
 
