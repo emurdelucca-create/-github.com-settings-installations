@@ -1279,13 +1279,6 @@ function _conciliar() {
       }
     }
 
-    // 3ª tentativa: posicional
-    if (!sku && CE.blingItens[i]) {
-      bling = CE.blingItens[i];
-      sku   = bling.sku;
-      auto  = false;
-    }
-
     if (bling) {
       if (bling.sku)     matchedBlingKeys.add(bling.sku.trim().toLowerCase());
       if (bling.codForn) matchedBlingKeys.add(bling.codForn.trim().toLowerCase());
