@@ -508,7 +508,8 @@ td.r { text-align: right; }
           <div style="background:rgba(255,140,0,.1);padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none" onclick="toggleDivPanel()">
             <span style="font-size:13px">⚠</span>
             <span style="font-size:12px;font-weight:700;color:#ff8c00" id="divPanelTitle">Divergências</span>
-            <span style="margin-left:auto;font-size:11px;color:var(--muted2)" id="divPanelChevron">▼ expandir</span>
+            <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px;color:#ff8c00;border-color:rgba(255,140,0,.3)" onclick="event.stopPropagation();exportarDivergencias()">📥 Exportar CSVs</button>
+            <span style="font-size:11px;color:var(--muted2)" id="divPanelChevron">▼ expandir</span>
           </div>
           <div id="divPanelBody" style="display:none;padding:12px 14px;background:rgba(255,140,0,.04)">
             <div id="divBlingNaoNF"></div>
@@ -1369,6 +1370,39 @@ function toggleDivPanel() {
   _divPanelOpen = !_divPanelOpen;
   document.getElementById('divPanelBody').style.display = _divPanelOpen ? '' : 'none';
   document.getElementById('divPanelChevron').textContent = _divPanelOpen ? '▲ fechar' : '▼ expandir';
+}
+
+function exportarDivergencias() {
+  const nNF = document.getElementById('f_nNF')?.value.trim() || 'NF';
+
+  function _baixarCSV(linhas, nome) {
+    if (!linhas.length) return;
+    const conteudo = 'SKU;Cód. Fornecedor;Qtd\n' + linhas.join('\n');
+    const blob = new Blob([conteudo], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = nome; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // A mais do pedido: itens no Bling não encontrados na NF
+  const maisList = (CE.blingNaoNaNF || []).map(bi =>
+    `${bi.sku || ''};${bi.codForn || ''};${bi.qtd || 0}`
+  );
+
+  // A menos: itens na NF sem correspondência no pedido
+  const menosList = (CE.nfNaoNoPedido || []).map(it =>
+    `${it.sku || ''};${it.cProd || ''};${it.qtdNF || 0}`
+  );
+
+  if (!maisList.length && !menosList.length) {
+    toast('✅ Sem divergências para exportar.', 'ok');
+    return;
+  }
+
+  _baixarCSV(maisList, `div_mais_${nNF}.csv`);
+  setTimeout(() => _baixarCSV(menosList, `div_menos_${nNF}.csv`), 600);
+  toast('📥 Exportando ' + (maisList.length ? '"a mais"' : '') + (maisList.length && menosList.length ? ' e ' : '') + (menosList.length ? '"a menos"' : '') + '...', 'ok');
 }
 
 // Sempre mostra passo 3 para confirmação de quantidades e conciliação
