@@ -527,35 +527,37 @@ function ce_buscarMapCodFornSKU() {
 // ── Bling — Alterar Pedido de Compra ─────────────────────────
 // Atualiza quantidades no pedido Bling para refletir a NF.
 // itensParaAtualizar: [{produtoId, sku, codForn, descricao, qtd, preco}]
-// Itens com produtoId conhecido: atualiza qty diretamente.
-// Itens sem produtoId mas com sku: busca produto na API e insere/atualiza.
 function ce_alterarPedidoBling(blingId, itensParaAtualizar) {
   try {
     if (!blingId) return { ok: false, error: 'ID Bling não informado. Preencha o campo "ID Bling" no passo 2.' };
     const token = _ce_getToken();
 
-    // GET pedido atual
+    // GET pedido atual (preserva todos os campos para o PUT)
     const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + blingId, {
       headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
       muteHttpExceptions: true,
     });
-    if (r.getResponseCode() !== 200) {
+    const getCode = r.getResponseCode();
+    if (getCode !== 200) {
       const err = JSON.parse(r.getContentText() || '{}');
-      return { ok: false, error: 'Erro ao buscar pedido Bling: ' + (err.error?.message || r.getResponseCode()) };
+      return { ok: false, error: 'Erro ao buscar pedido (HTTP ' + getCode + '): ' + (err.error?.message || r.getContentText().substring(0, 200)) };
     }
     const det = JSON.parse(r.getContentText() || '{}').data || {};
     if (!det.id) return { ok: false, error: 'Pedido ID ' + blingId + ' não encontrado no Bling' };
 
-    // Constrói lista base de itens do pedido
+    // Preserva os itens originais com todos os campos; só altera quantidade
     const itensBase = (det.itens || []).map(it => ({
-      produto:    { id: it.produto?.id },
+      produto:    it.produto?.id ? { id: Number(it.produto.id) } : undefined,
       codigo:     it.codigo     || '',
       descricao:  it.descricao  || '',
       quantidade: Number(it.quantidade || 0),
-      valor:      Number(it.valor || 0),
-    }));
+      valor:      Number(it.valor  || 0),
+      aliquotaIPI: Number(it.aliquotaIPI || 0),
+      desconto:   Number(it.desconto || 0),
+    })).filter(it => it.produto?.id); // descarta itens sem produto válido
+
     const baseByProdId = {};
-    itensBase.forEach((it, i) => { if (it.produto?.id) baseByProdId[String(it.produto.id)] = i; });
+    itensBase.forEach((it, i) => { baseByProdId[String(it.produto.id)] = i; });
 
     // Aplica cada atualização
     for (const upd of (itensParaAtualizar || [])) {
@@ -581,28 +583,54 @@ function ce_alterarPedidoBling(blingId, itensParaAtualizar) {
       } else {
         const newIdx = itensBase.length;
         itensBase.push({
-          produto:   { id: Number(prodId) },
-          codigo:    upd.codForn  || '',
-          descricao: upd.descricao || '',
+          produto:    { id: Number(prodId) },
+          codigo:     upd.codForn   || '',
+          descricao:  upd.descricao || '',
           quantidade: upd.qtd,
-          valor:     upd.preco || 0,
+          valor:      upd.preco || 0,
+          aliquotaIPI: 0,
+          desconto:   0,
         });
         baseByProdId[prodId] = newIdx;
       }
     }
+
+    // Remove itens com quantidade zero (Bling rejeita)
+    const itensFinal = itensBase.filter(it => (it.quantidade || 0) > 0);
+    if (!itensFinal.length) return { ok: false, error: 'Nenhum item com quantidade > 0 para enviar ao Bling' };
+
+    // Monta payload preservando dados do fornecedor e data do pedido original
+    const payload = {
+      numero:     det.numero || '',
+      fornecedor: det.fornecedor?.id ? { id: Number(det.fornecedor.id) } : undefined,
+      itens:      itensFinal,
+    };
+    if (!payload.fornecedor) delete payload.fornecedor;
+
+    // Log para debug (visível em Extensões → Apps Script → Logs)
+    Logger.log('ce_alterarPedidoBling PUT payload: ' + JSON.stringify(payload).substring(0, 1000));
 
     // PUT pedido
     Utilities.sleep(200);
     const resp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + blingId, {
       method: 'PUT',
       headers: { Authorization: 'Bearer ' + token, Accept: 'application/json', 'Content-Type': 'application/json' },
-      payload: JSON.stringify({ itens: itensBase }),
+      payload: JSON.stringify(payload),
       muteHttpExceptions: true,
     });
-    const code = resp.getResponseCode();
+    const code    = resp.getResponseCode();
+    const rawBody = resp.getContentText() || '{}';
+    Logger.log('ce_alterarPedidoBling PUT response HTTP ' + code + ': ' + rawBody.substring(0, 500));
+
     if (code >= 200 && code < 300) return { ok: true };
-    const rbody = JSON.parse(resp.getContentText() || '{}');
-    return { ok: false, error: String(rbody.error?.message || rbody.error || JSON.stringify(rbody)).substring(0, 300) };
+
+    // Extrai mensagem de erro detalhada do Bling
+    let rbody = {};
+    try { rbody = JSON.parse(rawBody); } catch(_) {}
+    const fields  = (rbody.error?.fields || []).map(f => f.msg || f.message || JSON.stringify(f)).join('; ');
+    const mainMsg = rbody.error?.message || rbody.error || rawBody.substring(0, 200);
+    const detail  = fields ? mainMsg + ' | Campos: ' + fields : mainMsg;
+    return { ok: false, error: 'HTTP ' + code + ' — ' + String(detail).substring(0, 400) };
   } catch(e) {
     return { ok: false, error: e.message };
   }
