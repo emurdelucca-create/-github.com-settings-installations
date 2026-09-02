@@ -524,74 +524,85 @@ function ce_buscarMapCodFornSKU() {
   }
 }
 
-// ── BaseLinker — Criar Pedido de Compra ───────────────────────
-function ce_criarPedidoCompraBase(params) {
+// ── Bling — Alterar Pedido de Compra ─────────────────────────
+// Atualiza quantidades no pedido Bling para refletir a NF.
+// itensParaAtualizar: [{produtoId, sku, codForn, descricao, qtd, preco}]
+// Itens com produtoId conhecido: atualiza qty diretamente.
+// Itens sem produtoId mas com sku: busca produto na API e insere/atualiza.
+function ce_alterarPedidoBling(blingId, itensParaAtualizar) {
   try {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('BASELINKER_API_KEY');
-    if (!apiKey) return { ok: false, error: 'BASELINKER_API_KEY não configurada nas Propriedades do Script' };
+    if (!blingId) return { ok: false, error: 'ID Bling não informado. Preencha o campo "ID Bling" no passo 2.' };
+    const token = _ce_getToken();
 
-    function blPost(method, parameters) {
-      const payload = 'token=' + encodeURIComponent(apiKey) +
-        '&method=' + encodeURIComponent(method) +
-        '&parameters=' + encodeURIComponent(JSON.stringify(parameters));
-      const res = UrlFetchApp.fetch('https://api.baselinker.com/connector.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        payload: payload,
-        muteHttpExceptions: true,
-      });
-      return JSON.parse(res.getContentText() || '{}');
-    }
-
-    // Step 1: Get warehouse "Armazenamento"
-    const warehousesRes = blPost('getInventoryWarehouses', {});
-    const warehousesList = warehousesRes.warehouses || [];
-    const warehouse = warehousesList.find(w => (w.name || '').toLowerCase().includes('armazenamento'));
-    const warehouseId = warehouse ? warehouse.warehouse_id : null;
-    if (!warehouseId) return { ok: false, error: 'Warehouse "Armazenamento" não encontrado no BaseLinker' };
-
-    // Step 2: Get contractors to find supplier and payer
-    const contractorsRes = blPost('getContractors', {});
-    const contractors = contractorsRes.contractors || {};
-    const fornecedorLow = (params.fornecedor || '').toLowerCase();
-    const empresaLow    = (params.empresa || '').toLowerCase();
-    let supplierId = null, payerId = null;
-    Object.entries(contractors).forEach(([id, c]) => {
-      const nameLow = (c.name || '').toLowerCase();
-      if (!supplierId && fornecedorLow && nameLow.includes(fornecedorLow)) supplierId = parseInt(id);
-      if (!payerId    && empresaLow    && nameLow.includes(empresaLow))    payerId    = parseInt(id);
+    // GET pedido atual
+    const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + blingId, {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      muteHttpExceptions: true,
     });
+    if (r.getResponseCode() !== 200) {
+      const err = JSON.parse(r.getContentText() || '{}');
+      return { ok: false, error: 'Erro ao buscar pedido Bling: ' + (err.error?.message || r.getResponseCode()) };
+    }
+    const det = JSON.parse(r.getContentText() || '{}').data || {};
+    if (!det.id) return { ok: false, error: 'Pedido ID ' + blingId + ' não encontrado no Bling' };
 
-    // Step 3: Resolve product IDs by SKU
-    const resolvedItems = [];
-    const itens = params.itens || [];
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i];
-      let productId = 0;
-      if (item.sku) {
-        Utilities.sleep(100);
-        const pRes  = blPost('getInventoryProductsList', { filter_sku: item.sku, page: 1 });
-        const pList = pRes.products || {};
-        const pKeys = Object.keys(pList);
-        if (pKeys.length > 0) productId = parseInt(pKeys[0]);
+    // Constrói lista base de itens do pedido
+    const itensBase = (det.itens || []).map(it => ({
+      produto:    { id: it.produto?.id },
+      codigo:     it.codigo     || '',
+      descricao:  it.descricao  || '',
+      quantidade: Number(it.quantidade || 0),
+      valor:      Number(it.valor || 0),
+    }));
+    const baseByProdId = {};
+    itensBase.forEach((it, i) => { if (it.produto?.id) baseByProdId[String(it.produto.id)] = i; });
+
+    // Aplica cada atualização
+    for (const upd of (itensParaAtualizar || [])) {
+      let prodId = upd.produtoId ? String(upd.produtoId) : null;
+
+      // Sem produtoId mas com SKU: busca produto no Bling
+      if (!prodId && upd.sku) {
+        Utilities.sleep(200);
+        const ps = UrlFetchApp.fetch(
+          CE_BLING_API + '/produtos?codigo=' + encodeURIComponent(upd.sku) + '&tipo=P&pagina=1&limite=5',
+          { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true }
+        );
+        const pdata = JSON.parse(ps.getContentText() || '{}').data || [];
+        const found = pdata.find(p => (p.codigo || '').trim().toLowerCase() === upd.sku.trim().toLowerCase());
+        if (found) prodId = String(found.id);
       }
-      resolvedItems.push({ ...item, productId });
+
+      if (!prodId) continue;
+
+      const idx = baseByProdId[prodId];
+      if (idx !== undefined) {
+        itensBase[idx].quantidade = upd.qtd;
+      } else {
+        const newIdx = itensBase.length;
+        itensBase.push({
+          produto:   { id: Number(prodId) },
+          codigo:    upd.codForn  || '',
+          descricao: upd.descricao || '',
+          quantidade: upd.qtd,
+          valor:     upd.preco || 0,
+        });
+        baseByProdId[prodId] = newIdx;
+      }
     }
 
-    // Step 4: Build and create purchase order
-    const orderProducts = resolvedItems
-      .filter(p => (p.qtdConferida || 0) > 0)
-      .map(p => ({ product_id: p.productId || 0, variant_id: 0, quantity: p.qtdConferida, price_netto: 0 }));
-
-    const orderParams = { name: params.nomeAuxiliar, warehouse_id: warehouseId, products: orderProducts };
-    if (supplierId) orderParams.supplier_id = supplierId;
-    if (payerId)    orderParams.payer_id    = payerId;
-
-    const orderRes = blPost('addInventoryPurchaseOrder', orderParams);
-    if (orderRes.status !== 'SUCCESS') {
-      return { ok: false, error: orderRes.error_message || JSON.stringify(orderRes) };
-    }
-    return { ok: true, orderId: orderRes.order_id };
+    // PUT pedido
+    Utilities.sleep(200);
+    const resp = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + blingId, {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json', 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ itens: itensBase }),
+      muteHttpExceptions: true,
+    });
+    const code = resp.getResponseCode();
+    if (code >= 200 && code < 300) return { ok: true };
+    const rbody = JSON.parse(resp.getContentText() || '{}');
+    return { ok: false, error: String(rbody.error?.message || rbody.error || JSON.stringify(rbody)).substring(0, 300) };
   } catch(e) {
     return { ok: false, error: e.message };
   }

@@ -456,7 +456,7 @@ td.r { text-align: right; }
             <span class="err-label" id="err_f_fornecedor">Campo obrigatório</span>
           </div>
           <div class="form-field">
-            <span class="form-label">Data Entrega Agendada <span class="req">*</span></span>
+            <span class="form-label">Data Prevista de Entrega <span class="req">*</span></span>
             <input class="form-input form-input-w140" id="f_dataEntrega" type="date" oninput="limparErr('f_dataEntrega')">
             <span class="err-label" id="err_f_dataEntrega">Campo obrigatório</span>
           </div>
@@ -508,7 +508,8 @@ td.r { text-align: right; }
           <div style="background:rgba(255,140,0,.1);padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none" onclick="toggleDivPanel()">
             <span style="font-size:13px">⚠</span>
             <span style="font-size:12px;font-weight:700;color:#ff8c00" id="divPanelTitle">Divergências</span>
-            <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px;color:#ff8c00;border-color:rgba(255,140,0,.3)" onclick="event.stopPropagation();exportarDivergencias()">📥 Exportar CSVs</button>
+            <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px;color:var(--blue);border-color:rgba(68,138,255,.3)" onclick="event.stopPropagation();alterarPedidoBling()" title="Atualiza as quantidades do pedido Bling para igualar às quantidades da NF">✏️ Alterar Pedido Bling</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:#ff8c00;border-color:rgba(255,140,0,.3)" onclick="event.stopPropagation();exportarDivergencias()">📥 Exportar CSVs</button>
             <span style="font-size:11px;color:var(--muted2)" id="divPanelChevron">▼ expandir</span>
           </div>
           <div id="divPanelBody" style="display:none;padding:12px 14px;background:rgba(255,140,0,.04)">
@@ -565,7 +566,7 @@ td.r { text-align: right; }
             <th onclick="sortPorNF('fornecedor')">Fornecedor</th>
             <th onclick="sortPorNF('empresa')">Empresa</th>
             <th class="r" onclick="sortPorNF('qtdVolume')">Vol.</th>
-            <th onclick="sortPorNF('dataEntrega')">Entrega</th>
+            <th onclick="sortPorNF('dataEntrega')">Entrega Prev. / Efetiva</th>
             <th>Lançou Contas</th>
             <th>Importou XML</th>
             <th>Responsável</th>
@@ -587,6 +588,16 @@ td.r { text-align: right; }
     <div class="tbl-toolbar">
       <span class="tbl-info" id="porItem_info">0 itens</span>
       <input class="filter-inp" id="filtroItem" placeholder="Filtrar por SKU, NF, fornecedor, empresa..." oninput="renderPorItem()">
+      <select id="filtroStatusItem" onchange="renderPorItem()"
+        style="background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none">
+        <option value="">Todos os status</option>
+        <option>Aguardando Chegar</option>
+        <option>Recebido</option>
+        <option>Em conferência</option>
+        <option>Conferido</option>
+        <option>Armazenado</option>
+        <option>Parcialmente Recebido</option>
+      </select>
       <button class="btn btn-ghost btn-sm" id="btnConferir" onclick="toggleConferir()" title="Bater quantidade recebida vs pedida">⚖️ Conferir Qtd.</button>
       <button class="btn btn-ghost btn-sm" id="filtroBtn_porItem" onclick="toggleFilterBuilder('porItem')">🔍 Filtros <span id="filtroBtn_badge_porItem" style="display:none" class="filter-active-badge">0</span></button>
     </div>
@@ -649,6 +660,10 @@ td.r { text-align: right; }
           <div id="confRespCustomWrap" style="display:none">
             <div style="font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Nome</div>
             <input type="text" id="confRespCustom" class="form-input" placeholder="Digite o nome" style="width:160px">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Data de Entrega <span style="color:var(--red)">*</span></div>
+            <input type="date" id="confDataEfetiva" class="form-input" style="width:150px" oninput="CONF.dataEfetiva=this.value">
           </div>
           <div style="flex:1"></div>
           <!-- Modo toggle (only shown when 2+ NFs selected) -->
@@ -1001,17 +1016,25 @@ function _renderSubRow(nf) {
       ? `<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(0,229,255,.12);color:var(--cyan);border:1px solid rgba(0,229,255,.3)">✅ Conferência Final</span>`
       : `<span class="conf-entrega-badge">${ent.numero}ª Entrega</span>`;
     const cardBorder = isFinal ? 'border:1px solid rgba(0,229,255,.25);background:rgba(0,229,255,.03)' : 'border:1px solid var(--border)';
+    const idHtml = ent.id ? `<span style="font-family:monospace;font-size:10px;color:var(--muted2);background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;cursor:pointer" title="Clique para copiar" onclick="navigator.clipboard.writeText('${escJs(ent.id)}');toast('ID copiado!','ok')">${escHtml(ent.id)} 📋</span>` : '';
+    const efetiva = ent.dataEntregaEfetiva ? `<span style="color:var(--green);font-size:11px">🗓 Efetiva: ${escHtml(ent.dataEntregaEfetiva)}</span>` : '';
+    const subiuHtml = `<div class="yn-toggle" style="align-items:center;gap:4px" onclick="event.stopPropagation()">
+      <span style="font-size:10px;color:var(--muted2);white-space:nowrap">Subiu na Base:</span>
+      <button class="yn-btn ${ent.subiuNaBase===true?'sim-on':''}" onclick="toggleSubiuNaBase('${escJs(nf.id)}',${entIdx},true)">Sim</button>
+      <button class="yn-btn ${ent.subiuNaBase!==true?'nao-on':''}" onclick="toggleSubiuNaBase('${escJs(nf.id)}',${entIdx},false)">Não</button>
+    </div>`;
     return `<div class="entrega-card" style="${cardBorder}">
       <div class="entrega-card-meta">
         ${badge}
+        ${idHtml}
         <span style="color:var(--muted2);font-size:11px">📅 ${escHtml(ent.data||'')}</span>
+        ${efetiva}
         <span style="color:var(--muted2);font-size:11px">👤 ${escHtml(ent.responsavel||'—')}</span>
         <span style="color:var(--green);font-size:11px;font-weight:700">📦 ${totalPecas} peças</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${chipHtml}</div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn btn-ghost btn-xs" style="color:var(--blue);border-color:rgba(68,138,255,.3);white-space:nowrap"
-          onclick="criarPedidoCompraBase('${escJs(nf.id)}',${entIdx})">🛒 Criar Pedido na Base</button>
+      <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap">
+        ${subiuHtml}
         <button class="btn btn-ghost btn-xs" style="color:var(--green);border-color:rgba(0,230,118,.3);white-space:nowrap"
           onclick="exportarEntregaCSV('${escJs(nf.id)}',${entIdx})">📥 Exportar CSV</button>
       </div>
@@ -1039,28 +1062,71 @@ function toggleAllSubRows() {
   if (expandBtn) expandBtn.textContent = _allSubRowsExpanded ? '◀◀ Recolher' : '▶▶ Expandir';
 }
 
-// ── Criar Pedido na Base ───────────────────────────────────
-function criarPedidoCompraBase(nfId, entIdx) {
-  const nf = CE.nfs.find(n => n.id === nfId);
-  if (!nf) return;
-  const ent = (nf.conferencia?.entregas || [])[entIdx];
-  if (!ent) return;
-  const dataEntrega = (ent.data || '').slice(0, 10);
-  const nomeAuxiliar = nf.nNF + ' - ' + dataEntrega;
-  const itens = (ent.itens || []).filter(ei => (ei.qtdConferida || 0) > 0).map(ei => {
-    const nfItem = (nf.itens || []).find(x => x.cProd === ei.cProd);
-    return { sku: nfItem?.sku || ei.sku || '', cProd: ei.cProd, descricaoNF: nfItem?.descricaoNF || ei.descricaoNF || '', qtdConferida: ei.qtdConferida };
+// ── Alterar Pedido Bling (divergências da conciliação) ───────
+function alterarPedidoBling() {
+  const blingId = document.getElementById('f_blingId')?.value.trim();
+  if (!blingId) { toast('❌ Preencha o "ID Bling" no Passo 2 para usar essa função', 'err'); return; }
+
+  const itensParaAtualizar = [];
+
+  // Itens com quantidade diferente entre NF e pedido
+  (CE.concItens || []).forEach(it => {
+    if (!it.qtdPedido) return;
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
+    if (qtdConv === it.qtdPedido) return;
+    const blMatch = CE.blingItens.find(bi =>
+      (bi.sku     || '').trim().toLowerCase() === (it.sku   || '').trim().toLowerCase() ||
+      (bi.codForn || '').trim().toLowerCase() === (it.cProd || '').trim().toLowerCase()
+    );
+    itensParaAtualizar.push({
+      produtoId: blMatch?.produtoId || null,
+      sku:       it.sku || '',
+      codForn:   it.cProd || '',
+      descricao: it.descricaoNF || '',
+      qtd:       qtdConv,
+      preco:     blMatch?.preco || 0,
+    });
   });
-  const params = { nfId, nomeAuxiliar, fornecedor: nf.fornecedor, empresa: nf.empresa, itens };
-  setOverlay(true, 'Criando pedido de compra: ' + nomeAuxiliar + '...');
+
+  // Itens na NF mas não no pedido
+  (CE.nfNaoNoPedido || []).forEach(it => {
+    if (!it.sku) return;
+    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
+    itensParaAtualizar.push({
+      produtoId: null,
+      sku:       it.sku || '',
+      codForn:   it.cProd || '',
+      descricao: it.descricaoNF || '',
+      qtd:       qtdConv,
+      preco:     0,
+    });
+  });
+
+  if (!itensParaAtualizar.length) { toast('Nenhuma divergência para atualizar no Bling', 'inf'); return; }
+
+  setOverlay(true, 'Atualizando pedido Bling (' + itensParaAtualizar.length + ' item(ns))...');
   google.script.run
     .withSuccessHandler(res => {
       setOverlay(false);
-      if (res.ok) toast('✅ Pedido criado na Base! ID: ' + res.orderId, 'ok');
-      else toast('❌ Erro ao criar pedido: ' + res.error, 'err');
+      if (res.ok) toast('✅ Pedido Bling atualizado com sucesso!', 'ok');
+      else toast('❌ Erro ao atualizar Bling: ' + res.error, 'err');
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ Erro: ' + e.message, 'err'); })
-    .ce_criarPedidoCompraBase(params);
+    .ce_alterarPedidoBling(blingId, itensParaAtualizar);
+}
+
+// ── SUBIU NA BASE toggle ──────────────────────────────────
+function toggleSubiuNaBase(nfId, entIdx, val) {
+  const nf = CE.nfs.find(n => n.id === nfId);
+  if (!nf || !nf.conferencia) return;
+  const ent = (nf.conferencia.entregas || [])[entIdx];
+  if (!ent) return;
+  ent.subiuNaBase = val;
+  google.script.run
+    .withSuccessHandler(() => {})
+    .withFailureHandler(e => toast('⚠ Erro ao salvar: ' + e.message, 'err'))
+    .ce_atualizarCampo(nfId, 'conferencia', nf.conferencia);
+  renderPorNF();
 }
 
 // ── Exportar Entrega CSV (para importar na BaseLinker) ────────
@@ -1747,6 +1813,12 @@ function renderPorNF() {
     const sc        = STATUS_CLASS[nf.status] || 's-aguardando';
     const dataFmt   = fmtData(nf.dataEntrega);
     const criadoFmt = fmtData(nf.dataCriacao);
+    // Data de entrega efetiva: from the conferência final delivery
+    const entFinal  = (nf.conferencia?.entregas || []).find(e => e.tipo === 'final');
+    const dataEfFmt = entFinal?.dataEntregaEfetiva ? fmtData(entFinal.dataEntregaEfetiva) : null;
+    const dataHtml  = dataEfFmt
+      ? `<div style="font-size:10px;white-space:nowrap"><span style="color:var(--muted2)">${dataFmt}</span></div><div style="font-size:10px;color:var(--green);white-space:nowrap">✅ ${dataEfFmt}</div>`
+      : `<span>${dataFmt}</span>`;
     const isChecked = CONF.nfIds.includes(nf.id);
 
     const lancouHtml = `<div class="yn-toggle">
@@ -1798,7 +1870,7 @@ function renderPorNF() {
       <td class="td-nome" title="${escHtml(nf.fornecedor)}">${escHtml(nf.fornecedor)}</td>
       <td><span style="color:var(--green);font-weight:700;font-size:11px">${escHtml(nf.empresa)}</span></td>
       <td class="r td-muted">${nf.qtdVolume||'—'}</td>
-      <td class="td-muted">${dataFmt}</td>
+      <td class="td-muted">${dataHtml}</td>
       <td>${lancouHtml}</td>
       <td>${importouHtml}</td>
       <td>${respHtml}</td>
@@ -1833,9 +1905,11 @@ function toggleConferir() {
 }
 
 function renderPorItem() {
-  const q = (document.getElementById('filtroItem')?.value || '').toLowerCase().trim();
+  const q       = (document.getElementById('filtroItem')?.value || '').toLowerCase().trim();
+  const qStatus = document.getElementById('filtroStatusItem')?.value || '';
   let rows = [];
   CE.nfs.forEach(nf => {
+    if (qStatus && nf.status !== qStatus) return;
     (nf.itens || []).forEach(it => {
       if (q && ![nf.nNF,nf.pedidoBling,nf.fornecedor,nf.empresa,it.sku,it.descricaoNF,it.cProd]
         .some(v => String(v).toLowerCase().includes(q))) return;
@@ -2188,6 +2262,7 @@ document.addEventListener('click', () => { closeStatusMenu(); hideParcialTooltip
 const CONF = {
   nfIds:          [],
   resp:           '',
+  dataEfetiva:    '',
   styluMap:       {},
   styluLoaded:    false,
   novaEntregaIds: new Set(),
@@ -2730,6 +2805,19 @@ function _agora() {
     + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
 
+function _gerarEntregaId() {
+  let max = 0;
+  CE.nfs.forEach(nf => {
+    (nf.conferencia?.entregas || []).forEach(ent => {
+      if (ent.id) {
+        const m = ent.id.match(/ENT-(\d+)/);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+      }
+    });
+  });
+  return 'ENT-' + String(max + 1).padStart(3, '0');
+}
+
 // ── Salvar Rascunho (draft, mantém itens editáveis) ──────
 function salvarRascunho() {
   const resp = _getConfResp();
@@ -2791,7 +2879,7 @@ function salvarEntrega() {
           <th style="text-align:right;padding:4px 8px;color:var(--muted2)">Qtd Conferida</th>
         </tr></thead>
         <tbody>`;
-    d.itensConf.forEach(it => {
+    d.itensConf.filter(it => (it.qtdConferida||0) > 0).forEach(it => {
       bodyHtml += `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
         <td style="padding:4px 8px"><code style="color:var(--orange)">${escHtml(it.cProd)}</code></td>
         <td style="padding:4px 8px"><code style="color:var(--cyan)">${escHtml(it.sku||'—')}</code></td>
@@ -2823,7 +2911,7 @@ function _executarSalvarEntrega(dadosConf, nfIds) {
     }
     const d = dadosConf[nfIds[idx]];
     const totalPecas = d.itensConf.reduce((a, it) => a + (it.qtdConferida||0), 0);
-    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: d.itensConf };
+    const novaEntrega = { id: _gerarEntregaId(), numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: d.itensConf, subiuNaBase: false };
     const novasEntregas = [...d.entregas, novaEntrega];
     const confObj = { status: 'Em Andamento', rascunho: null, entregas: novasEntregas };
     d.nf.conferencia = confObj;
@@ -2840,7 +2928,10 @@ function _executarSalvarEntrega(dadosConf, nfIds) {
 function finalizarConferencia() {
   const resp = _getConfResp();
   if (!resp) { toast('❌ Selecione o responsável antes de finalizar', 'err'); return; }
+  const dataEfetiva = document.getElementById('confDataEfetiva')?.value || '';
+  if (!dataEfetiva) { toast('❌ Selecione a Data de Entrega antes de finalizar', 'err'); return; }
   CONF.resp = resp;
+  CONF.dataEfetiva = dataEfetiva;
 
   const dadosConf = _coletarItensDaConferencia();
   const nfIds = Object.keys(dadosConf);
@@ -2932,7 +3023,7 @@ function _executarFinalizar(dadosConf, nfIds) {
     const d = dadosConf[nfIds[idx]];
     const itensFinal = d.itensConf.filter(it => (it.qtdConferida||0) > 0);
     const totalPecas = itensFinal.reduce((a, it) => a + (it.qtdConferida||0), 0);
-    const novaEntrega = { numero: d.entregaNum, data: _agora(), responsavel: d.resp, totalPecas, itens: itensFinal, tipo: 'final' };
+    const novaEntrega = { id: _gerarEntregaId(), numero: d.entregaNum, data: _agora(), responsavel: d.resp, dataEntregaEfetiva: CONF.dataEfetiva || '', totalPecas, itens: itensFinal, tipo: 'final', subiuNaBase: false };
     const novasEntregas = [...d.entregas, novaEntrega];
 
     const allTotais = {};
