@@ -56,10 +56,12 @@ const CE_COMPRAS_EMAILS = ['emurdelucca@gmail.com', 'eduardohumble12@gmail.com']
 
 function ce_getUsuarioAtual() {
   try {
-    const email = Session.getEffectiveUser().getEmail() || '';
-    const temAcessoCompras = CE_COMPRAS_EMAILS
-      .map(e => e.trim().toLowerCase())
-      .includes(email.trim().toLowerCase());
+    // getActiveUser() = quem está acessando o app (viewer)
+    // getEffectiveUser() = dono do script (sempre o deployer) — NÃO usar para identificar o viewer
+    const email = Session.getActiveUser().getEmail() || '';
+    const temAcessoCompras = email
+      ? CE_COMPRAS_EMAILS.map(e => e.trim().toLowerCase()).includes(email.trim().toLowerCase())
+      : false;
     return { ok: true, email, temAcessoCompras };
   } catch(e) {
     return { ok: false, email: '', temAcessoCompras: false };
