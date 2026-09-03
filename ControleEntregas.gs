@@ -40,8 +40,8 @@ const CE_BLING_REDIRECT  = 'https://www.google.com';
 // Colunas da sheet NFs (1-indexed para GAS getRange)
 // A=ID  B=PedidoBling  C=Fornecedor  D=NNF  E=Empresa  F=QtdVolume
 // G=DataEntrega  H=LancouContas  I=ImportouXML  J=Responsavel
-// K=Status  L=DataCriacao  M=ItensJSON  N=ConferenciaJSON  O=BlingId
-const CE_NCOLS = 15;
+// K=Status  L=DataCriacao  M=ItensJSON  N=ConferenciaJSON  O=BlingId  P=DadosExtrasJSON
+const CE_NCOLS = 16;
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
@@ -65,7 +65,7 @@ function _ce_aba() {
     aba.getRange(1, 1, 1, CE_NCOLS).setValues([[
       'ID','Pedido Bling','Fornecedor','Nº NF','Empresa Nossa',
       'Qtd. Volume NF','Data Entrega Agendada','Lançou Contas?',
-      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON','Conferência JSON','ID Bling',
+      'Importou XML Bling?','Responsável','Status','Data Criação','Itens JSON','Conferência JSON','ID Bling','Dados Extras JSON',
     ]]);
     aba.setFrozenRows(1);
   }
@@ -99,6 +99,9 @@ function _ce_rowToObj(r) {
                    try { return typeof v==='string' ? JSON.parse(v) : v; } catch(e){ return null; }
                  })(r[13]) : null,
     blingId:     String(r[14] || ''),
+    dadosExtras: r[15] ? (function(v){
+                   try { return typeof v==='string' ? JSON.parse(v) : v; } catch(e){ return {}; }
+                 })(r[15]) : {},
   };
 }
 
@@ -124,6 +127,7 @@ function ce_salvarNF(dados) {
       JSON.stringify(dados.itens || []),
       '',
       String(dados.blingId || ''),
+      JSON.stringify(dados.dadosExtras || {}),
     ]);
     return { ok: true, id };
   } catch(e) {
@@ -151,7 +155,7 @@ function ce_atualizarCampo(id, campo, valor) {
     const MAPA = {
       pedidoBling:  2, fornecedor: 3, nNF: 4, empresa: 5,
       qtdVolume:    6, dataEntrega: 7, lancouContas: 8,
-      importouXML:  9, responsavel: 10, status: 11, itens: 13, conferencia: 14, blingId: 15,
+      importouXML:  9, responsavel: 10, status: 11, itens: 13, conferencia: 14, blingId: 15, dadosExtras: 16,
     };
     const col = MAPA[campo];
     if (!col) return { ok: false, error: 'Campo desconhecido: ' + campo };
@@ -164,7 +168,7 @@ function ce_atualizarCampo(id, campo, valor) {
     const idx = ids.indexOf(String(id));
     if (idx === -1) return { ok: false, error: 'NF não encontrada' };
 
-    const val = (campo === 'itens' || campo === 'conferencia') ? JSON.stringify(valor) : String(valor);
+    const val = (campo === 'itens' || campo === 'conferencia' || campo === 'dadosExtras') ? JSON.stringify(valor) : String(valor);
     aba.getRange(idx + 2, col).setValue(val);
     return { ok: true };
   } catch(e) {
@@ -405,7 +409,13 @@ function ce_buscarPedidoBling(numeroPedido, blingIdOpt) {
 
     return {
       ok: true,
-      pedido: { id: String(ped.id), numero: String(numeroPedido), fornecedor: det.fornecedor?.nome || '' },
+      pedido: {
+        id:              String(ped.id),
+        numero:          String(numeroPedido),
+        fornecedor:      det.fornecedor?.nome      || '',
+        ordemDeCompra:   String(det.ordemDeCompra || ''),
+        dataCompra:      String(det.dataCompra     || ''),
+      },
       itens,
     };
   } catch(e) {

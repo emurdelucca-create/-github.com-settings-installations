@@ -49,6 +49,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial
 .btn-blue   { background: rgba(68,138,255,.15); color: var(--blue); border: 1px solid rgba(68,138,255,.3); }
 .btn-blue:hover:not(:disabled)   { background: rgba(68,138,255,.25); }
 .btn-sm  { padding: 5px 12px; font-size: 11px; }
+.active-tog { background: rgba(0,229,255,.18) !important; border-color: var(--cyan) !important; color: var(--cyan) !important; }
 .btn-xs  { padding: 3px 8px;  font-size: 10px; border-radius: 4px; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 
@@ -392,6 +393,7 @@ td.r { text-align: right; }
   <div class="nav-tab" id="nav_porItem" onclick="navTo('porItem')">📦 Por Item</div>
   <div class="nav-tab" id="nav_conferencia" onclick="navTo('conferencia')">✅ Conferência</div>
   <div class="nav-tab" id="nav_saldo" onclick="navTo('saldo')">📊 Saldo</div>
+  <div class="nav-tab" id="nav_compras" onclick="navTo('compras')">🛒 Compras</div>
 </div>
 
 <!-- ════════════════════ VIEW: IMPORTAR NF ════════════════════ -->
@@ -459,6 +461,34 @@ td.r { text-align: right; }
             <span class="form-label">Data Prevista de Entrega <span class="req">*</span></span>
             <input class="form-input form-input-w140" id="f_dataEntrega" type="date" oninput="limparErr('f_dataEntrega')">
             <span class="err-label" id="err_f_dataEntrega">Campo obrigatório</span>
+          </div>
+          <!-- Impostos para Controle de Compras -->
+          <div class="form-field" style="flex-basis:100%;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-top:4px">
+            <div>
+              <span class="form-label">Somar ST?</span>
+              <div style="display:flex;gap:6px;margin-top:4px">
+                <button type="button" id="tog_somarST_sim" class="btn btn-sm btn-ghost" onclick="setTog('somarST',true)" style="font-size:11px">Sim</button>
+                <button type="button" id="tog_somarST_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTog('somarST',false)" style="font-size:11px">Não</button>
+              </div>
+            </div>
+            <div>
+              <span class="form-label">Somar IPI?</span>
+              <div style="display:flex;gap:6px;margin-top:4px">
+                <button type="button" id="tog_somarIPI_sim" class="btn btn-sm btn-ghost" onclick="setTog('somarIPI',true)" style="font-size:11px">Sim</button>
+                <button type="button" id="tog_somarIPI_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTog('somarIPI',false)" style="font-size:11px">Não</button>
+              </div>
+            </div>
+            <div>
+              <span class="form-label">Tem ST por fora?</span>
+              <div style="display:flex;gap:6px;margin-top:4px">
+                <button type="button" id="tog_temSTporFora_sim" class="btn btn-sm btn-ghost" onclick="setTog('temSTporFora',true)" style="font-size:11px">Sim</button>
+                <button type="button" id="tog_temSTporFora_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTog('temSTporFora',false)" style="font-size:11px">Não</button>
+              </div>
+            </div>
+            <div id="stPorForaPctWrap" style="display:none">
+              <span class="form-label">% ST por fora</span>
+              <input class="form-input" id="f_pctSTporFora" type="number" step="0.01" min="0" placeholder="Ex: 7.5" style="width:90px;margin-top:4px">
+            </div>
           </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
@@ -709,6 +739,20 @@ td.r { text-align: right; }
   </div>
 </div>
 
+<!-- ════════════════════ VIEW: COMPRAS ════════════════════ -->
+<div class="view" id="view_compras">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="padding:10px 18px;font-size:13px;font-weight:700;color:var(--cyan)">🛒 Controle de Compras</div>
+      <div style="flex:1"></div>
+      <label style="font-size:11px;color:var(--muted2);padding:0 8px">Filtrar fornecedor:</label>
+      <input id="filtroComprasForn" class="form-input" style="margin:6px 8px;width:180px;font-size:11px" placeholder="Fornecedor ou NF..." oninput="renderCompras()">
+      <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="renderCompras()">🔄 Atualizar</button>
+    </div>
+    <div id="comprasBody" style="padding:16px;overflow-x:auto"></div>
+  </div>
+</div>
+
 <!-- Modal excluir NF (senha) -->
 <div class="modal-bg" id="excluirModal">
   <div class="modal" style="max-width:420px">
@@ -794,9 +838,16 @@ const CE = {
   activeView: 'import',
   // Import flow
   xmlItens:   [],   // itens do XML
-  xmlDados:   {},   // nNF, empresa, qtdVolume
+  xmlDados:   {},   // nNF, empresa, qtdVolume + dados fiscais
   blingItens: [],   // itens do pedido Bling
   concItens:  [],   // itens da conciliação
+  // Bling extra
+  blingOrdemDeCompra: '',
+  blingDataCompra:    '',
+  // Tax toggles (step 2)
+  somarST:       false,
+  somarIPI:      false,
+  temSTporFora:  false,
   // Sort
   sortFieldNF: 'dataCriacao',
   sortDirNF:   -1,
@@ -1160,7 +1211,7 @@ function exportarEntregaCSV(nfId, entIdx) {
 
 // ── Navegação ──────────────────────────────────────────────
 function navTo(view) {
-  ['import','porNF','porItem','conferencia','saldo'].forEach(v => {
+  ['import','porNF','porItem','conferencia','saldo','compras'].forEach(v => {
     const vel = document.getElementById('view_' + v);
     const nel = document.getElementById('nav_' + v);
     if (vel) vel.classList.toggle('active', v === view);
@@ -1171,6 +1222,7 @@ function navTo(view) {
   if (view === 'porItem')     renderPorItem();
   if (view === 'conferencia') renderConferencia();
   if (view === 'saldo')       renderSaldo();
+  if (view === 'compras')     renderCompras();
 }
 
 // ── Boot ───────────────────────────────────────────────────
@@ -1254,7 +1306,15 @@ function processarXml(file) {
         return;
       }
 
-      CE.xmlDados  = { nNF, empresa, qtdVolume: qVol };
+      // Emitente + totais fiscais
+      const xNomeEmitente = get('emit xNome');
+      const ufOrigem      = get('emit enderEmit UF');
+      const dEmi          = get('ide dEmi');
+      const vST           = parseFloat(get('ICMSTot vST')  || '0');
+      const vIPI          = parseFloat(get('ICMSTot vIPI') || '0');
+      const vProd         = parseFloat(get('ICMSTot vProd')|| '0');
+
+      CE.xmlDados  = { nNF, empresa, qtdVolume: qVol, xNomeEmitente, ufOrigem, dEmi, vST, vIPI, vProd };
       CE.xmlItens  = itens;
 
       // UI
@@ -1311,8 +1371,12 @@ function avancarPasso3() {
       if (!res.ok) {
         toast('⚠ Pedido não encontrado: ' + res.error + ' — conciliação manual', 'inf');
         CE.blingItens = [];
+        CE.blingOrdemDeCompra = '';
+        CE.blingDataCompra    = '';
       } else {
         CE.blingItens = res.itens || [];
+        CE.blingOrdemDeCompra = res.pedido?.ordemDeCompra || '';
+        CE.blingDataCompra    = res.pedido?.dataCompra    || '';
         toast('✅ Pedido Bling encontrado: ' + CE.blingItens.length + ' itens', 'ok');
       }
       _conciliar();
@@ -1322,6 +1386,8 @@ function avancarPasso3() {
       setOverlay(false);
       toast('⚠ Erro ao buscar Bling: ' + e.message + ' — conciliação manual', 'inf');
       CE.blingItens = [];
+      CE.blingOrdemDeCompra = '';
+      CE.blingDataCompra    = '';
       _conciliar();
       _aposConciiliar();
     })
@@ -1376,8 +1442,10 @@ function _conciliar() {
     return {
       ...it,
       sku,
-      nomeSKU:   nome,
-      qtdPedido: bling ? bling.qtd : 0,
+      nomeSKU:      nome,
+      qtdPedido:    bling ? bling.qtd   : 0,
+      blingPreco:   bling ? bling.preco : 0,
+      blingCodForn: bling ? (bling.codForn || '') : '',
       matched:   auto,
       multiplo:  true,
       fator:     1,
@@ -1636,7 +1704,9 @@ function skuSelect(i, sku, nome) {
     (bi.sku     || '').trim().toLowerCase() === sku.trim().toLowerCase() ||
     (bi.codForn || '').trim().toLowerCase() === sku.trim().toLowerCase()
   );
-  CE.concItens[i].qtdPedido = blMatch ? blMatch.qtd : 0;
+  CE.concItens[i].qtdPedido    = blMatch ? blMatch.qtd    : 0;
+  CE.concItens[i].blingPreco   = blMatch ? blMatch.preco  : 0;
+  CE.concItens[i].blingCodForn = blMatch ? (blMatch.codForn || '') : '';
   document.getElementById('skuInp'  + i).value       = sku;
   document.getElementById('nomeSKU' + i).textContent  = nome;
   const dd = document.getElementById('skuDd' + i);
@@ -1725,14 +1795,31 @@ function _executarSalvarNF() {
         cProd:            it.cProd,
         descricaoNF:      it.descricaoNF,
         qtdNF:            it.qtdNF,
+        vUnCom:           it.vUnCom   || 0,
         sku,
         nomeSKU:          it.nomeSKU,
         qtdPedido:        it.qtdPedido,
+        blingPreco:       it.blingPreco   || 0,
+        blingCodForn:     it.blingCodForn || '',
         multiplo:         mult,
         fator:            fat,
         qtdNFConvertida:  mult ? it.qtdNF : +(it.qtdNF * fat).toFixed(3),
       };
     }),
+    dadosExtras: {
+      xNomeEmitente:      CE.xmlDados.xNomeEmitente    || '',
+      ufOrigem:           CE.xmlDados.ufOrigem          || '',
+      dEmi:               CE.xmlDados.dEmi              || '',
+      vST:                CE.xmlDados.vST               || 0,
+      vIPI:               CE.xmlDados.vIPI              || 0,
+      vProd:              CE.xmlDados.vProd             || 0,
+      somarST:            CE.somarST,
+      somarIPI:           CE.somarIPI,
+      temSTporFora:       CE.temSTporFora,
+      pctSTporFora:       CE.temSTporFora ? (parseFloat(document.getElementById('f_pctSTporFora')?.value) || 0) : 0,
+      blingOrdemDeCompra: CE.blingOrdemDeCompra || '',
+      blingDataCompra:    CE.blingDataCompra    || '',
+    },
   };
 
   setOverlay(true, 'Salvando NF na planilha...');
@@ -1770,12 +1857,30 @@ function resetImport() {
     const el = document.getElementById(id);
     if (el) { el.value = ''; limparErr(id); }
   });
+  // Reset tax toggles
+  ['somarST','somarIPI','temSTporFora'].forEach(k => setTog(k, false));
+  const pctEl = document.getElementById('f_pctSTporFora');
+  if (pctEl) pctEl.value = '';
+  CE.blingOrdemDeCompra = '';
+  CE.blingDataCompra    = '';
 }
 
 function limparErr(id) {
   document.getElementById(id).classList.remove('err');
   const e = document.getElementById('err_' + id);
   if (e) e.classList.remove('show');
+}
+
+function setTog(campo, val) {
+  CE[campo] = val;
+  const simEl = document.getElementById('tog_' + campo + '_sim');
+  const naoEl = document.getElementById('tog_' + campo + '_nao');
+  if (simEl) simEl.classList.toggle('active-tog', val);
+  if (naoEl) naoEl.classList.toggle('active-tog', !val);
+  if (campo === 'temSTporFora') {
+    document.getElementById('stPorForaPctWrap').style.display = val ? '' : 'none';
+    if (!val) { const el = document.getElementById('f_pctSTporFora'); if (el) el.value = ''; }
+  }
 }
 
 // ── Por NF — render ────────────────────────────────────────
@@ -3413,6 +3518,128 @@ function _renderSaldoPorNF(dados) {
       </table></div>
     </div>`;
   }).join('');
+}
+
+// ── Compras — render ──────────────────────────────────────
+function renderCompras() {
+  const body = document.getElementById('comprasBody');
+  if (!body) return;
+
+  const q = (document.getElementById('filtroComprasForn')?.value || '').toLowerCase().trim();
+
+  // Build per-item rows across all NFs
+  const rows = [];
+  CE.nfs.forEach(nf => {
+    const ex = nf.dadosExtras || {};
+    if (q && !nf.fornecedor.toLowerCase().includes(q) && !nf.nNF.toLowerCase().includes(q) && !(ex.xNomeEmitente||'').toLowerCase().includes(q)) return;
+
+    const vProd       = Number(ex.vProd)     || 0;
+    const vST         = Number(ex.vST)       || 0;
+    const vIPI        = Number(ex.vIPI)      || 0;
+    const somarST     = !!ex.somarST;
+    const somarIPI    = !!ex.somarIPI;
+    const temSTpF     = !!ex.temSTporFora;
+    const pctSTpF     = Number(ex.pctSTporFora) || 0;
+    const ufOrigem    = (ex.ufOrigem || '').toUpperCase();
+
+    const stPct    = somarST  && vProd > 0 ? vST  / vProd : 0;
+    const ipiPct   = somarIPI && vProd > 0 ? vIPI / vProd : 0;
+    const difalPct = ufOrigem !== 'SP' ? 0.06 : 0;
+    const stPFPct  = temSTpF ? (pctSTpF / 100) : 0;
+
+    (nf.itens || []).forEach(it => {
+      const blingPreco = Number(it.blingPreco) || 0;
+      const vUnCom     = Number(it.vUnCom)     || 0;
+      const pctNota    = blingPreco > 0 ? vUnCom / blingPreco : 0;
+      const fatorAuto  = (stPct + ipiPct + stPFPct + difalPct) * pctNota;
+      const valorTotal = blingPreco * (1 + fatorAuto);
+
+      rows.push({
+        nNF:             nf.nNF,
+        empresa:         nf.empresa,
+        fornecedor:      nf.fornecedor,
+        xNomeEmitente:   ex.xNomeEmitente    || '—',
+        ufOrigem:        ufOrigem            || '—',
+        pedidoBling:     nf.pedidoBling      || '—',
+        ordemDeCompra:   ex.blingOrdemDeCompra || '—',
+        dataCompra:      ex.blingDataCompra  ? fmtData(ex.blingDataCompra) : '—',
+        dataNF:          ex.dEmi             ? fmtData(ex.dEmi)            : '—',
+        cProd:           it.cProd            || '—',
+        blingCodForn:    it.blingCodForn     || '—',
+        sku:             it.sku              || '—',
+        descricaoNF:     it.descricaoNF      || '—',
+        qtdNF:           it.qtdNF            || 0,
+        vUnCom,
+        blingPreco,
+        pctNota,
+        stPct,
+        ipiPct,
+        difalPct,
+        stPFPct,
+        fatorAuto,
+        valorTotal,
+      });
+    });
+  });
+
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted2)">Nenhum item encontrado. Importe NFs com dados de compra para visualizá-los aqui.</div>';
+    return;
+  }
+
+  const pct = v => (v * 100).toFixed(2) + '%';
+  const brl = v => v > 0 ? 'R$ ' + v.toFixed(4) : '—';
+
+  const headerCols = [
+    'NF','Empresa','Emitente','UF','Pedido','Ord. Compra','Dt. Compra','Dt. NF',
+    'Cód. Forn. NF','Cód. Forn. Bling','SKU','Descrição','Qtd',
+    'Vl Unit NF','Vl Unit Bling','% Nota',
+    'ST%','IPI%','Difal%','ST p/Fora%',
+    'Fator Automático','Vl Unit Total',
+  ];
+
+  const thStyle = 'padding:6px 10px;white-space:nowrap;font-size:10px;font-weight:700;color:var(--muted2);border-bottom:2px solid var(--border);text-align:right';
+  const thStyleL = thStyle.replace('text-align:right','text-align:left');
+
+  const thead = `<tr>${headerCols.map((h, i) => `<th style="${i < 12 ? thStyleL : thStyle}">${escHtml(h)}</th>`).join('')}</tr>`;
+
+  const tdR = (v, color) => `<td style="padding:5px 10px;font-size:11px;text-align:right;white-space:nowrap;${color ? 'color:'+color : ''}">${escHtml(String(v))}</td>`;
+  const tdL = (v, color) => `<td style="padding:5px 10px;font-size:11px;text-align:left;white-space:nowrap;${color ? 'color:'+color : ''}">${escHtml(String(v))}</td>`;
+  const tdNome = v => `<td style="padding:5px 10px;font-size:11px;text-align:left;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${escHtml(v)}">${escHtml(v)}</td>`;
+
+  const tableRows = rows.map(r => {
+    const fatorColor = r.fatorAuto > 0 ? 'var(--yellow)' : 'var(--muted2)';
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+      ${tdL(r.nNF, 'var(--cyan)')}
+      ${tdL(r.empresa)}
+      ${tdL(r.xNomeEmitente)}
+      ${tdL(r.ufOrigem, r.ufOrigem !== 'SP' ? 'var(--orange)' : '')}
+      ${tdL(r.pedidoBling)}
+      ${tdL(r.ordemDeCompra)}
+      ${tdL(r.dataCompra)}
+      ${tdL(r.dataNF)}
+      ${tdL(r.cProd, 'var(--orange)')}
+      ${tdL(r.blingCodForn, 'var(--muted2)')}
+      ${tdL(r.sku, 'var(--cyan)')}
+      ${tdNome(r.descricaoNF)}
+      ${tdR(r.qtdNF, 'var(--text)')}
+      ${tdR(brl(r.vUnCom))}
+      ${tdR(brl(r.blingPreco))}
+      ${tdR(r.pctNota > 0 ? pct(r.pctNota) : '—', 'var(--blue)')}
+      ${tdR(r.stPct  > 0 ? pct(r.stPct)  : '—')}
+      ${tdR(r.ipiPct > 0 ? pct(r.ipiPct) : '—')}
+      ${tdR(r.difalPct > 0 ? pct(r.difalPct) : '—', 'var(--purple)')}
+      ${tdR(r.stPFPct > 0 ? pct(r.stPFPct) : '—')}
+      ${tdR(r.fatorAuto > 0 ? pct(r.fatorAuto) : '—', fatorColor)}
+      ${tdR(brl(r.valorTotal), r.valorTotal > 0 ? 'var(--green)' : '')}
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<div style="margin-bottom:8px;font-size:11px;color:var(--muted2)">${rows.length} item(ns) em ${new Set(rows.map(r=>r.nNF)).size} NF(s)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:1200px">
+      <thead>${thead}</thead>
+      <tbody>${tableRows}</tbody>
+    </table></div>`;
 }
 
 </script>
