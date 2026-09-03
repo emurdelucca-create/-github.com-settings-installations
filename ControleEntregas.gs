@@ -51,6 +51,21 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// E-mails com acesso à aba Compras
+const CE_COMPRAS_EMAILS = ['emurdelucca@gmail.com', 'eduardohumble12@gmail.com'];
+
+function ce_getUsuarioAtual() {
+  try {
+    const email = Session.getEffectiveUser().getEmail() || '';
+    const temAcessoCompras = CE_COMPRAS_EMAILS
+      .map(e => e.trim().toLowerCase())
+      .includes(email.trim().toLowerCase());
+    return { ok: true, email, temAcessoCompras };
+  } catch(e) {
+    return { ok: false, email: '', temAcessoCompras: false };
+  }
+}
+
 // ── Script Properties ────────────────────────────────────────
 function _ce_props() { return PropertiesService.getScriptProperties(); }
 

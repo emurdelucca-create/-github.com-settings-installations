@@ -848,6 +848,9 @@ const CE = {
   somarST:       false,
   somarIPI:      false,
   temSTporFora:  false,
+  // Usuário
+  usuarioEmail:      '',
+  temAcessoCompras:  false,
   // Sort
   sortFieldNF: 'dataCriacao',
   sortDirNF:   -1,
@@ -1222,11 +1225,24 @@ function navTo(view) {
   if (view === 'porItem')     renderPorItem();
   if (view === 'conferencia') renderConferencia();
   if (view === 'saldo')       renderSaldo();
-  if (view === 'compras')     renderCompras();
+  if (view === 'compras') {
+    if (!CE.temAcessoCompras) { navTo('porNF'); toast('⛔ Sem acesso à aba Compras.', 'err'); return; }
+    renderCompras();
+  }
 }
 
 // ── Boot ───────────────────────────────────────────────────
 window.onload = () => {
+  // Identifica usuário e controla acesso à aba Compras
+  google.script.run
+    .withSuccessHandler(res => {
+      CE.usuarioEmail     = (res && res.email)           || '';
+      CE.temAcessoCompras = !!(res && res.temAcessoCompras);
+      _aplicarAcessoCompras();
+    })
+    .withFailureHandler(() => { CE.temAcessoCompras = false; _aplicarAcessoCompras(); })
+    .ce_getUsuarioAtual();
+
   setOverlay(true, 'Carregando NFs da planilha...');
   google.script.run
     .withSuccessHandler(res => {
@@ -1249,6 +1265,13 @@ window.onload = () => {
     .withFailureHandler(() => {})
     .ce_buscarMapCodFornSKU();
 };
+
+function _aplicarAcessoCompras() {
+  const navEl  = document.getElementById('nav_compras');
+  const viewEl = document.getElementById('view_compras');
+  if (navEl)  navEl.style.display  = CE.temAcessoCompras ? '' : 'none';
+  if (viewEl) viewEl.style.display = CE.temAcessoCompras ? '' : 'none';
+}
 
 function atualizarHdrSub() {
   const ag = CE.nfs.filter(n => n.status === 'Aguardando Chegar').length;
