@@ -1307,12 +1307,14 @@ function processarXml(file) {
       }
 
       // Emitente + totais fiscais
-      const xNomeEmitente = get('emit xNome');
-      const ufOrigem      = get('emit enderEmit UF');
-      const dEmi          = get('ide dEmi');
-      const vST           = parseFloat(get('ICMSTot vST')  || '0');
-      const vIPI          = parseFloat(get('ICMSTot vIPI') || '0');
-      const vProd         = parseFloat(get('ICMSTot vProd')|| '0');
+      const xNomeEmitente = get('emit xNome') || get('xNome');
+      const ufOrigem      = get('emit enderEmit UF') || get('enderEmit UF') || get('UF');
+      // NF-e v3 usa <dEmi>YYYY-MM-DD</dEmi>; v4 usa <dhEmi>YYYY-MM-DDTHH:MM:SS-03:00</dhEmi>
+      const dEmiRaw = get('ide dEmi') || get('ide dhEmi') || get('dhEmi') || get('dEmi');
+      const dEmi    = dEmiRaw ? dEmiRaw.slice(0, 10) : ''; // garante apenas YYYY-MM-DD
+      const vST     = parseFloat(get('ICMSTot vST')  || '0');
+      const vIPI    = parseFloat(get('ICMSTot vIPI') || '0');
+      const vProd   = parseFloat(get('ICMSTot vProd')|| '0');
 
       CE.xmlDados  = { nNF, empresa, qtdVolume: qVol, xNomeEmitente, ufOrigem, dEmi, vST, vIPI, vProd };
       CE.xmlItens  = itens;
@@ -1445,7 +1447,7 @@ function _conciliar() {
       nomeSKU:      nome,
       qtdPedido:    bling ? bling.qtd   : 0,
       blingPreco:   bling ? bling.preco : 0,
-      blingCodForn: bling ? (bling.codForn || '') : '',
+      blingCodForn: bling ? (bling.codForn || it.cProd || '') : (it.cProd || ''),
       matched:   auto,
       multiplo:  true,
       fator:     1,
@@ -1706,7 +1708,7 @@ function skuSelect(i, sku, nome) {
   );
   CE.concItens[i].qtdPedido    = blMatch ? blMatch.qtd    : 0;
   CE.concItens[i].blingPreco   = blMatch ? blMatch.preco  : 0;
-  CE.concItens[i].blingCodForn = blMatch ? (blMatch.codForn || '') : '';
+  CE.concItens[i].blingCodForn = blMatch ? (blMatch.codForn || CE.concItens[i].cProd || '') : (CE.concItens[i].cProd || '');
   document.getElementById('skuInp'  + i).value       = sku;
   document.getElementById('nomeSKU' + i).textContent  = nome;
   const dd = document.getElementById('skuDd' + i);
@@ -1800,7 +1802,7 @@ function _executarSalvarNF() {
         nomeSKU:          it.nomeSKU,
         qtdPedido:        it.qtdPedido,
         blingPreco:       it.blingPreco   || 0,
-        blingCodForn:     it.blingCodForn || '',
+        blingCodForn:     it.blingCodForn || it.cProd || '',
         multiplo:         mult,
         fator:            fat,
         qtdNFConvertida:  mult ? it.qtdNF : +(it.qtdNF * fat).toFixed(3),
@@ -3565,7 +3567,7 @@ function renderCompras() {
         dataCompra:      ex.blingDataCompra  ? fmtData(ex.blingDataCompra) : '—',
         dataNF:          ex.dEmi             ? fmtData(ex.dEmi)            : '—',
         cProd:           it.cProd            || '—',
-        blingCodForn:    it.blingCodForn     || '—',
+        blingCodForn:    it.blingCodForn || it.cProd || '—',
         sku:             it.sku              || '—',
         descricaoNF:     it.descricaoNF      || '—',
         qtdNF:           it.qtdNF            || 0,
