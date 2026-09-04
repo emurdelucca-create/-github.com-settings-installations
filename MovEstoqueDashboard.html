@@ -154,6 +154,26 @@
 
     /* ── expand toggle hint ── */
     .th-expand-hint { font-size: 14px; margin-left: 4px; opacity: .7; }
+
+    /* ── Editable cells (Sem Estoque) ── */
+    .sem-input {
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 5px;
+      color: var(--text);
+      font-size: 12px;
+      padding: 4px 7px;
+      outline: none;
+      width: 100%;
+      min-width: 60px;
+      transition: border-color .15s, background .15s;
+    }
+    .sem-input:focus { border-color: var(--cyan); background: rgba(0,229,255,.07); }
+    .sem-input-qtd   { max-width: 80px; text-align: right; }
+    .sem-input-loc   { max-width: 140px; }
+    .btn-csv { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+    .btn-csv:hover:not(:disabled) { background: rgba(0,230,118,.22); }
+    .sem-toolbar { display: flex; align-items: center; justify-content: flex-end; padding: 8px 16px 0; }
   </style>
 </head>
 <body>
@@ -273,7 +293,11 @@
 </div>
 
 <!-- Table: Sem Estoque -->
-<div class="table-wrap" id="view_sem" style="display:none">
+<div id="view_sem" style="display:none">
+  <div class="sem-toolbar">
+    <button class="btn btn-csv" onclick="exportarCSV()">📥 Exportar CSV</button>
+  </div>
+  <div class="table-wrap">
   <table>
     <thead>
       <tr>
@@ -288,6 +312,8 @@
         <th class="r col-method-hd" id="th2_ret" style="display:none">Retirada</th>
         <th class="r col-method-hd" id="th2_xpr" style="display:none">Shopee Xpress</th>
         <th class="r" style="color:var(--purple)">Movimentação</th>
+        <th style="color:var(--cyan);min-width:80px">Quantidade</th>
+        <th style="color:var(--cyan);min-width:120px">Localização</th>
       </tr>
     </thead>
     <tbody id="tbody_sem"></tbody>
@@ -296,7 +322,8 @@
     <div class="empty-icon">📭</div>
     <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
   </div>
-</div>
+  </div><!-- /table-wrap -->
+</div><!-- /view_sem -->
 
 <script>
   // ── State ───────────────────────────────────────────────────
@@ -307,6 +334,15 @@
   let skuMode   = 'contains';
   let activeTab = 'com';
   let expanded  = false;
+
+  // Dados editáveis da aba Sem Estoque (persistem entre re-renders)
+  const semData = {}; // { [sku]: { quantidade: '', localizacao: '' } }
+  function getSem(sku) {
+    if (!semData[sku]) semData[sku] = { quantidade: '', localizacao: '' };
+    return semData[sku];
+  }
+  function setSemQtd(sku, val) { getSem(sku).quantidade = val; }
+  function setSemLoc(sku, val) { getSem(sku).localizacao = val; }
 
   const periLabels = { '5':'0-5', '7':'0-7', '10':'0-10', '15':'0-15' };
 
@@ -499,6 +535,8 @@
         <td class="r col-method"><span class="method-v">${r.me2       || '—'}</span></td>
         <td class="r col-method"><span class="method-v">${r.retirada  || '—'}</span></td>
         <td class="r col-method"><span class="method-v">${r.xpress    || '—'}</span></td>` : '';
+      const sd = getSem(r.sku);
+      const skuEsc = r.sku.replace(/'/g, "\\'");
       return `<tr>
         <td class="td-sku">${r.sku}</td>
         <td class="r"><span class="${vendCls}">${vend}</span></td>
@@ -506,6 +544,8 @@
         <td class="r">${peds}</td>
         ${methodCols}
         <td class="r">${pedMov}</td>
+        <td style="padding:4px 8px"><input type="number" class="sem-input sem-input-qtd" min="0" value="${sd.quantidade}" placeholder="—" oninput="setSemQtd('${skuEsc}', this.value)"></td>
+        <td style="padding:4px 8px"><input type="text" class="sem-input sem-input-loc" value="${sd.localizacao}" placeholder="—" oninput="setSemLoc('${skuEsc}', this.value)"></td>
       </tr>`;
     }).join('');
   }
@@ -518,6 +558,35 @@
     document.getElementById('sB').textContent     = filtered.filter(r=>r.abc==='B').length;
     document.getElementById('sC').textContent     = filtered.filter(r=>r.abc==='C').length;
     document.getElementById('pill').textContent   = filtered.length + ' SKUs';
+  }
+
+  // ── Exportar CSV (Sem Estoque) ───────────────────────────────
+  function exportarCSV() {
+    const vKey = 'v' + periodo;
+    const filtered = allData
+      .filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku))
+      .sort((a,b) => b[vKey] - a[vKey]);
+
+    if (!filtered.length) { toast('Nenhum item para exportar', 'inf'); return; }
+
+    const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const header = ['SKU', 'Vendas (' + periodo + 'd)', 'ABC', 'Sep. Geral', 'Movimentação', 'Quantidade', 'Localização'];
+    const rows = filtered.map(r => {
+      const sd = getSem(r.sku);
+      return [r.sku, r[vKey], r.abc, r.pedTotal || 0, r.pedMov || 0, sd.quantidade, sd.localizacao].map(esc).join(',');
+    });
+
+    const csv = '﻿' + [header.map(esc).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = 'sem_estoque_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('📥 CSV exportado — ' + filtered.length + ' SKUs', 'ok');
   }
 
   // ── Helpers ─────────────────────────────────────────────────
