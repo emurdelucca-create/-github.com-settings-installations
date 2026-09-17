@@ -249,7 +249,9 @@ function pc_carregarDados() {
       }
     } catch(_) {}
 
-    // Fonte "Antigo" — Controle de Compras, col Q, última linha por SKU (fallback)
+    // Fonte "Antigo" — Controle de Compras, col Q, ÚLTIMA linha por SKU (fallback)
+    // Percorre de cima para baixo: cada ocorrência do SKU sobrescreve a anterior,
+    // garantindo que a última linha preenchida vença — mas NUNCA sobrescreve Novo.
     try {
       const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
       const abaCtrl = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
@@ -259,7 +261,9 @@ function pc_carregarDados() {
           const sku   = String(r[PC_CTRL_SKU]  || '').trim();
           const preco = Number(r[PC_CTRL_PREC] || 0);
           if (!sku || !(preco > 0)) return;
-          if (!precoMap[sku]) precoMap[sku] = {
+          // Só atualiza se o SKU ainda não veio do Novo
+          if (precoMap[sku] && precoMap[sku].fonte === 'Novo') return;
+          precoMap[sku] = {
             preco:   preco,
             codForn: String(r[PC_CTRL_COD_FORN] || '').trim(),
             fonte:   'Antigo',
@@ -356,7 +360,8 @@ function pc_importarCodsFornecedor(skus) {
       }
     } catch(_) {}
 
-    // Fonte "Antigo" — Controle de Compras, col K, última linha (fallback)
+    // Fonte "Antigo" — Controle de Compras, col K, ÚLTIMA linha por SKU (fallback)
+    // Percorre de cima para baixo: última ocorrência vence — nunca sobrescreve Novo.
     try {
       const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
       const aba     = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
@@ -367,7 +372,8 @@ function pc_importarCodsFornecedor(skus) {
           const sku = String(r[PC_CTRL_SKU]      || '').trim();
           const cod = String(r[PC_CTRL_COD_FORN] || '').trim();
           if (!sku || !cod || !skuSet.has(sku)) return;
-          if (!codMap[sku]) codMap[sku] = { cod: cod, fonte: 'Antigo' };
+          if (codMap[sku] && codMap[sku].fonte === 'Novo') return;
+          codMap[sku] = { cod: cod, fonte: 'Antigo' };
         });
       }
     } catch(_) {}
