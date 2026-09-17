@@ -37,6 +37,14 @@ const PC_CTRL_COD_FORN = 10; // col K
 const PC_CTRL_SKU      = 11; // col L
 const PC_CTRL_PREC     = 16; // col Q
 
+// ControleEntregas NFs — fonte "Novo" de preços
+const PC_SS_CE_NFS_ID     = '1RrDp-TBmNPVAw9ffixgxR0GQAtb5cih0FEeASnBY6GU';
+const PC_CE_ABA_NFS       = 'NFs';
+const PC_CE_IDX_DATACRIACAO = 11; // col L
+const PC_CE_IDX_ITENSJSON   = 12; // col M
+const PC_CE_IDX_DADOSEXTRA  = 15; // col P
+const PC_CE_NCOLS           = 16; // lê A..P
+
 const BLING_REDIRECT = 'https://www.google.com';
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
 const BLING_API_BASE  = 'https://www.bling.com.br/Api/v3';
@@ -207,17 +215,50 @@ function pc_carregarDados() {
 
     const raw = abaCompras.getRange(2, 1, lastRow - 1, PC_NCOLS_COMP).getValues();
 
-    const ssCtrl   = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
-    const abaCtrl  = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
-    const ctrlLast = abaCtrl.getLastRow();
+    // ── Mapa de preço de referência: Novo → Antigo ──────────────
     const precoMap = {};
-    if (ctrlLast > 1) {
-      abaCtrl.getRange(2, 1, ctrlLast - 1, 17).getValues().forEach(r => {
-        const sku   = String(r[PC_CTRL_SKU]  || '').trim();
-        const preco = Number(r[PC_CTRL_PREC] || 0);
-        if (sku && preco > 0) precoMap[sku] = preco;
-      });
-    }
+
+    // Fonte "Novo" — ControleEntregas NFs (blingPreco da NF mais recente por SKU)
+    try {
+      const ssNfs  = SpreadsheetApp.openById(PC_SS_CE_NFS_ID);
+      const abaNfs = ssNfs.getSheetByName(PC_CE_ABA_NFS);
+      if (abaNfs) {
+        const nfsLast = abaNfs.getLastRow();
+        if (nfsLast > 1) {
+          abaNfs.getRange(2, 1, nfsLast - 1, PC_CE_NCOLS).getValues().forEach(function(r) {
+            const rowDate  = r[PC_CE_IDX_DATACRIACAO] instanceof Date
+                             ? r[PC_CE_IDX_DATACRIACAO].getTime() : 0;
+            let itens = [];
+            try { itens = JSON.parse(String(r[PC_CE_IDX_ITENSJSON] || '') || '[]') || []; } catch(_) {}
+            itens.forEach(function(it) {
+              const sku   = String(it.sku || '').trim();
+              const preco = Number(it.blingPreco) || 0;
+              if (!sku || preco <= 0) return;
+              const cur = precoMap[sku];
+              if (!cur || cur.fonte !== 'Novo' || rowDate > cur._ts) {
+                precoMap[sku] = { preco: preco, fonte: 'Novo', _ts: rowDate };
+              }
+            });
+          });
+        }
+      }
+    } catch(_) {}
+
+    // Fonte "Antigo" — Controle de Compras, col Q, última linha por SKU (fallback)
+    try {
+      const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
+      const abaCtrl = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
+      const ctrlLast = abaCtrl.getLastRow();
+      if (ctrlLast > 1) {
+        abaCtrl.getRange(2, 1, ctrlLast - 1, 17).getValues().forEach(function(r) {
+          const sku   = String(r[PC_CTRL_SKU]  || '').trim();
+          const preco = Number(r[PC_CTRL_PREC] || 0);
+          if (!sku || !(preco > 0)) return;
+          if (!precoMap[sku]) precoMap[sku] = { preco: preco, fonte: 'Antigo' };
+        });
+      }
+    } catch(_) {}
+    // ─────────────────────────────────────────────────────────────
 
     const fornecedores = {};
     raw.forEach(r => {
@@ -229,7 +270,8 @@ function pc_carregarDados() {
       const qtdEmpresas = {};
       PC_EMPRESAS.forEach(e => { qtdEmpresas[e.nome] = Number(r[e.col] || 0); });
       if (!fornecedores[forn]) fornecedores[forn] = [];
-      fornecedores[forn].push({ sku, qtd, preco: precoMap[sku] || 0, qtdEmpresas });
+      const ref = precoMap[sku] || { preco: 0, fonte: '' };
+      fornecedores[forn].push({ sku, qtd, preco: ref.preco, precoFonte: ref.fonte, qtdEmpresas });
     });
 
     return { ok: true, fornecedores };

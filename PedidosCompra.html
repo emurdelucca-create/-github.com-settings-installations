@@ -364,10 +364,11 @@ const EMPRESAS = ['HUMBLE', 'NAJUMI', 'SKY', 'EDMOTOS', 'MOTO VIBE'];
 
 // ── Estado global ─────────────────────────────────────────────
 const S = {
-  tabs:        [],
-  activeTab:   -1,
-  fornBling:   [],
-  fornLoaded:  false,
+  tabs:             [],
+  activeTab:        -1,
+  fornBling:        [],
+  fornLoaded:       false,
+  mostrarFontePreco: false,
 };
 
 // ── LocalStorage ──────────────────────────────────────────────
@@ -595,6 +596,7 @@ function criarAbas() {
           qtd:       it.qtd,
           precoBase:    it.preco,
           preco:        it.preco,
+          precoFonte:   it.precoFonte || '',
           ipi:          0,
           precos:       [it.preco, it.preco, it.preco, it.preco, it.preco],
           codsForn:     ['', '', '', '', ''],
@@ -756,6 +758,10 @@ function renderTabContent(idx) {
     const codfHtml  = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
     const precoHtml = `<input class="td-inp w110" type="number" step="0.01" value="${item.preco}" oninput="updatePrecoMain(${idx},${ri},this.value)">`;
     const ipiHtml   = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
+    const fonteColor = item.precoFonte === 'Novo' ? 'var(--green)' : item.precoFonte === 'Antigo' ? 'var(--yellow)' : 'var(--muted)';
+    const fonteTd = S.mostrarFontePreco
+      ? `<td style="text-align:center;font-size:10px;font-weight:700;color:${fonteColor};white-space:nowrap">${escHtml(item.precoFonte || '—')}</td>`
+      : '';
 
     return `<tr>
       <td class="td-num">${visIdx + 1}</td>
@@ -764,6 +770,7 @@ function renderTabContent(idx) {
       <td class="td-sku">${escHtml(item.sku)}</td>
       <td class="r"><input class="td-inp w60" type="number" min="0" value="${item.qtd}" oninput="updateField(${idx},${ri},'qtd',this.value)"></td>
       <td>${precoHtml}</td>
+      ${fonteTd}
       <td>${ipiHtml}</td>
       <td class="r td-total" id="tot_${idx}_${ri}">${fmt(total)}</td>
       ${empTdHtml}
@@ -869,6 +876,9 @@ function renderTabContent(idx) {
           value="${escHtml(tab.filtro || '')}"
           oninput="filtrarTabela(${idx},this.value)"
           style="flex:1;max-width:320px;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 10px;outline:none;margin:0 12px;font-family:inherit">
+        <button class="btn btn-ghost btn-sm" onclick="toggleFontePreco()" style="margin-right:10px;color:${S.mostrarFontePreco?'var(--yellow)':'var(--muted2)'};border-color:${S.mostrarFontePreco?'rgba(255,214,0,.4)':'var(--border)'}" title="Mostrar/ocultar coluna Fonte do Preço">
+          👁 Fonte
+        </button>
         <span class="table-total" id="grandTot${idx}">Total: ${fmt(grandTotal.toFixed(2))}</span>
       </div>
       <div class="table-scroll">
@@ -881,6 +891,7 @@ function renderTabContent(idx) {
               <th>SKU</th>
               <th class="r">Qtd</th>
               <th class="r">Preço Unit.</th>
+              ${S.mostrarFontePreco ? '<th style="text-align:center;color:var(--yellow)">Fonte</th>' : ''}
               <th class="r">IPI %</th>
               <th class="r">Preço Total</th>
               ${empThHtml}
@@ -1065,6 +1076,12 @@ function importarCodsFornecedor(idx) {
         .pc_importarCodsFornecedor(skus);
     }
   );
+}
+
+// ── Toggle coluna Fonte Preço ─────────────────────────────────
+function toggleFontePreco() {
+  S.mostrarFontePreco = !S.mostrarFontePreco;
+  renderTabContent(S.activeTab);
 }
 
 // ── Filtro de tabela ──────────────────────────────────────────
