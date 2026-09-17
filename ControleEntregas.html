@@ -1681,23 +1681,21 @@ function toggleDivPanel() {
   document.getElementById('divPanelChevron').textContent = _divPanelOpen ? '▲ fechar' : '▼ expandir';
 }
 
-// Monta linhas de divergência: [{sku, codForn, qtdNF, qtdPedido, diff}]
+// Monta linhas de divergência para o popup de salvar.
+// Diferenças de quantidade entre NF e pedido NÃO são incluídas — entrega
+// parcial (NF < pedido) e ajustes de quantidade são normais e não devem
+// bloquear o salvamento. O painel de divergências na conciliação já
+// exibe essas diferenças de forma informacional.
 function _calcDivergencias() {
   const linhas = [];
 
-  // 1. Diferença de quantidade em itens presentes nos dois lados
-  (CE._qtdDiff || []).forEach(it => {
-    const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
-    linhas.push({ sku: it.sku || '', codForn: it.cProd || '', qtdNF: qtdConv, qtdPedido: it.qtdPedido, diff: qtdConv - it.qtdPedido });
-  });
-
-  // 2. Na NF mas não no pedido (qtdPedido = 0)
+  // Itens na NF sem correspondência no pedido Bling
   (CE.nfNaoNoPedido || []).forEach(it => {
     const qtdConv = it.multiplo ? it.qtdNF : +(it.qtdNF * (it.fator || 1)).toFixed(3);
     linhas.push({ sku: it.sku || '', codForn: it.cProd || '', qtdNF: qtdConv, qtdPedido: 0, diff: qtdConv });
   });
 
-  // 3. No pedido mas não na NF (qtdNF = 0)
+  // Itens no pedido Bling sem correspondência na NF
   (CE.blingNaoNaNF || []).forEach(bi => {
     linhas.push({ sku: bi.sku || '', codForn: bi.codForn || '', qtdNF: 0, qtdPedido: bi.qtd || 0, diff: -(bi.qtd || 0) });
   });
