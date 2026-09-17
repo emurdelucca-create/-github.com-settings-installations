@@ -107,11 +107,13 @@ function _me_carregarTodos() {
   Logger.log('[ME] Dados API BL...');
   const stockLocDim = _me_carregarDadosAPI(mapaCompostos);
   Logger.log('[ME] Pedidos abertos...');
-  const pedidos = _me_carregarPedidos();
+  const { pedMap, movMap } = _me_carregarPedidos();
   Logger.log('[ME] Montando itens...');
-  const itens = _me_montarItens(vendas, stockLocDim, pedidos, mapaCompostos);
+  const itens = _me_montarItens(vendas, stockLocDim, pedMap, mapaCompostos);
   Logger.log('[ME] Curvas ABC...');
   _me_calcularCurvas(itens);
+  // Attach movMap data to each item for dashboard use
+  itens.forEach(item => { item._mov = movMap[item.sku] || null; });
   return itens;
 }
 
@@ -280,9 +282,37 @@ function _me_carregarPedidos() {
     else if (m.includes('xpress'))                                      pedMap[sku].xpress     += qty;
   }
 
-  function addMov(sku, qty) {
+  // movMap: sku → { geral, entrDireta, me2, retirada, xpress } each { qty, oldestTs }
+  const movMap = {};
+
+  function _movEntry() { return { qty: 0, oldestTs: 0 }; }
+  function _movSku(sku) {
+    if (!movMap[sku]) movMap[sku] = {
+      geral: _movEntry(), entrDireta: _movEntry(),
+      me2: _movEntry(), retirada: _movEntry(), xpress: _movEntry(),
+    };
+    return movMap[sku];
+  }
+  function _movAccum(entry, qty, ts) {
+    entry.qty += qty;
+    if (ts > 0 && (entry.oldestTs === 0 || ts < entry.oldestTs)) entry.oldestTs = ts;
+  }
+  function _movMetKey(metodo) {
+    const m = String(metodo).toLowerCase();
+    if (m.includes('entrega direta') || m.includes('flex')) return 'entrDireta';
+    if (m.includes('me2') || m.includes('mercado envios') || m.includes('agên') || m.includes('agen')) return 'me2';
+    if (m.includes('retirada')) return 'retirada';
+    if (m.includes('xpress'))  return 'xpress';
+    return null;
+  }
+
+  function addMov(sku, qty, metodo, ts) {
     if (!pedMap[sku]) pedMap[sku] = { total:0, entrDireta:0, me2:0, retirada:0, xpress:0, mov:0 };
     pedMap[sku].mov += qty;
+    const mv = _movSku(sku);
+    _movAccum(mv.geral, qty, ts);
+    const key = _movMetKey(metodo);
+    if (key) _movAccum(mv[key], qty, ts);
   }
 
   // Separação / Embalagem / Expedição
@@ -307,7 +337,7 @@ function _me_carregarPedidos() {
     Utilities.sleep(100);
   }
 
-  // Movimentação (status separado — sem distinção de método)
+  // Movimentação — captura método e timestamp por pedido
   let idFrom = 0;
   for (let iter = 0; iter < 200; iter++) {
     const r     = _me_bl_call('getOrders', { status_id: MOV_STATUS, id_from: idFrom });
@@ -315,17 +345,19 @@ function _me_carregarPedidos() {
     if (!batch.length) break;
     batch.forEach(o => {
       if (!(Number(o.payment_done) > 0)) return;
+      const metodo = String(o.delivery_method || '');
+      const ts     = o.date_confirmed || o.date_add || 0;
       (o.products || []).forEach(prod => {
         const sku = String(prod.sku || '').trim();
         const qty = Number(prod.quantity) || 0;
-        if (sku && qty) addMov(sku, qty);
+        if (sku && qty) addMov(sku, qty, metodo, ts);
       });
     });
     if (batch.length < 100) break;
     idFrom = batch[batch.length - 1].order_id;
   }
 
-  return pedMap;
+  return { pedMap, movMap };
 }
 
 // ============================================================

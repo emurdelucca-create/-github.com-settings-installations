@@ -43,6 +43,8 @@
     .btn-refresh { background: transparent; color: var(--cyan); border: 1px solid rgba(0,229,255,.35); }
     .btn-refresh:hover:not(:disabled) { background: rgba(0,229,255,.08); border-color: var(--cyan); }
     .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-csv { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+    .btn-csv:hover:not(:disabled) { background: rgba(0,230,118,.22); }
 
     /* ── MACRO TABS ── */
     .macro-tabs {
@@ -57,11 +59,28 @@
       cursor: pointer; border: none; background: transparent;
       color: var(--muted2);
       border-bottom: 3px solid transparent;
-      transition: all .15s;
-      letter-spacing: .3px;
+      transition: all .15s; letter-spacing: .3px;
     }
     .macro-tab:hover { color: var(--text); }
     .macro-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+    /* ── SUB-TABS ── */
+    .sub-tabs {
+      display: flex; gap: 0;
+      background: #0a1220;
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .sub-tab {
+      padding: 8px 20px 7px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer; border: none; background: transparent;
+      color: var(--muted2);
+      border-bottom: 2px solid transparent;
+      transition: all .15s; letter-spacing: .2px;
+    }
+    .sub-tab:hover { color: var(--text); }
+    .sub-tab.active { color: var(--cyan); border-bottom-color: rgba(0,229,255,.6); }
 
     /* ── STATS BAR ── */
     .stats-bar { display: flex; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
@@ -76,36 +95,38 @@
 
     /* ── FILTERS ── */
     .filters {
-      padding: 10px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 10px 24px;
       border-bottom: 1px solid var(--border); background: var(--card2);
     }
+    .filter-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 32px; }
     .filter-group { display: flex; align-items: center; gap: 6px; }
-    .filter-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding-right: 4px; white-space: nowrap; }
-    .fbtn { padding: 5px 13px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .filter-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+    .fbtn { padding: 5px 13px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
     .fbtn:hover { border-color: #3d5068; color: var(--text); }
-    .fbtn.ap      { background: rgba(0,229,255,.1);   border-color: var(--cyan);   color: var(--cyan);   }
-    .fbtn.aA      { background: rgba(0,230,118,.1);   border-color: var(--green);  color: var(--green);  }
-    .fbtn.aB      { background: rgba(255,214,0,.1);   border-color: var(--yellow); color: var(--yellow); }
-    .fbtn.aC      { background: rgba(255,68,68,.1);   border-color: var(--red);    color: var(--red);    }
-    .fbtn.aOrg    { background: rgba(255,109,0,.13);  border-color: var(--orange); color: var(--orange); }
-    .fbtn.aPurp   { background: rgba(179,136,255,.13);border-color: var(--purple); color: var(--purple); }
-    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+    .fbtn.ap    { background: rgba(0,229,255,.1);    border-color: var(--cyan);   color: var(--cyan);   }
+    .fbtn.aA    { background: rgba(0,230,118,.1);    border-color: var(--green);  color: var(--green);  }
+    .fbtn.aB    { background: rgba(255,214,0,.1);    border-color: var(--yellow); color: var(--yellow); }
+    .fbtn.aC    { background: rgba(255,68,68,.1);    border-color: var(--red);    color: var(--red);    }
+    .fbtn.aOrg  { background: rgba(255,109,0,.13);   border-color: var(--orange); color: var(--orange); }
+    .fbtn.aPurp { background: rgba(179,136,255,.13); border-color: var(--purple); color: var(--purple); }
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
 
     /* ── SKU CHIP INPUT ── */
     .sku-search-wrap { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-    .chip-input-box { background: #0a1220; border: 1px solid var(--border); border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; min-width: 220px; max-width: 520px; cursor: text; transition: border-color .15s; flex: 1; }
+    .chip-input-box { background: #0a1220; border: 1px solid var(--border); border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; min-width: 180px; max-width: 460px; cursor: text; transition: border-color .15s; flex: 1; }
     .chip-input-box:focus-within { border-color: var(--cyan); }
     #chipList { display: flex; flex-wrap: wrap; gap: 4px; }
     .chip { display: inline-flex; align-items: center; gap: 3px; background: rgba(0,229,255,.1); border: 1px solid rgba(0,229,255,.28); color: var(--cyan); border-radius: 4px; padding: 2px 5px 2px 7px; font-size: 11px; font-weight: 600; font-family: 'Courier New', monospace; white-space: nowrap; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
     .chip-x { cursor: pointer; opacity: .55; font-size: 14px; line-height: 1; flex-shrink: 0; font-family: sans-serif; }
     .chip-x:hover { opacity: 1; color: var(--red); }
-    #chipRaw { border: none; background: transparent; color: var(--text); font-size: 12px; outline: none; min-width: 100px; flex: 1; padding: 2px 0; font-family: inherit; }
+    #chipRaw { border: none; background: transparent; color: var(--text); font-size: 12px; outline: none; min-width: 80px; flex: 1; padding: 2px 0; font-family: inherit; }
     #chipRaw::placeholder { color: var(--muted); }
     .sku-mode-btn { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     .sku-mode-btn.active { background: rgba(0,229,255,.08); border-color: var(--cyan); color: var(--cyan); }
     .sku-clear { padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,68,68,.25); background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     .sku-clear:hover { color: var(--red); border-color: var(--red); }
-    .count-pill { margin-left: auto; background: rgba(0,229,255,.08); border: 1px solid rgba(0,229,255,.25); color: var(--cyan); font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 12px; white-space: nowrap; }
+    .count-pill { margin-left: auto; background: rgba(0,229,255,.08); border: 1px solid rgba(0,229,255,.25); color: var(--cyan); font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 12px; white-space: nowrap; flex-shrink: 0; }
 
     /* ── TABLE ── */
     .table-wrap { padding: 0 24px 32px; overflow-x: auto; }
@@ -125,6 +146,7 @@
     .td-loc { font-size: 11px; color: var(--muted2); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .td-stock { color: var(--text); }
     .td-zero  { color: var(--muted); }
+    .td-neg   { color: var(--red); font-weight: 600; }
     .mov-hi   { font-weight: 700; font-size: 17px; color: var(--orange); }
     .mov-lo   { font-weight: 600; font-size: 14px; color: #c04a00; }
     .mov-zero { color: var(--muted); font-size: 12px; }
@@ -135,6 +157,16 @@
     .peds-v   { color: var(--orange); font-weight: 600; }
     .mov-v    { color: var(--purple); font-weight: 600; }
     .method-v { color: var(--muted2); font-size: 12px; }
+    .th-expand-hint { font-size: 14px; margin-left: 4px; opacity: .7; }
+
+    /* ── TOOLBAR (CSV, etc) ── */
+    .view-toolbar { display: flex; align-items: center; justify-content: flex-end; padding: 8px 24px 0; gap: 8px; }
+
+    /* ── Editable cells ── */
+    .sem-input { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 5px; color: var(--text); font-size: 12px; padding: 4px 7px; outline: none; width: 100%; min-width: 60px; transition: border-color .15s, background .15s; }
+    .sem-input:focus { border-color: var(--cyan); background: rgba(0,229,255,.07); }
+    .sem-input-qtd { max-width: 80px; text-align: right; }
+    .sem-input-loc { max-width: 140px; }
 
     /* ── EMPTY ── */
     .empty { text-align: center; padding: 70px 20px; color: var(--muted); }
@@ -153,29 +185,6 @@
     .toast.err { background: #2a0d0d; color: var(--red);    border: 1px solid rgba(255,68,68,.35);  }
     .toast.inf { background: #0d1e35; color: var(--cyan);   border: 1px solid rgba(0,229,255,.35);  }
     @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-
-    /* ── expand toggle hint ── */
-    .th-expand-hint { font-size: 14px; margin-left: 4px; opacity: .7; }
-
-    /* ── Editable cells (Sem Estoque) ── */
-    .sem-input {
-      background: rgba(255,255,255,.05);
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 5px;
-      color: var(--text);
-      font-size: 12px;
-      padding: 4px 7px;
-      outline: none;
-      width: 100%;
-      min-width: 60px;
-      transition: border-color .15s, background .15s;
-    }
-    .sem-input:focus { border-color: var(--cyan); background: rgba(0,229,255,.07); }
-    .sem-input-qtd   { max-width: 80px; text-align: right; }
-    .sem-input-loc   { max-width: 140px; }
-    .btn-csv { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
-    .btn-csv:hover:not(:disabled) { background: rgba(0,230,118,.22); }
-    .sem-toolbar { display: flex; align-items: center; justify-content: flex-end; padding: 8px 16px 0; }
   </style>
 </head>
 <body>
@@ -202,8 +211,17 @@
 
 <!-- Macro tabs -->
 <div class="macro-tabs">
-  <button class="macro-tab active" id="tab_com"  onclick="setTab('com')">📦 Com Estoque</button>
-  <button class="macro-tab"        id="tab_sem"  onclick="setTab('sem')">📊 Sem Estoque</button>
+  <button class="macro-tab active" id="mtab_plan" onclick="setMacroTab('planejada')">📅 Planejada</button>
+  <button class="macro-tab"        id="mtab_corr" onclick="setMacroTab('corretiva')">🔴 Corretiva</button>
+</div>
+
+<!-- Sub-tabs -->
+<div class="sub-tabs">
+  <!-- Populated by setMacroTab() -->
+  <button class="sub-tab active" id="stab_com"   onclick="setSubTab('com')">📦 Com Estoque</button>
+  <button class="sub-tab"        id="stab_sem"   onclick="setSubTab('sem')">📊 Sem Estoque</button>
+  <button class="sub-tab"        id="stab_visao" onclick="setSubTab('visao')" style="display:none">👁 Visão</button>
+  <button class="sub-tab"        id="stab_insuf" onclick="setSubTab('insuf')" style="display:none">⚠ Estoque Insuficiente</button>
 </div>
 
 <!-- Stats bar -->
@@ -232,139 +250,219 @@
 
 <!-- Filters -->
 <div class="filters">
-  <div class="filter-group">
-    <span class="filter-label">Período</span>
-    <button class="fbtn"    id="p5"  onclick="setPeriodo('5')">0-5 dias</button>
-    <button class="fbtn ap" id="p7"  onclick="setPeriodo('7')">0-7 dias</button>
-    <button class="fbtn"    id="p10" onclick="setPeriodo('10')">0-10 dias</button>
-    <button class="fbtn"    id="p15" onclick="setPeriodo('15')">0-15 dias</button>
-  </div>
-  <div class="sep"></div>
-  <div class="filter-group">
-    <span class="filter-label">Curva ABC</span>
-    <button class="fbtn aA" id="fA" onclick="toggleAbc('A')">A</button>
-    <button class="fbtn aB" id="fB" onclick="toggleAbc('B')">B</button>
-    <button class="fbtn aC" id="fC" onclick="toggleAbc('C')">C</button>
-  </div>
-  <div class="sep" id="sf-sep"></div>
-  <div class="filter-group" id="sf-group">
-    <span class="filter-label">Filtro</span>
-    <button class="fbtn" id="sf_insuf" onclick="toggleSmartFilter('insuf')" title="Sep. Geral > Estoque Picking">⚠ Estoque Insuficiente</button>
-    <button class="fbtn" id="sf_mov"   onclick="toggleSmartFilter('movimentar')" title="Movimentação > 0">📦 Movimentar</button>
-  </div>
-  <div class="sep" id="mf-sep"></div>
-  <div class="filter-group" id="mf-group">
-    <span class="filter-label">Método</span>
-    <button class="fbtn" id="mf_ed"  onclick="setMethodFilter('entrDireta')">Entr. Direta</button>
-    <button class="fbtn" id="mf_me2" onclick="setMethodFilter('me2')">ME2</button>
-    <button class="fbtn" id="mf_ret" onclick="setMethodFilter('retirada')">Retirada</button>
-    <button class="fbtn" id="mf_xpr" onclick="setMethodFilter('xpress')">Shopee Xpress</button>
-  </div>
-  <div class="sep"></div>
-  <div class="sku-search-wrap">
-    <span class="filter-label">SKU</span>
-    <div class="chip-input-box" id="chipBox" onclick="focusChipInput()">
-      <div id="chipList"></div>
-      <input id="chipRaw" type="text" placeholder="Cole ou digite SKUs..."
-             onkeydown="chipKeydown(event)" onpaste="chipPaste(event)">
+  <!-- Row 1: Período + ABC + SKU -->
+  <div class="filter-row">
+    <div class="filter-group" id="fg-periodo">
+      <span class="filter-label">Período</span>
+      <button class="fbtn"    id="p5"  onclick="setPeriodo('5')">0-5 dias</button>
+      <button class="fbtn ap" id="p7"  onclick="setPeriodo('7')">0-7 dias</button>
+      <button class="fbtn"    id="p10" onclick="setPeriodo('10')">0-10 dias</button>
+      <button class="fbtn"    id="p15" onclick="setPeriodo('15')">0-15 dias</button>
     </div>
-    <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')">Contém</button>
-    <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')">Exato</button>
-    <button class="sku-clear" id="skuClear" onclick="clearAllChips()" style="display:none">✕ Limpar</button>
+    <div class="sep" id="sep-abc"></div>
+    <div class="filter-group" id="fg-abc">
+      <span class="filter-label">Curva ABC</span>
+      <button class="fbtn aA" id="fA" onclick="toggleAbc('A')">A</button>
+      <button class="fbtn aB" id="fB" onclick="toggleAbc('B')">B</button>
+      <button class="fbtn aC" id="fC" onclick="toggleAbc('C')">C</button>
+    </div>
+    <div class="sep"></div>
+    <div class="sku-search-wrap">
+      <span class="filter-label">SKU</span>
+      <div class="chip-input-box" id="chipBox" onclick="focusChipInput()">
+        <div id="chipList"></div>
+        <input id="chipRaw" type="text" placeholder="Cole ou digite SKUs..."
+               onkeydown="chipKeydown(event)" onpaste="chipPaste(event)">
+      </div>
+      <button class="sku-mode-btn active" id="skuModeContains" onclick="setSkuMode('contains')">Contém</button>
+      <button class="sku-mode-btn"        id="skuModeExact"    onclick="setSkuMode('exact')">Exato</button>
+      <button class="sku-clear" id="skuClear" onclick="clearAllChips()" style="display:none">✕ Limpar</button>
+    </div>
+    <span class="count-pill" id="pill">0 SKUs</span>
   </div>
-  <span class="count-pill" id="pill">0 SKUs</span>
+  <!-- Row 2: Smart filters + Method (only for com estoque + insuf) -->
+  <div class="filter-row" id="filter-row2" style="display:none">
+    <div class="filter-group" id="sf-group">
+      <span class="filter-label">Filtro</span>
+      <button class="fbtn" id="sf_insuf" onclick="toggleSmartFilter('insuf')" title="Sep. Geral > Est. Picking">⚠ Estoque Insuficiente</button>
+      <button class="fbtn" id="sf_mov"   onclick="toggleSmartFilter('movimentar')" title="Movimentação > 0">📦 Movimentar</button>
+    </div>
+    <div class="sep" id="mf-sep"></div>
+    <div class="filter-group" id="mf-group">
+      <span class="filter-label">Método</span>
+      <button class="fbtn" id="mf_ed"  onclick="setMethodFilter('entrDireta')">Entr. Direta</button>
+      <button class="fbtn" id="mf_me2" onclick="setMethodFilter('me2')">ME2</button>
+      <button class="fbtn" id="mf_ret" onclick="setMethodFilter('retirada')">Retirada</button>
+      <button class="fbtn" id="mf_xpr" onclick="setMethodFilter('xpress')">Shopee Xpress</button>
+    </div>
+  </div>
+  <!-- Row 3: Visão method filter (only for corretiva/visao) -->
+  <div class="filter-row" id="filter-row3" style="display:none">
+    <div class="filter-group">
+      <span class="filter-label">Método</span>
+      <button class="fbtn ap" id="vm_geral" onclick="setVisaoMethod('geral')">Geral</button>
+      <button class="fbtn"    id="vm_ed"    onclick="setVisaoMethod('ed')">Entr. Direta</button>
+      <button class="fbtn"    id="vm_me2"   onclick="setVisaoMethod('me2')">ME2</button>
+      <button class="fbtn"    id="vm_ret"   onclick="setVisaoMethod('ret')">Retirada</button>
+      <button class="fbtn"    id="vm_xpr"   onclick="setVisaoMethod('xpr')">Shopee Xpress</button>
+    </div>
+  </div>
 </div>
 
-<!-- Table: Com Estoque -->
-<div class="table-wrap" id="view_com">
-  <table>
-    <thead>
-      <tr id="thead_com">
-        <th>SKU</th>
-        <th class="td-loc">Loc. Picking</th>
-        <th class="td-loc">Loc. Armazém</th>
-        <th class="r">Picking</th>
-        <th class="r">Armazém</th>
-        <th class="r" id="movTh">A Mover 0-7</th>
-        <th>ABC</th>
-        <!-- Pedidos separação — cabeçalho clicável -->
-        <th class="r expand-th" onclick="toggleExpand()" title="Clique para expandir por método de entrega">
-          Sep. Geral<span class="th-expand-hint" id="expandIcon">▶</span>
-        </th>
-        <!-- Colunas de método — ocultas inicialmente -->
-        <th class="r col-method-hd" id="th_ed"  style="display:none">Entr. Direta</th>
-        <th class="r col-method-hd" id="th_me2" style="display:none">ME2</th>
-        <th class="r col-method-hd" id="th_ret" style="display:none">Retirada</th>
-        <th class="r col-method-hd" id="th_xpr" style="display:none">Shopee Xpress</th>
-        <!-- Movimentação -->
-        <th class="r" style="color:var(--purple)">Movimentação</th>
-      </tr>
-    </thead>
-    <tbody id="tbody_com"></tbody>
-  </table>
-  <div id="empty_com" class="empty" style="display:none">
-    <div class="empty-icon">📭</div>
-    <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
-  </div>
-</div>
+<!-- ─── Views ─────────────────────────────────────────────── -->
 
-<!-- Table: Sem Estoque -->
-<div id="view_sem" style="display:none">
-  <div class="sem-toolbar">
-    <button class="btn btn-csv" onclick="exportarCSV()">📥 Exportar CSV</button>
+<!-- COM ESTOQUE -->
+<div id="view_com">
+  <div class="view-toolbar">
+    <button class="btn btn-csv" onclick="exportarCSV('com')">📥 Exportar CSV</button>
   </div>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th>SKU</th>
-        <th class="r" id="vendTh">Vendas 0-7</th>
-        <th>ABC</th>
-        <th class="r expand-th" onclick="toggleExpand()" title="Clique para expandir por método de entrega">
-          Sep. Geral<span class="th-expand-hint" id="expandIcon2">▶</span>
-        </th>
-        <th class="r col-method-hd" id="th2_ed"  style="display:none">Entr. Direta</th>
-        <th class="r col-method-hd" id="th2_me2" style="display:none">ME2</th>
-        <th class="r col-method-hd" id="th2_ret" style="display:none">Retirada</th>
-        <th class="r col-method-hd" id="th2_xpr" style="display:none">Shopee Xpress</th>
-        <th class="r" style="color:var(--purple)">Movimentação</th>
-        <th style="color:var(--cyan);min-width:80px">Quantidade</th>
-        <th style="color:var(--cyan);min-width:120px">Localização</th>
-      </tr>
-    </thead>
-    <tbody id="tbody_sem"></tbody>
-  </table>
-  <div id="empty_sem" class="empty" style="display:none">
-    <div class="empty-icon">📭</div>
-    <div class="empty-msg">Nenhum item com os filtros selecionados.</div>
+    <table>
+      <thead>
+        <tr id="thead_com">
+          <th>SKU</th>
+          <th class="td-loc">Loc. Picking</th>
+          <th class="td-loc">Loc. Armazém</th>
+          <th class="r">Picking</th>
+          <th class="r">Armazém</th>
+          <th class="r" id="movTh">A Mover 0-7</th>
+          <th>ABC</th>
+          <th class="r expand-th" onclick="toggleExpand()" title="Expandir por método">
+            Sep. Geral<span class="th-expand-hint" id="expandIcon">▶</span>
+          </th>
+          <th class="r col-method-hd" id="th_ed"  style="display:none">Entr. Direta</th>
+          <th class="r col-method-hd" id="th_me2" style="display:none">ME2</th>
+          <th class="r col-method-hd" id="th_ret" style="display:none">Retirada</th>
+          <th class="r col-method-hd" id="th_xpr" style="display:none">Shopee Xpress</th>
+          <th class="r" style="color:var(--purple)">Movimentação</th>
+        </tr>
+      </thead>
+      <tbody id="tbody_com"></tbody>
+    </table>
+    <div id="empty_com" class="empty" style="display:none">
+      <div class="empty-icon">📭</div><div class="empty-msg">Nenhum item com os filtros selecionados.</div>
+    </div>
   </div>
-  </div><!-- /table-wrap -->
-</div><!-- /view_sem -->
+</div>
+
+<!-- SEM ESTOQUE -->
+<div id="view_sem" style="display:none">
+  <div class="view-toolbar">
+    <button class="btn btn-csv" onclick="exportarCSV('sem')">📥 Exportar CSV</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th class="r" id="vendTh">Vendas 0-7</th>
+          <th>ABC</th>
+          <th class="r expand-th" onclick="toggleExpand()" title="Expandir por método">
+            Sep. Geral<span class="th-expand-hint" id="expandIcon2">▶</span>
+          </th>
+          <th class="r col-method-hd" id="th2_ed"  style="display:none">Entr. Direta</th>
+          <th class="r col-method-hd" id="th2_me2" style="display:none">ME2</th>
+          <th class="r col-method-hd" id="th2_ret" style="display:none">Retirada</th>
+          <th class="r col-method-hd" id="th2_xpr" style="display:none">Shopee Xpress</th>
+          <th class="r" style="color:var(--purple)">Movimentação</th>
+          <th style="color:var(--cyan);min-width:80px">Quantidade</th>
+          <th style="color:var(--cyan);min-width:120px">Localização</th>
+        </tr>
+      </thead>
+      <tbody id="tbody_sem"></tbody>
+    </table>
+    <div id="empty_sem" class="empty" style="display:none">
+      <div class="empty-icon">📭</div><div class="empty-msg">Nenhum item com os filtros selecionados.</div>
+    </div>
+  </div>
+</div>
+
+<!-- CORRETIVA > VISÃO -->
+<div id="view_visao" style="display:none">
+  <div class="view-toolbar">
+    <button class="btn btn-csv" onclick="exportarCSV('visao')">📥 Exportar CSV</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th class="r">Data mais antiga</th>
+          <th class="r">Est. Padrão</th>
+          <th class="r">Est. Armazenamento</th>
+          <th class="r">Est. Chegou</th>
+          <th class="r">Saldo Total</th>
+        </tr>
+      </thead>
+      <tbody id="tbody_visao"></tbody>
+    </table>
+    <div id="empty_visao" class="empty" style="display:none">
+      <div class="empty-icon">📭</div><div class="empty-msg">Nenhum item em Movimentação.</div>
+    </div>
+  </div>
+</div>
+
+<!-- CORRETIVA > ESTOQUE INSUFICIENTE -->
+<div id="view_insuf" style="display:none">
+  <div class="view-toolbar">
+    <button class="btn btn-csv" onclick="exportarCSV('insuf')">📥 Exportar CSV</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th class="r">Est. Picking</th>
+          <th class="r">Est. Armazenamento</th>
+          <th class="r">Est. Chegou</th>
+          <th class="r expand-th" onclick="toggleExpand()" title="Expandir por método">
+            Sep. Geral<span class="th-expand-hint" id="expandIcon3">▶</span>
+          </th>
+          <th class="r col-method-hd" id="th3_ed"  style="display:none">Entr. Direta</th>
+          <th class="r col-method-hd" id="th3_me2" style="display:none">ME2</th>
+          <th class="r col-method-hd" id="th3_ret" style="display:none">Retirada</th>
+          <th class="r col-method-hd" id="th3_xpr" style="display:none">Shopee Xpress</th>
+          <th class="r" style="color:var(--purple)">Movimentação</th>
+        </tr>
+      </thead>
+      <tbody id="tbody_insuf"></tbody>
+    </table>
+    <div id="empty_insuf" class="empty" style="display:none">
+      <div class="empty-icon">✅</div><div class="empty-msg">Nenhum item com estoque insuficiente.</div>
+    </div>
+  </div>
+</div>
 
 <script>
-  // ── State ───────────────────────────────────────────────────
+  // ── State ────────────────────────────────────────────────────
   let allData      = [];
   let periodo      = '7';
   let abcSet       = new Set(['A','B','C']);
   let skuChips     = [];
   let skuMode      = 'contains';
-  let activeTab    = 'com';
+  let macroTab     = 'planejada';
+  let subTab       = 'com';
   let expanded     = false;
-  let smartFilter  = null; // null | 'insuf' | 'movimentar'
-  let methodFilter = null; // null | 'entrDireta' | 'me2' | 'retirada' | 'xpress'
+  let smartFilter  = null;
+  let methodFilter = null;
+  let visaoMethod  = 'geral'; // for Corretiva > Visão
 
-  // Dados editáveis da aba Sem Estoque (persistem entre re-renders)
-  const semData = {}; // { [sku]: { quantidade: '', localizacao: '' } }
-  function getSem(sku) {
-    if (!semData[sku]) semData[sku] = { quantidade: '', localizacao: '' };
-    return semData[sku];
-  }
+  const semData = {};
+  function getSem(sku) { if (!semData[sku]) semData[sku] = { quantidade:'', localizacao:'' }; return semData[sku]; }
   function setSemQtd(sku, val) { getSem(sku).quantidade = val; }
   function setSemLoc(sku, val) { getSem(sku).localizacao = val; }
 
   const periLabels = { '5':'0-5', '7':'0-7', '10':'0-10', '15':'0-15' };
 
-  // ── Boot ────────────────────────────────────────────────────
+  const VISAO_KEYS = {
+    geral: { qtyKey: 'movGeral', tsKey: 'movGeralTs' },
+    ed:    { qtyKey: 'movED',    tsKey: 'movEDTs' },
+    me2:   { qtyKey: 'movMe2',   tsKey: 'movMe2Ts' },
+    ret:   { qtyKey: 'movRet',   tsKey: 'movRetTs' },
+    xpr:   { qtyKey: 'movXpr',   tsKey: 'movXprTs' },
+  };
+
+  // ── Boot ─────────────────────────────────────────────────────
   window.onload = loadData;
 
   function loadData() {
@@ -385,48 +483,89 @@
     render();
   }
 
-  // ── Tab switching ────────────────────────────────────────────
-  function setTab(tab) {
-    activeTab = tab;
-    document.getElementById('tab_com').className  = 'macro-tab' + (tab === 'com' ? ' active' : '');
-    document.getElementById('tab_sem').className  = 'macro-tab' + (tab === 'sem' ? ' active' : '');
-    document.getElementById('view_com').style.display = tab === 'com' ? '' : 'none';
-    document.getElementById('view_sem').style.display = tab === 'sem' ? '' : 'none';
-    const comOnly = tab === 'com' ? '' : 'none';
-    ['sf-sep','sf-group','mf-sep','mf-group'].forEach(id => {
-      document.getElementById(id).style.display = comOnly;
+  // ── Tab switching ─────────────────────────────────────────────
+  function setMacroTab(tab) {
+    macroTab = tab;
+    document.getElementById('mtab_plan').className = 'macro-tab' + (tab === 'planejada' ? ' active' : '');
+    document.getElementById('mtab_corr').className = 'macro-tab' + (tab === 'corretiva' ? ' active' : '');
+
+    // Show/hide sub-tabs
+    const isPlan = tab === 'planejada';
+    document.getElementById('stab_com').style.display   = isPlan ? '' : 'none';
+    document.getElementById('stab_sem').style.display   = isPlan ? '' : 'none';
+    document.getElementById('stab_visao').style.display = isPlan ? 'none' : '';
+    document.getElementById('stab_insuf').style.display = isPlan ? 'none' : '';
+
+    // Reset smart/method filters when switching macro tab
+    smartFilter  = null;
+    methodFilter = null;
+    _refreshSmartButtons();
+    _refreshMethodButtons();
+
+    // Navigate to correct default sub-tab
+    if (tab === 'planejada') setSubTab('com');
+    else                     setSubTab('visao');
+  }
+
+  function setSubTab(tab) {
+    subTab = tab;
+    ['com','sem','visao','insuf'].forEach(t => {
+      const el = document.getElementById('stab_' + t);
+      if (el) el.className = 'sub-tab' + (t === tab ? ' active' : '');
     });
+
+    // Show/hide views
+    document.getElementById('view_com').style.display   = tab === 'com'   ? '' : 'none';
+    document.getElementById('view_sem').style.display   = tab === 'sem'   ? '' : 'none';
+    document.getElementById('view_visao').style.display = tab === 'visao' ? '' : 'none';
+    document.getElementById('view_insuf').style.display = tab === 'insuf' ? '' : 'none';
+
+    // Show/hide filter rows
+    const showPeriAbc = (tab === 'com' || tab === 'sem');
+    document.getElementById('fg-periodo').style.display = showPeriAbc ? '' : 'none';
+    document.getElementById('sep-abc').style.display    = showPeriAbc ? '' : 'none';
+    document.getElementById('fg-abc').style.display     = showPeriAbc ? '' : 'none';
+
+    // Row 2 = smart filters + method (com estoque + estoque insuficiente)
+    const showRow2 = (tab === 'com' || tab === 'insuf');
+    document.getElementById('filter-row2').style.display = showRow2 ? '' : 'none';
+    // For insuf tab hide smart filter chips (not applicable)
+    document.getElementById('sf-group').style.display = (tab === 'com') ? '' : 'none';
+    document.getElementById('mf-sep').style.display   = (tab === 'com') ? '' : 'none';
+
+    // Row 3 = visão method
+    document.getElementById('filter-row3').style.display = (tab === 'visao') ? '' : 'none';
+
     render();
   }
 
-  // ── Expand/collapse delivery method columns ──────────────────
+  // ── Expand/collapse ───────────────────────────────────────────
   function toggleExpand() {
     expanded = !expanded;
-    const show = expanded ? '' : 'none';
     const icon = expanded ? '▼' : '▶';
-    ['th_ed','th_me2','th_ret','th_xpr'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.style.display = expanded ? '' : 'none';
+    ['th_ed','th_me2','th_ret','th_xpr',
+     'th2_ed','th2_me2','th2_ret','th2_xpr',
+     'th3_ed','th3_me2','th3_ret','th3_xpr'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = expanded ? '' : 'none';
     });
-    ['th2_ed','th2_me2','th2_ret','th2_xpr'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.style.display = expanded ? '' : 'none';
+    ['expandIcon','expandIcon2','expandIcon3'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = icon;
     });
-    const ei  = document.getElementById('expandIcon');  if (ei)  ei.textContent  = icon;
-    const ei2 = document.getElementById('expandIcon2'); if (ei2) ei2.textContent = icon;
-    // Re-render to show/hide method cells in rows
     render();
   }
 
-  // ── Filter controls ─────────────────────────────────────────
+  // ── Período / ABC ──────────────────────────────────────────────
   function setPeriodo(p) {
     periodo = p;
     ['5','7','10','15'].forEach(k => {
       document.getElementById('p' + k).className = 'fbtn' + (k === p ? ' ap' : '');
     });
     const lbl = periLabels[p];
-    document.getElementById('movTh').textContent   = 'A Mover ' + lbl;
-    document.getElementById('vendTh').textContent  = 'Vendas ' + lbl;
-    const sml = document.getElementById('sMovLbl');
-    if (sml) sml.textContent = 'A mover (' + lbl + ')';
+    document.getElementById('movTh').textContent  = 'A Mover ' + lbl;
+    document.getElementById('vendTh').textContent = 'Vendas ' + lbl;
+    document.getElementById('sMovLbl').textContent = 'A mover (' + lbl + ')';
     render();
   }
 
@@ -439,37 +578,50 @@
     render();
   }
 
+  // ── Smart filters (Com Estoque) ───────────────────────────────
   function toggleSmartFilter(f) {
     smartFilter = (smartFilter === f) ? null : f;
-    document.getElementById('sf_insuf').className = 'fbtn' + (smartFilter === 'insuf'      ? ' aOrg'  : '');
-    document.getElementById('sf_mov').className   = 'fbtn' + (smartFilter === 'movimentar' ? ' aPurp' : '');
+    _refreshSmartButtons();
     render();
   }
+  function _refreshSmartButtons() {
+    document.getElementById('sf_insuf').className = 'fbtn' + (smartFilter === 'insuf'      ? ' aOrg'  : '');
+    document.getElementById('sf_mov').className   = 'fbtn' + (smartFilter === 'movimentar' ? ' aPurp' : '');
+  }
 
-  const METHOD_MAP = {
-    entrDireta: { id: 'mf_ed',  label: 'Entr. Direta' },
-    me2:        { id: 'mf_me2', label: 'ME2'           },
-    retirada:   { id: 'mf_ret', label: 'Retirada'      },
-    xpress:     { id: 'mf_xpr', label: 'Shopee Xpress' },
-  };
+  const METHOD_IDS = ['ed','me2','ret','xpr'];
+  const METHOD_FIELD = { entrDireta:'ed', me2:'me2', retirada:'ret', xpress:'xpr' };
+  const METHOD_FIELD_INV = { ed:'entrDireta', me2:'me2', ret:'retirada', xpr:'xpress' };
 
-  function setMethodFilter(m) {
-    methodFilter = (methodFilter === m) ? null : m;
-    Object.entries(METHOD_MAP).forEach(([key, cfg]) => {
-      document.getElementById(cfg.id).className = 'fbtn' + (methodFilter === key ? ' ap' : '');
-    });
-    // Auto-expand method columns when a method filter is active
+  function setMethodFilter(field) {
+    const key = METHOD_FIELD[field];
+    methodFilter = (methodFilter === field) ? null : field;
+    _refreshMethodButtons();
     if (methodFilter && !expanded) toggleExpand();
     render();
   }
+  function _refreshMethodButtons() {
+    ['mf_ed','mf_me2','mf_ret','mf_xpr'].forEach((id, i) => {
+      const fields = ['entrDireta','me2','retirada','xpress'];
+      document.getElementById(id).className = 'fbtn' + (methodFilter === fields[i] ? ' ap' : '');
+    });
+  }
 
-  // ── SKU chips ────────────────────────────────────────────────
+  // ── Visão method ──────────────────────────────────────────────
+  function setVisaoMethod(m) {
+    visaoMethod = m;
+    ['geral','ed','me2','ret','xpr'].forEach(k => {
+      document.getElementById('vm_' + k).className = 'fbtn' + (k === m ? ' ap' : '');
+    });
+    render();
+  }
+
+  // ── SKU chips ─────────────────────────────────────────────────
   function focusChipInput() { document.getElementById('chipRaw').focus(); }
   function addChips(values) {
     const fresh = values.map(v => v.trim().toUpperCase()).filter(v => v && !skuChips.includes(v));
     if (!fresh.length) return;
-    skuChips.push(...fresh);
-    renderChips(); render();
+    skuChips.push(...fresh); renderChips(); render();
   }
   function removeChip(val) { skuChips = skuChips.filter(c => c !== val); renderChips(); render(); }
   function clearAllChips() { skuChips = []; renderChips(); render(); }
@@ -493,8 +645,7 @@
   function chipPaste(e) {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData('text');
-    const parts = text.split(/[\n\r\t,;]+/);
-    addChips(parts);
+    addChips(text.split(/[\n\r\t,;]+/));
     e.target.value = '';
   }
   function setSkuMode(mode) {
@@ -509,40 +660,35 @@
     return skuChips.some(chip => skuMode === 'exact' ? s === chip : s.includes(chip));
   }
 
-  // ── Render ───────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────
   function render() {
-    activeTab === 'com' ? renderCom() : renderSem();
+    if      (subTab === 'com')   renderCom();
+    else if (subTab === 'sem')   renderSem();
+    else if (subTab === 'visao') renderVisao();
+    else if (subTab === 'insuf') renderInsuf();
   }
 
   function renderCom() {
     const movKey = 'mov' + periodo;
     let filtered = allData.filter(r => abcSet.has(r.abc) && r[movKey] > 0 && skuMatch(r.sku));
-    if (smartFilter === 'insuf')      filtered = filtered.filter(r => (r.pedTotal || 0) > (r.pick || 0));
-    if (smartFilter === 'movimentar') filtered = filtered.filter(r => (r.pedMov   || 0) > 0);
-    if (methodFilter)                 filtered = filtered.filter(r => (r[methodFilter] || 0) > 0);
+    if (smartFilter === 'insuf')      filtered = filtered.filter(r => (r.pedTotal||0) > (r.pick||0));
+    if (smartFilter === 'movimentar') filtered = filtered.filter(r => (r.pedMov||0) > 0);
+    if (methodFilter)                 filtered = filtered.filter(r => (r[methodFilter]||0) > 0);
     filtered.sort((a,b) => b[movKey] - a[movKey]);
-
     updateStats(filtered, movKey);
-
-    const tbody = document.getElementById('tbody_com');
-    const empty = document.getElementById('empty_com');
-
-    if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
-    empty.style.display = 'none';
-
-    tbody.innerHTML = filtered.map(r => {
-      const mov = r[movKey];
+    _renderTable('tbody_com', 'empty_com', filtered, r => {
+      const mov    = r[movKey];
       const movCls = mov >= 20 ? 'mov-hi' : mov > 0 ? 'mov-lo' : 'mov-zero';
-      const pick  = r.pick  > 0 ? `<span class="td-stock">${r.pick}</span>`  : `<span class="td-zero">0</span>`;
-      const arm   = r.arm   > 0 ? `<span class="td-stock">${r.arm}</span>`   : `<span class="td-zero">0</span>`;
-      const abc   = r.abc   ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
-      const peds  = r.pedTotal > 0 ? `<span class="peds-v">${r.pedTotal}</span>` : `<span class="td-zero">—</span>`;
-      const pedMov = r.pedMov > 0 ? `<span class="mov-v">${r.pedMov}</span>` : `<span class="td-zero">—</span>`;
-      const methodCols = expanded ? `
-        <td class="r col-method"><span class="method-v">${r.entrDireta || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.me2       || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.retirada  || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.xpress    || '—'}</span></td>` : '';
+      const pick   = r.pick > 0 ? `<span class="td-stock">${r.pick}</span>` : `<span class="td-zero">0</span>`;
+      const arm    = r.arm  > 0 ? `<span class="td-stock">${r.arm}</span>`  : `<span class="td-zero">0</span>`;
+      const abc    = r.abc  ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
+      const peds   = r.pedTotal > 0 ? `<span class="peds-v">${r.pedTotal}</span>` : `<span class="td-zero">—</span>`;
+      const pedMov = r.pedMov  > 0 ? `<span class="mov-v">${r.pedMov}</span>`   : `<span class="td-zero">—</span>`;
+      const meth   = expanded ? `
+        <td class="r col-method"><span class="method-v">${r.entrDireta||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.me2||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.retirada||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.xpress||'—'}</span></td>` : '';
       return `<tr>
         <td class="td-sku">${r.sku}</td>
         <td class="td-loc" title="${r.locF||''}">${r.locF||'—'}</td>
@@ -552,54 +698,113 @@
         <td class="r"><span class="${movCls}">${mov}</span></td>
         <td>${abc}</td>
         <td class="r">${peds}</td>
-        ${methodCols}
+        ${meth}
         <td class="r">${pedMov}</td>
       </tr>`;
-    }).join('');
+    });
   }
 
   function renderSem() {
     const vKey = 'v' + periodo;
-    const filtered = allData
-      .filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku))
-      .sort((a,b) => b[vKey] - a[vKey]);
-
+    let filtered = allData.filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku))
+                          .sort((a,b) => b[vKey] - a[vKey]);
     updateStats(filtered, 'mov' + periodo);
-
-    const tbody = document.getElementById('tbody_sem');
-    const empty = document.getElementById('empty_sem');
-
-    if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
-    empty.style.display = 'none';
-
-    tbody.innerHTML = filtered.map(r => {
+    _renderTable('tbody_sem', 'empty_sem', filtered, r => {
       const vend   = r[vKey];
-      const vendCls = vend >= 20 ? 'mov-hi' : vend > 0 ? 'mov-lo' : 'mov-zero';
+      const vCls   = vend >= 20 ? 'mov-hi' : vend > 0 ? 'mov-lo' : 'mov-zero';
       const abc    = r.abc ? `<span class="abc-dot ${r.abc}">${r.abc}</span>` : '—';
       const peds   = r.pedTotal > 0 ? `<span class="peds-v">${r.pedTotal}</span>` : `<span class="td-zero">—</span>`;
-      const pedMov = r.pedMov > 0 ? `<span class="mov-v">${r.pedMov}</span>` : `<span class="td-zero">—</span>`;
-      const methodCols = expanded ? `
-        <td class="r col-method"><span class="method-v">${r.entrDireta || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.me2       || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.retirada  || '—'}</span></td>
-        <td class="r col-method"><span class="method-v">${r.xpress    || '—'}</span></td>` : '';
-      const sd = getSem(r.sku);
+      const pedMov = r.pedMov  > 0 ? `<span class="mov-v">${r.pedMov}</span>`   : `<span class="td-zero">—</span>`;
+      const meth   = expanded ? `
+        <td class="r col-method"><span class="method-v">${r.entrDireta||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.me2||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.retirada||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.xpress||'—'}</span></td>` : '';
+      const sd     = getSem(r.sku);
       const skuEsc = r.sku.replace(/'/g, "\\'");
       return `<tr>
         <td class="td-sku">${r.sku}</td>
-        <td class="r"><span class="${vendCls}">${vend}</span></td>
+        <td class="r"><span class="${vCls}">${vend}</span></td>
         <td>${abc}</td>
         <td class="r">${peds}</td>
-        ${methodCols}
+        ${meth}
         <td class="r">${pedMov}</td>
         <td style="padding:4px 8px"><input type="number" class="sem-input sem-input-qtd" min="0" value="${sd.quantidade}" placeholder="—" oninput="setSemQtd('${skuEsc}', this.value)"></td>
         <td style="padding:4px 8px"><input type="text" class="sem-input sem-input-loc" value="${sd.localizacao}" placeholder="—" oninput="setSemLoc('${skuEsc}', this.value)"></td>
       </tr>`;
-    }).join('');
+    });
+  }
+
+  function renderVisao() {
+    const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
+    let filtered = allData
+      .filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku))
+      .sort((a,b) => {
+        // sort by oldest date ascending (earliest first), items with no date last
+        const ta = a[tsKey] || '9999';
+        const tb = b[tsKey] || '9999';
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      });
+    updateStatsSimple(filtered);
+    _renderTable('tbody_visao', 'empty_visao', filtered, r => {
+      const saldo = (r.pick||0) + (r.arm||0) + (r.chg||0);
+      const saldoCls = saldo < 0 ? 'td-neg' : saldo === 0 ? 'td-zero' : 'td-stock';
+      const pickCls  = (r.pick||0) < 0 ? 'td-neg' : (r.pick||0) === 0 ? 'td-zero' : 'td-stock';
+      const armCls   = (r.arm||0) === 0 ? 'td-zero' : 'td-stock';
+      const chgCls   = (r.chg||0) === 0 ? 'td-zero' : 'td-stock';
+      const ts       = r[tsKey] ? _fmtDate(r[tsKey]) : '—';
+      return `<tr>
+        <td class="td-sku">${r.sku}</td>
+        <td class="r" style="color:var(--muted2);font-size:12px">${ts}</td>
+        <td class="r"><span class="${pickCls}">${r.pick||0}</span></td>
+        <td class="r"><span class="${armCls}">${r.arm||0}</span></td>
+        <td class="r"><span class="${chgCls}">${r.chg||0}</span></td>
+        <td class="r"><span class="${saldoCls}" style="font-weight:600">${saldo}</span></td>
+      </tr>`;
+    });
+  }
+
+  function renderInsuf() {
+    // Items where picking < sep. geral
+    let filtered = allData
+      .filter(r => (r.pick||0) < (r.pedTotal||0) && skuMatch(r.sku));
+    if (methodFilter) filtered = filtered.filter(r => (r[methodFilter]||0) > 0);
+    filtered.sort((a,b) => (a.pick - a.pedTotal) - (b.pick - b.pedTotal)); // most critical first
+    updateStatsSimple(filtered);
+    _renderTable('tbody_insuf', 'empty_insuf', filtered, r => {
+      const deficit  = (r.pick||0) - (r.pedTotal||0);
+      const pickCls  = (r.pick||0) < 0 ? 'td-neg' : (r.pick||0) === 0 ? 'td-zero' : 'td-stock';
+      const armCls   = (r.arm||0) === 0 ? 'td-zero' : 'td-stock';
+      const chgCls   = (r.chg||0) === 0 ? 'td-zero' : 'td-stock';
+      const peds     = `<span class="peds-v">${r.pedTotal||0}</span>`;
+      const pedMov   = (r.pedMov||0) > 0 ? `<span class="mov-v">${r.pedMov}</span>` : `<span class="td-zero">—</span>`;
+      const meth     = expanded ? `
+        <td class="r col-method"><span class="method-v">${r.entrDireta||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.me2||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.retirada||'—'}</span></td>
+        <td class="r col-method"><span class="method-v">${r.xpress||'—'}</span></td>` : '';
+      return `<tr>
+        <td class="td-sku">${r.sku}</td>
+        <td class="r"><span class="${pickCls}">${r.pick||0}</span></td>
+        <td class="r"><span class="${armCls}">${r.arm||0}</span></td>
+        <td class="r"><span class="${chgCls}">${r.chg||0}</span></td>
+        <td class="r">${peds}</td>
+        ${meth}
+        <td class="r">${pedMov}</td>
+      </tr>`;
+    });
+  }
+
+  function _renderTable(tbodyId, emptyId, rows, rowFn) {
+    const tbody = document.getElementById(tbodyId);
+    const empty = document.getElementById(emptyId);
+    if (!rows.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = rows.map(rowFn).join('');
   }
 
   function updateStats(filtered, movKey) {
-    const totMov = filtered.reduce((s,r) => s + (r[movKey] || 0), 0);
+    const totMov = filtered.reduce((s,r) => s + (r[movKey]||0), 0);
     document.getElementById('sTotal').textContent = filtered.length;
     document.getElementById('sMov').textContent   = totMov;
     document.getElementById('sA').textContent     = filtered.filter(r=>r.abc==='A').length;
@@ -608,42 +813,68 @@
     document.getElementById('pill').textContent   = filtered.length + ' SKUs';
   }
 
-  // ── Exportar CSV (Sem Estoque) ───────────────────────────────
-  function exportarCSV() {
-    const vKey = 'v' + periodo;
-    const filtered = allData
-      .filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku))
-      .sort((a,b) => b[vKey] - a[vKey]);
+  function updateStatsSimple(filtered) {
+    document.getElementById('sTotal').textContent = filtered.length;
+    document.getElementById('sMov').textContent   = '—';
+    document.getElementById('sA').textContent     = filtered.filter(r=>r.abc==='A').length;
+    document.getElementById('sB').textContent     = filtered.filter(r=>r.abc==='B').length;
+    document.getElementById('sC').textContent     = filtered.filter(r=>r.abc==='C').length;
+    document.getElementById('pill').textContent   = filtered.length + ' SKUs';
+  }
 
-    if (!filtered.length) { toast('Nenhum item para exportar', 'inf'); return; }
-
+  // ── CSV Export ────────────────────────────────────────────────
+  function exportarCSV(tab) {
     const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const header = ['SKU', 'Vendas (' + periodo + 'd)', 'ABC', 'Sep. Geral', 'Movimentação', 'Quantidade', 'Localização'];
-    const rows = filtered.map(r => {
-      const sd = getSem(r.sku);
-      return [r.sku, r[vKey], r.abc, r.pedTotal || 0, r.pedMov || 0, sd.quantidade, sd.localizacao].map(esc).join(',');
-    });
+    let header, rows;
 
-    const csv = '﻿' + [header.map(esc).join(','), ...rows].join('\r\n');
+    if (tab === 'com') {
+      const movKey = 'mov' + periodo;
+      let filtered = allData.filter(r => abcSet.has(r.abc) && r[movKey] > 0 && skuMatch(r.sku));
+      if (smartFilter === 'insuf')      filtered = filtered.filter(r => (r.pedTotal||0) > (r.pick||0));
+      if (smartFilter === 'movimentar') filtered = filtered.filter(r => (r.pedMov||0) > 0);
+      if (methodFilter)                 filtered = filtered.filter(r => (r[methodFilter]||0) > 0);
+      filtered.sort((a,b) => b[movKey] - a[movKey]);
+      header = ['SKU','Loc. Picking','Loc. Armazém','Picking','Armazém','A Mover ('+periodo+'d)','ABC','Sep. Geral','Entr. Direta','ME2','Retirada','Shopee Xpress','Movimentação'];
+      rows = filtered.map(r => [r.sku,r.locF||'',r.locG||'',r.pick||0,r.arm||0,r[movKey],r.abc||'',r.pedTotal||0,r.entrDireta||0,r.me2||0,r.retirada||0,r.xpress||0,r.pedMov||0]);
+    } else if (tab === 'sem') {
+      const vKey = 'v' + periodo;
+      const filtered = allData.filter(r => abcSet.has(r.abc) && r[vKey] > 0 && skuMatch(r.sku)).sort((a,b) => b[vKey] - a[vKey]);
+      header = ['SKU','Vendas ('+periodo+'d)','ABC','Sep. Geral','Movimentação','Quantidade','Localização'];
+      rows = filtered.map(r => { const sd = getSem(r.sku); return [r.sku,r[vKey],r.abc||'',r.pedTotal||0,r.pedMov||0,sd.quantidade,sd.localizacao]; });
+    } else if (tab === 'visao') {
+      const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
+      const filtered = allData.filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku)).sort((a,b) => { const ta=a[tsKey]||'9999',tb=b[tsKey]||'9999'; return ta<tb?-1:ta>tb?1:0; });
+      const mLabel = { geral:'Geral', ed:'Entr. Direta', me2:'ME2', ret:'Retirada', xpr:'Shopee Xpress' };
+      header = ['SKU','Data mais antiga ('+mLabel[visaoMethod]+')','Est. Padrão','Est. Armazenamento','Est. Chegou','Saldo Total'];
+      rows = filtered.map(r => { const s=(r.pick||0)+(r.arm||0)+(r.chg||0); return [r.sku,r[tsKey]||'',r.pick||0,r.arm||0,r.chg||0,s]; });
+    } else { // insuf
+      let filtered = allData.filter(r => (r.pick||0) < (r.pedTotal||0) && skuMatch(r.sku));
+      if (methodFilter) filtered = filtered.filter(r => (r[methodFilter]||0) > 0);
+      filtered.sort((a,b) => (a.pick-a.pedTotal)-(b.pick-b.pedTotal));
+      header = ['SKU','Est. Picking','Est. Armazenamento','Est. Chegou','Sep. Geral','Entr. Direta','ME2','Retirada','Shopee Xpress','Movimentação'];
+      rows = filtered.map(r => [r.sku,r.pick||0,r.arm||0,r.chg||0,r.pedTotal||0,r.entrDireta||0,r.me2||0,r.retirada||0,r.xpress||0,r.pedMov||0]);
+    }
+
+    if (!rows || !rows.length) { toast('Nenhum item para exportar', 'inf'); return; }
+    const csv = '﻿' + [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url;
-    a.download = 'sem_estoque_' + new Date().toISOString().slice(0,10) + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.download = tab + '_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast('📥 CSV exportado — ' + filtered.length + ' SKUs', 'ok');
+    toast('📥 CSV exportado — ' + rows.length + ' SKUs', 'ok');
   }
 
-  // ── Helpers ─────────────────────────────────────────────────
-  function setOverlay(show) {
-    document.getElementById('overlay').style.display = show ? 'flex' : 'none';
+  // ── Helpers ───────────────────────────────────────────────────
+  function _fmtDate(iso) {
+    if (!iso) return '—';
+    const [y,m,d] = iso.split('-');
+    return d + '/' + m + '/' + y;
   }
-  function setBtns(enabled) {
-    document.getElementById('btnRefresh').disabled = !enabled;
-  }
+  function setOverlay(show) { document.getElementById('overlay').style.display = show ? 'flex' : 'none'; }
+  function setBtns(enabled) { document.getElementById('btnRefresh').disabled = !enabled; }
   function toast(msg, type) {
     const t = document.createElement('div');
     t.className = 'toast ' + (type || 'inf');
