@@ -83,10 +83,12 @@
     .filter-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding-right: 4px; white-space: nowrap; }
     .fbtn { padding: 5px 13px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
     .fbtn:hover { border-color: #3d5068; color: var(--text); }
-    .fbtn.ap  { background: rgba(0,229,255,.1);  border-color: var(--cyan);   color: var(--cyan);   }
-    .fbtn.aA  { background: rgba(0,230,118,.1);  border-color: var(--green);  color: var(--green);  }
-    .fbtn.aB  { background: rgba(255,214,0,.1);  border-color: var(--yellow); color: var(--yellow); }
-    .fbtn.aC  { background: rgba(255,68,68,.1);  border-color: var(--red);    color: var(--red);    }
+    .fbtn.ap      { background: rgba(0,229,255,.1);   border-color: var(--cyan);   color: var(--cyan);   }
+    .fbtn.aA      { background: rgba(0,230,118,.1);   border-color: var(--green);  color: var(--green);  }
+    .fbtn.aB      { background: rgba(255,214,0,.1);   border-color: var(--yellow); color: var(--yellow); }
+    .fbtn.aC      { background: rgba(255,68,68,.1);   border-color: var(--red);    color: var(--red);    }
+    .fbtn.aOrg    { background: rgba(255,109,0,.13);  border-color: var(--orange); color: var(--orange); }
+    .fbtn.aPurp   { background: rgba(179,136,255,.13);border-color: var(--purple); color: var(--purple); }
     .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
     /* ── SKU CHIP INPUT ── */
@@ -244,6 +246,20 @@
     <button class="fbtn aB" id="fB" onclick="toggleAbc('B')">B</button>
     <button class="fbtn aC" id="fC" onclick="toggleAbc('C')">C</button>
   </div>
+  <div class="sep" id="sf-sep"></div>
+  <div class="filter-group" id="sf-group">
+    <span class="filter-label">Filtro</span>
+    <button class="fbtn" id="sf_insuf" onclick="toggleSmartFilter('insuf')" title="Sep. Geral > Estoque Picking">⚠ Estoque Insuficiente</button>
+    <button class="fbtn" id="sf_mov"   onclick="toggleSmartFilter('movimentar')" title="Movimentação > 0">📦 Movimentar</button>
+  </div>
+  <div class="sep" id="mf-sep"></div>
+  <div class="filter-group" id="mf-group">
+    <span class="filter-label">Método</span>
+    <button class="fbtn" id="mf_ed"  onclick="setMethodFilter('entrDireta')">Entr. Direta</button>
+    <button class="fbtn" id="mf_me2" onclick="setMethodFilter('me2')">ME2</button>
+    <button class="fbtn" id="mf_ret" onclick="setMethodFilter('retirada')">Retirada</button>
+    <button class="fbtn" id="mf_xpr" onclick="setMethodFilter('xpress')">Shopee Xpress</button>
+  </div>
   <div class="sep"></div>
   <div class="sku-search-wrap">
     <span class="filter-label">SKU</span>
@@ -327,13 +343,15 @@
 
 <script>
   // ── State ───────────────────────────────────────────────────
-  let allData   = [];
-  let periodo   = '7';
-  let abcSet    = new Set(['A','B','C']);
-  let skuChips  = [];
-  let skuMode   = 'contains';
-  let activeTab = 'com';
-  let expanded  = false;
+  let allData      = [];
+  let periodo      = '7';
+  let abcSet       = new Set(['A','B','C']);
+  let skuChips     = [];
+  let skuMode      = 'contains';
+  let activeTab    = 'com';
+  let expanded     = false;
+  let smartFilter  = null; // null | 'insuf' | 'movimentar'
+  let methodFilter = null; // null | 'entrDireta' | 'me2' | 'retirada' | 'xpress'
 
   // Dados editáveis da aba Sem Estoque (persistem entre re-renders)
   const semData = {}; // { [sku]: { quantidade: '', localizacao: '' } }
@@ -374,6 +392,10 @@
     document.getElementById('tab_sem').className  = 'macro-tab' + (tab === 'sem' ? ' active' : '');
     document.getElementById('view_com').style.display = tab === 'com' ? '' : 'none';
     document.getElementById('view_sem').style.display = tab === 'sem' ? '' : 'none';
+    const comOnly = tab === 'com' ? '' : 'none';
+    ['sf-sep','sf-group','mf-sep','mf-group'].forEach(id => {
+      document.getElementById(id).style.display = comOnly;
+    });
     render();
   }
 
@@ -414,6 +436,30 @@
     ['A','B','C'].forEach(x => {
       document.getElementById('f' + x).className = 'fbtn' + (abcSet.has(x) ? ' a' + x : '');
     });
+    render();
+  }
+
+  function toggleSmartFilter(f) {
+    smartFilter = (smartFilter === f) ? null : f;
+    document.getElementById('sf_insuf').className = 'fbtn' + (smartFilter === 'insuf'      ? ' aOrg'  : '');
+    document.getElementById('sf_mov').className   = 'fbtn' + (smartFilter === 'movimentar' ? ' aPurp' : '');
+    render();
+  }
+
+  const METHOD_MAP = {
+    entrDireta: { id: 'mf_ed',  label: 'Entr. Direta' },
+    me2:        { id: 'mf_me2', label: 'ME2'           },
+    retirada:   { id: 'mf_ret', label: 'Retirada'      },
+    xpress:     { id: 'mf_xpr', label: 'Shopee Xpress' },
+  };
+
+  function setMethodFilter(m) {
+    methodFilter = (methodFilter === m) ? null : m;
+    Object.entries(METHOD_MAP).forEach(([key, cfg]) => {
+      document.getElementById(cfg.id).className = 'fbtn' + (methodFilter === key ? ' ap' : '');
+    });
+    // Auto-expand method columns when a method filter is active
+    if (methodFilter && !expanded) toggleExpand();
     render();
   }
 
@@ -470,9 +516,11 @@
 
   function renderCom() {
     const movKey = 'mov' + periodo;
-    const filtered = allData
-      .filter(r => abcSet.has(r.abc) && r[movKey] > 0 && skuMatch(r.sku))
-      .sort((a,b) => b[movKey] - a[movKey]);
+    let filtered = allData.filter(r => abcSet.has(r.abc) && r[movKey] > 0 && skuMatch(r.sku));
+    if (smartFilter === 'insuf')      filtered = filtered.filter(r => (r.pedTotal || 0) > (r.pick || 0));
+    if (smartFilter === 'movimentar') filtered = filtered.filter(r => (r.pedMov   || 0) > 0);
+    if (methodFilter)                 filtered = filtered.filter(r => (r[methodFilter] || 0) > 0);
+    filtered.sort((a,b) => b[movKey] - a[movKey]);
 
     updateStats(filtered, movKey);
 
