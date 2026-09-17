@@ -744,12 +744,26 @@ td.r { text-align: right; }
   <div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);flex-wrap:wrap">
       <div style="padding:10px 18px;font-size:13px;font-weight:700;color:var(--cyan)">🛒 Controle de Compras</div>
+      <!-- Sub-abas -->
+      <div style="display:flex;border-left:1px solid var(--border);margin-left:4px">
+        <div id="comprasSubNovo"   onclick="setComprasSubTab('novo')"
+             style="padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;color:var(--cyan);border-bottom:2px solid var(--cyan);transition:all .15s">Novo</div>
+        <div id="comprasSubAntigo" onclick="setComprasSubTab('antigo')"
+             style="padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2);border-bottom:2px solid transparent;transition:all .15s">Antigo</div>
+      </div>
       <div style="flex:1"></div>
-      <label style="font-size:11px;color:var(--muted2);padding:0 8px">Filtrar fornecedor:</label>
-      <input id="filtroComprasForn" class="form-input" style="margin:6px 8px;width:180px;font-size:11px" placeholder="Fornecedor ou NF..." oninput="renderCompras()">
-      <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="renderCompras()">🔄 Atualizar</button>
+      <label style="font-size:11px;color:var(--muted2);padding:0 8px">Filtrar:</label>
+      <input id="filtroComprasForn" class="form-input" style="margin:6px 8px;width:180px;font-size:11px" placeholder="Fornecedor, SKU, NF..." oninput="_onFiltroCompras()">
+      <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="_onAtualizarCompras()">🔄 Atualizar</button>
     </div>
-    <div id="comprasBody" style="padding:16px;overflow-x:auto"></div>
+    <!-- Novo body -->
+    <div id="comprasNovoBg">
+      <div id="comprasBody" style="padding:16px;overflow-x:auto"></div>
+    </div>
+    <!-- Antigo body -->
+    <div id="comprasAntigoBg" style="display:none">
+      <div id="comprasAntigoBody" style="padding:16px;overflow-x:auto"></div>
+    </div>
   </div>
 </div>
 
@@ -850,7 +864,10 @@ const CE = {
   temSTporFora:  false,
   // Usuário
   usuarioEmail:      '',
-  temAcessoCompras:  false,
+  temAcessoCompras:  true,  // acesso liberado para todos
+  // Compras sub-abas
+  comprasSubTab:     'novo',
+  comprasAntigoData: null,
   // Sort
   sortFieldNF: 'dataCriacao',
   sortDirNF:   -1,
@@ -1226,21 +1243,16 @@ function navTo(view) {
   if (view === 'conferencia') renderConferencia();
   if (view === 'saldo')       renderSaldo();
   if (view === 'compras') {
-    if (!CE.temAcessoCompras) { navTo('porNF'); toast('⛔ Sem acesso à aba Compras.', 'err'); return; }
-    renderCompras();
+    setComprasSubTab(CE.comprasSubTab || 'novo');
   }
 }
 
 // ── Boot ───────────────────────────────────────────────────
 window.onload = () => {
-  // Identifica usuário e controla acesso à aba Compras
+  // Identifica usuário (sem controle de acesso à aba Compras)
   google.script.run
-    .withSuccessHandler(res => {
-      CE.usuarioEmail     = (res && res.email)           || '';
-      CE.temAcessoCompras = !!(res && res.temAcessoCompras);
-      _aplicarAcessoCompras();
-    })
-    .withFailureHandler(() => { CE.temAcessoCompras = false; _aplicarAcessoCompras(); })
+    .withSuccessHandler(res => { CE.usuarioEmail = (res && res.email) || ''; })
+    .withFailureHandler(() => {})
     .ce_getUsuarioAtual();
 
   setOverlay(true, 'Carregando NFs da planilha...');
@@ -1267,10 +1279,96 @@ window.onload = () => {
 };
 
 function _aplicarAcessoCompras() {
-  const navEl  = document.getElementById('nav_compras');
-  const viewEl = document.getElementById('view_compras');
-  if (navEl)  navEl.style.display  = CE.temAcessoCompras ? '' : 'none';
-  if (viewEl) viewEl.style.display = CE.temAcessoCompras ? '' : 'none';
+  // Compras liberada para todos — mantida para compatibilidade mas sem efeito
+}
+
+function setComprasSubTab(tab) {
+  CE.comprasSubTab = tab;
+  const isNovo = tab === 'novo';
+  document.getElementById('comprasNovoBg').style.display   = isNovo ? '' : 'none';
+  document.getElementById('comprasAntigoBg').style.display = isNovo ? 'none' : '';
+  const activeStyle   = 'padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;color:var(--cyan);border-bottom:2px solid var(--cyan);transition:all .15s';
+  const inactiveStyle = 'padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2);border-bottom:2px solid transparent;transition:all .15s';
+  document.getElementById('comprasSubNovo').style.cssText   = isNovo  ? activeStyle : inactiveStyle;
+  document.getElementById('comprasSubAntigo').style.cssText = !isNovo ? activeStyle : inactiveStyle;
+  if (isNovo) renderCompras();
+  else        renderComprasAntigo();
+}
+
+function _onFiltroCompras() {
+  if (CE.comprasSubTab === 'novo') renderCompras();
+  else _mostrarComprasAntigo(CE.comprasAntigoData || []);
+}
+
+function _onAtualizarCompras() {
+  if (CE.comprasSubTab === 'antigo') {
+    CE.comprasAntigoData = null;
+    renderComprasAntigo();
+  } else {
+    renderCompras();
+  }
+}
+
+function renderComprasAntigo() {
+  const body = document.getElementById('comprasAntigoBody');
+  if (!body) return;
+  if (CE.comprasAntigoData) { _mostrarComprasAntigo(CE.comprasAntigoData); return; }
+  body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted2)">⏳ Carregando dados históricos...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.ok) { body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">❌ ' + escHtml(res.error || 'Erro ao carregar') + '</div>'; return; }
+      CE.comprasAntigoData = res.itens || [];
+      _mostrarComprasAntigo(CE.comprasAntigoData);
+    })
+    .withFailureHandler(e => { body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">❌ ' + escHtml(e.message) + '</div>'; })
+    .ce_getComprasAntigo();
+}
+
+function _mostrarComprasAntigo(itens) {
+  const body = document.getElementById('comprasAntigoBody');
+  if (!body) return;
+  const q = (document.getElementById('filtroComprasForn')?.value || '').toLowerCase().trim();
+  const rows = q
+    ? itens.filter(r => String(r.sku||'').toLowerCase().includes(q) || String(r.codFornNf||'').toLowerCase().includes(q) || String(r.compra||'').toLowerCase().includes(q))
+    : itens;
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted2)">Nenhum item encontrado.</div>';
+    return;
+  }
+  const pct = v => (Number(v) * 100).toFixed(2) + '%';
+  const brl = v => Number(v) > 0 ? 'R$ ' + Number(v).toFixed(4) : '—';
+  const headerCols = ['COMPRA','DT. COMPRA','DT. NF','Cód. Forn. NF','Cód. Forn. Bling','SKU','Descrição','Qtd','Vl Unit NF','Vl Unit Bling','% Nota','ST%','IPI%','Difal%','ST p/Fora%','Fator Automático','Vl Unit Total'];
+  const thStyle  = 'padding:6px 10px;white-space:nowrap;font-size:10px;font-weight:700;color:var(--muted2);border-bottom:2px solid var(--border);text-align:right';
+  const thStyleL = thStyle.replace('text-align:right','text-align:left');
+  const thead = `<tr>${headerCols.map((h,i) => `<th style="${i<7?thStyleL:thStyle}">${escHtml(h)}</th>`).join('')}</tr>`;
+  const tdR = (v,c) => `<td style="padding:5px 10px;font-size:11px;text-align:right;white-space:nowrap${c?';color:'+c:''}">${escHtml(String(v??'—'))}</td>`;
+  const tdL = (v,c) => `<td style="padding:5px 10px;font-size:11px;text-align:left;white-space:nowrap${c?';color:'+c:''}">${escHtml(String(v??'—'))}</td>`;
+  const tableRows = rows.map(r => {
+    const fC = Number(r.fatorAuto) > 0 ? 'var(--yellow)' : 'var(--muted2)';
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+      ${tdL(r.compra,       'var(--orange)')}
+      ${tdL(r.dtCompra)}
+      ${tdL(r.dtNf)}
+      ${tdL(r.codFornNf,    'var(--orange)')}
+      ${tdL(r.codFornBling, 'var(--muted2)')}
+      ${tdL(r.sku,          'var(--cyan)')}
+      ${tdL('—')}
+      ${tdR(r.qtd||'—',     'var(--text)')}
+      ${tdR(brl(r.vlUnitNf))}
+      ${tdR(brl(r.vlUnitBling))}
+      ${tdR(Number(r.pctNota)  > 0 ? pct(r.pctNota)  : '—', 'var(--blue)')}
+      ${tdR(Number(r.stPct)    > 0 ? pct(r.stPct)    : '—')}
+      ${tdR(Number(r.ipiPct)   > 0 ? pct(r.ipiPct)   : '—')}
+      ${tdR(Number(r.difalPct) > 0 ? pct(r.difalPct) : '—', 'var(--purple)')}
+      ${tdR('—')}
+      ${tdR(Number(r.fatorAuto)    > 0 ? pct(r.fatorAuto)   : '—', fC)}
+      ${tdR(brl(r.vlUnitTotal), Number(r.vlUnitTotal)>0?'var(--green)':'')}
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div style="margin-bottom:8px;font-size:11px;color:var(--muted2)">${rows.length} item(ns)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:1200px">
+      <thead>${thead}</thead><tbody>${tableRows}</tbody>
+    </table></div>`;
 }
 
 function atualizarHdrSub() {

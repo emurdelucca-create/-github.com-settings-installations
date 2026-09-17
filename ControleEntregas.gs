@@ -679,7 +679,68 @@ function ce_buscarQtdCaixaStylu() {
       const caixa = Number(r[CE_STYLU_CAIXA] || 0);
       if (cod && caixa) map[cod] = caixa;
     });
-    return { ok: true, map };
+    return { ok: true, map: map };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Compras Antigo — lê planilha Controle de Compras ─────────
+function ce_getComprasAntigo() {
+  try {
+    const ss  = SpreadsheetApp.openById(CE_CTRL_SS_ID);
+    const sheets = ss.getSheets();
+    const aba = sheets.find(s => s.getSheetId() === CE_CTRL_GID);
+    if (!aba) throw new Error('Aba não encontrada (gid=' + CE_CTRL_GID + ')');
+
+    const last  = aba.getLastRow();
+    if (last < 2) return { ok: true, itens: [] };
+
+    // Colunas A–Y (25 colunas, 0-indexed 0–24)
+    const ncols = 25;
+    const raw   = aba.getRange(2, 1, last - 1, ncols).getValues();
+
+    function _fmtDate(v) {
+      if (!v) return '';
+      if (v instanceof Date) {
+        if (isNaN(v.getTime())) return '';
+        const dd = String(v.getDate()).padStart(2,'0');
+        const mm = String(v.getMonth()+1).padStart(2,'0');
+        return dd + '/' + mm + '/' + v.getFullYear();
+      }
+      return String(v);
+    }
+    function _num(v) {
+      const n = parseFloat(String(v).replace(',','.'));
+      return isNaN(n) ? 0 : n;
+    }
+
+    const itens = [];
+    raw.forEach(function(r) {
+      const sku = String(r[11] || '').trim(); // Col L (0-indexed 11)
+      if (!sku) return;
+      itens.push({
+        compra:       String(r[4]  || '').trim(),  // Col E
+        dtCompra:     _fmtDate(r[9]),              // Col J
+        dtNf:         _fmtDate(r[8]),              // Col I
+        codFornNf:    String(r[10] || '').trim(),  // Col K
+        codFornBling: String(r[10] || '').trim(),  // Col K
+        sku:          sku,
+        descricao:    '',
+        qtd:          _num(r[13]),                 // Col N
+        vlUnitNf:     _num(r[14]),                 // Col O
+        vlUnitBling:  _num(r[16]),                 // Col Q
+        pctNota:      _num(r[18]),                 // Col S
+        stPct:        _num(r[23]),                 // Col X
+        ipiPct:       _num(r[22]),                 // Col W
+        difalPct:     _num(r[24]),                 // Col Y
+        stPorFora:    0,
+        fatorAuto:    _num(r[20]),                 // Col U
+        vlUnitTotal:  _num(r[21]),                 // Col V
+      });
+    });
+
+    return { ok: true, itens: itens };
   } catch(e) {
     return { ok: false, error: e.message };
   }
