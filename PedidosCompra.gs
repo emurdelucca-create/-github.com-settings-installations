@@ -236,7 +236,12 @@ function pc_carregarDados() {
               if (!sku || preco <= 0) return;
               const cur = precoMap[sku];
               if (!cur || cur.fonte !== 'Novo' || rowDate > cur._ts) {
-                precoMap[sku] = { preco: preco, fonte: 'Novo', _ts: rowDate };
+                precoMap[sku] = {
+                  preco:   preco,
+                  codForn: String(it.blingCodForn || it.cProd || '').trim(),
+                  fonte:   'Novo',
+                  _ts:     rowDate,
+                };
               }
             });
           });
@@ -254,7 +259,11 @@ function pc_carregarDados() {
           const sku   = String(r[PC_CTRL_SKU]  || '').trim();
           const preco = Number(r[PC_CTRL_PREC] || 0);
           if (!sku || !(preco > 0)) return;
-          if (!precoMap[sku]) precoMap[sku] = { preco: preco, fonte: 'Antigo' };
+          if (!precoMap[sku]) precoMap[sku] = {
+            preco:   preco,
+            codForn: String(r[PC_CTRL_COD_FORN] || '').trim(),
+            fonte:   'Antigo',
+          };
         });
       }
     } catch(_) {}
@@ -270,8 +279,8 @@ function pc_carregarDados() {
       const qtdEmpresas = {};
       PC_EMPRESAS.forEach(e => { qtdEmpresas[e.nome] = Number(r[e.col] || 0); });
       if (!fornecedores[forn]) fornecedores[forn] = [];
-      const ref = precoMap[sku] || { preco: 0, fonte: '' };
-      fornecedores[forn].push({ sku, qtd, preco: ref.preco, precoFonte: ref.fonte, qtdEmpresas });
+      const ref = precoMap[sku] || { preco: 0, codForn: '', fonte: '' };
+      fornecedores[forn].push({ sku, qtd, preco: ref.preco, codForn: ref.codForn, precoFonte: ref.fonte, qtdEmpresas });
     });
 
     return { ok: true, fornecedores };
@@ -313,28 +322,58 @@ function pc_buscarProdutosBling(skus) {
   }
 }
 
-// ── Importar último cód. fornecedor por SKU (Controle de Compras) ─
-// Lê a planilha Controle de Compras e retorna o ÚLTIMO código de fornecedor
-// encontrado para cada SKU solicitado (a linha mais recente vence).
+// ── Importar cód. fornecedor — mesma fonte do preço (Novo → Antigo) ─
+// Usa a mesma prioridade de pc_carregarDados: NF mais recente do Novo
+// (blingCodForn/cProd), com fallback para col K do Antigo.
 function pc_importarCodsFornecedor(skus) {
   try {
-    const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
-    const aba     = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
-    const lastRow = aba.getLastRow();
-    if (lastRow < 2) return { ok: true, codigos: {} };
-
     const skuSet = new Set(skus.map(s => String(s).trim()));
-    const ncols  = Math.max(PC_CTRL_COD_FORN, PC_CTRL_SKU) + 1;
-    const raw    = aba.getRange(2, 1, lastRow - 1, ncols).getValues();
+    const codMap = {};  // sku → { cod, fonte, _ts }
 
-    // Percorre de cima para baixo — a última linha de cada SKU substitui as anteriores
+    // Fonte "Novo" — ControleEntregas NFs
+    try {
+      const ssNfs  = SpreadsheetApp.openById(PC_SS_CE_NFS_ID);
+      const abaNfs = ssNfs.getSheetByName(PC_CE_ABA_NFS);
+      if (abaNfs) {
+        const nfsLast = abaNfs.getLastRow();
+        if (nfsLast > 1) {
+          abaNfs.getRange(2, 1, nfsLast - 1, PC_CE_NCOLS).getValues().forEach(function(r) {
+            const rowDate = r[PC_CE_IDX_DATACRIACAO] instanceof Date
+                            ? r[PC_CE_IDX_DATACRIACAO].getTime() : 0;
+            let itens = [];
+            try { itens = JSON.parse(String(r[PC_CE_IDX_ITENSJSON] || '') || '[]') || []; } catch(_) {}
+            itens.forEach(function(it) {
+              const sku = String(it.sku || '').trim();
+              const cod = String(it.blingCodForn || it.cProd || '').trim();
+              if (!sku || !cod || !skuSet.has(sku)) return;
+              const cur = codMap[sku];
+              if (!cur || cur.fonte !== 'Novo' || rowDate > cur._ts) {
+                codMap[sku] = { cod: cod, fonte: 'Novo', _ts: rowDate };
+              }
+            });
+          });
+        }
+      }
+    } catch(_) {}
+
+    // Fonte "Antigo" — Controle de Compras, col K, última linha (fallback)
+    try {
+      const ssCtrl  = SpreadsheetApp.openById(PC_SS_CONTROLE_ID);
+      const aba     = _pc_abaByGid(ssCtrl, PC_GID_CONTROLE);
+      const lastRow = aba.getLastRow();
+      if (lastRow > 1) {
+        const ncols = Math.max(PC_CTRL_COD_FORN, PC_CTRL_SKU) + 1;
+        aba.getRange(2, 1, lastRow - 1, ncols).getValues().forEach(function(r) {
+          const sku = String(r[PC_CTRL_SKU]      || '').trim();
+          const cod = String(r[PC_CTRL_COD_FORN] || '').trim();
+          if (!sku || !cod || !skuSet.has(sku)) return;
+          if (!codMap[sku]) codMap[sku] = { cod: cod, fonte: 'Antigo' };
+        });
+      }
+    } catch(_) {}
+
     const codigos = {};
-    raw.forEach(r => {
-      const sku = String(r[PC_CTRL_SKU]      || '').trim();
-      const cod = String(r[PC_CTRL_COD_FORN] || '').trim();
-      if (sku && cod && skuSet.has(sku)) codigos[sku] = cod;
-    });
-
+    Object.keys(codMap).forEach(function(sku) { codigos[sku] = codMap[sku].cod; });
     return { ok: true, codigos };
   } catch(e) {
     return { ok: false, error: e.message };
