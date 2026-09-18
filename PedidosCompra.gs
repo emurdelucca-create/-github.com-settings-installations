@@ -114,7 +114,8 @@ function pc_getAuthUrl() {
     '?response_type=code' +
     '&client_id=' + encodeURIComponent(clientId) +
     '&redirect_uri=' + encodeURIComponent(BLING_REDIRECT) +
-    '&state=' + Date.now();
+    '&state=' + Date.now() +
+    '&prompt=consent';  // força exibir tela de autorização mesmo já autenticado
   return { ok: true, url };
 }
 
