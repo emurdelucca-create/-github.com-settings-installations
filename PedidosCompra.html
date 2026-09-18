@@ -281,6 +281,7 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('csvInput').click()" title="Importe o CSV exportado pelo Bling (Cadastros → Clientes e Fornecedores → Exportar)">📂 CSV Fornecedores</button>
     <input type="file" id="csvInput" accept=".csv,.txt" style="display:none" onchange="onCsvUpload(this)">
     <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()" disabled>▶ Criar Abas</button>
+    <button class="btn btn-ghost btn-sm" onclick="abrirModalIds()">🔑 IDs Bling</button>
     <button class="btn btn-danger btn-sm" id="btnApagar" onclick="apagarDados()" disabled>🗑 Apagar Dados</button>
   </div>
 </div>
@@ -327,6 +328,24 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
       <button class="btn btn-ghost btn-sm" onclick="closeModal('setupModal')">Cancelar</button>
     </div>
     <div id="setupErr" style="margin-top:10px;font-size:12px;color:var(--red);display:none"></div>
+  </div>
+</div>
+
+<!-- Modal IDs Bling -->
+<div class="modal-bg" id="idsModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title">🔑 IDs Bling dos Produtos</div>
+    <div style="font-size:12px;color:var(--muted2);margin-bottom:12px;line-height:1.6">
+      Para cada SKU sem ID cadastrado, abra o produto no Bling e copie o número da URL
+      (<code style="color:var(--green)">bling.com.br/produtos.php#edit/<strong>15941188395</strong></code>).
+      Cole na coluna <strong>ID Bling</strong> ao lado do SKU.
+    </div>
+    <div id="idsLista" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+      <button class="btn btn-green btn-sm" onclick="salvarIdsManual()">💾 Salvar</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('idsModal')">Fechar</button>
+    </div>
+    <div id="idsErr" style="margin-top:8px;font-size:12px;color:var(--red);display:none"></div>
   </div>
 </div>
 
@@ -554,6 +573,57 @@ window.onload = () => {
 
 // ── Setup OAuth Bling ─────────────────────────────────────────
 let _blingAuthWindow = null;
+
+function abrirModalIds() {
+  // Coleta todos os SKUs das abas abertas
+  const todosSkus = [...new Set((S.tabs || []).flatMap(t => (t.itens || []).map(i => i.sku).filter(Boolean)))];
+  if (!todosSkus.length) { toast('ℹ Crie as abas primeiro', 'inf'); return; }
+
+  setOverlay(true, 'Verificando cache de IDs...');
+  google.script.run
+    .withSuccessHandler(semCache => {
+      setOverlay(false);
+      const lista = document.getElementById('idsLista');
+      // Mostra todos os SKUs: os sem cache ficam editáveis, os com cache mostram que já estão ok
+      const skusParaMostrar = semCache.length ? semCache : todosSkus.slice(0, 20);
+      lista.innerHTML = skusParaMostrar.map(sku => `
+        <div style="display:flex;align-items:center;gap:8px">
+          <code style="color:var(--cyan);min-width:120px;font-size:12px">${escHtml(sku)}</code>
+          <input type="text" placeholder="ID Bling (ex: 15941188395)"
+            data-sku="${escHtml(sku)}"
+            style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:5px 8px;outline:none;font-family:monospace">
+        </div>`).join('');
+      if (!semCache.length) {
+        lista.innerHTML = '<div style="color:var(--green);font-size:12px">✅ Todos os SKUs já têm ID cadastrado no cache!</div>' + lista.innerHTML;
+      } else {
+        lista.insertAdjacentHTML('afterbegin', `<div style="color:var(--yellow);font-size:11px;margin-bottom:4px">⚠ ${semCache.length} SKU(s) sem ID — preencha abaixo:</div>`);
+      }
+      document.getElementById('idsModal').classList.add('open');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .pc_getSkusSemCache(todosSkus);
+}
+
+function salvarIdsManual() {
+  const inputs = document.querySelectorAll('#idsLista input[data-sku]');
+  const pares = [];
+  inputs.forEach(inp => {
+    const sku = inp.getAttribute('data-sku');
+    const id  = inp.value.trim().replace(/\D/g, ''); // só dígitos
+    if (sku && id) pares.push({ sku, id });
+  });
+  if (!pares.length) { toast('ℹ Nenhum ID preenchido', 'inf'); return; }
+  setOverlay(true, 'Salvando IDs no cache...');
+  google.script.run
+    .withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+      closeModal('idsModal');
+      toast('✅ ' + pares.length + ' ID(s) salvo(s) no cache. Total no cache: ' + res.total, 'ok');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .pc_salvarIdsManual(pares);
+}
 
 function limparTokensBling() {
   setOverlay(true, 'Limpando tokens Bling...');

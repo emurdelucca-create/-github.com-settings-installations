@@ -607,6 +607,27 @@ function _pc_salvarCacheProdutos(mapa) {
   _pc_props().setProperty(PC_PROP_PROD_CACHE, JSON.stringify(mapa));
 }
 
+// Retorna SKUs que ainda não têm ID no cache
+function pc_getSkusSemCache(skus) {
+  const cache = _pc_lerCacheProdutos();
+  return (skus || []).filter(s => !cache[s]);
+}
+
+// Salva IDs manualmente informados pelo usuário no cache
+// pares: [{ sku: 'TM466', id: '15941188395' }, ...]
+function pc_salvarIdsManual(pares) {
+  try {
+    const cache = _pc_lerCacheProdutos();
+    (pares || []).forEach(p => {
+      if (p.sku && p.id) cache[String(p.sku).trim()] = String(p.id).trim();
+    });
+    _pc_salvarCacheProdutos(cache);
+    return { ok: true, total: Object.keys(cache).length };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // ── Bling — Criar pedidos ────────────────────────────────────
 function pc_criarPedidos(pedidos) {
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -616,13 +637,22 @@ function pc_criarPedidos(pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
 
+      // Verifica se todos os itens têm ID no cache
+      const idCache = _pc_lerCacheProdutos();
+      const semId = ped.itens.filter(it => !it.produtoId && !idCache[it.sku]);
+      if (semId.length) {
+        const skusFaltando = semId.map(it => it.sku).join(', ');
+        throw new Error('ID Bling não encontrado para: ' + skusFaltando + '. Use o botão "🔑 IDs Bling" para cadastrar.');
+      }
+      // Aplica IDs do cache nos itens que ainda não têm
+      ped.itens.forEach(it => { if (!it.produtoId && idCache[it.sku]) it.produtoId = idCache[it.sku]; });
+
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
         itens: ped.itens.map(it => {
           const item = {
-            // Usa código do produto em vez de ID interno — não requer GET /produtos
-            produto:    { codigo: String(it.sku || '').trim() },
+            produto:    { id: Number(it.produtoId) },
             descricao:  String(it.nome  || it.sku),
             quantidade: Number(it.qtd)   || 0,
             valor:      Number(it.preco) || 0,
