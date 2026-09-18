@@ -270,8 +270,23 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 <!-- Banner de diagnostico: o JS reescreve isso na primeira linha do script.
      Se continuar vermelho, o bloco de script nao executou no navegador. -->
 <div id="jsDiag" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:6px 12px;font:12px/1.5 monospace;background:#5a0000;color:#ffb3b3;border-top:2px solid #ff4444">
-  ⚠ JavaScript NÃO executou — nenhum botão vai funcionar. Reporte esta mensagem.
+  ETAPA 0 - VERMELHO: nenhum script rodou. Reporte esta mensagem.
 </div>
+
+<!-- Sonda 1 (inicio do arquivo, bloco proprio). Se ficar AZUL, scripts
+     inline funcionam e o arquivo chegou ate aqui. -->
+<script>
+(function () {
+  var d = document.getElementById('jsDiag');
+  if (!d) return;
+  window.PC_ETAPA1 = true;
+  d.style.background = '#002b45';
+  d.style.color      = '#9fd8ff';
+  d.style.borderTop  = '2px solid #3aa0ff';
+  d.textContent = 'ETAPA 1 - AZUL: scripts inline funcionam, mas o bloco principal '
+    + 'NAO rodou e o fim do arquivo NAO chegou. Colagem truncada no meio.';
+})();
+</script>
 
 <!-- Header -->
 <div class="header">
@@ -1617,9 +1632,9 @@ function escJs(s) {
   d.style.background = '#4a2600';
   d.style.color      = '#ffd28a';
   d.style.borderTop  = '2px solid #ff9500';
-  d.textContent = 'SONDA OK, PRINCIPAL FALHOU -> o bloco de script grande foi '
-    + 'rejeitado (erro de sintaxe ou colagem truncada no editor do Apps Script). '
-    + 'Abra o Console do navegador (F12) e reporte a primeira linha em vermelho.';
+  d.textContent = 'ETAPA 3 - LARANJA: arquivo chegou COMPLETO, mas o bloco principal '
+    + 'foi rejeitado por erro de sintaxe. Abra o Console (F12) e reporte a '
+    + 'primeira linha em vermelho.';
 })();
 </script>
 </body>
