@@ -516,18 +516,23 @@ const PC_PROP_PROD_CACHE = 'BLING_PRODUTO_IDS_CACHE';
 // 1) código exato (case-insensitive, pega até 20 resultados e filtra)
 // 2) código sem o sufixo após o último hífen (ex: "20087-S" → "20087")
 // Retorna o id como string ou null se não encontrado.
+// Lança exceção se a API retornar 4xx (ex: escopo "Produtos" não autorizado).
 function _pc_buscarProdutoId(sku) {
-  const skuUp  = sku.trim().toUpperCase();
+  const skuUp = sku.trim().toUpperCase();
 
   // Estratégia 1: busca pelo código completo, pega 20 e filtra exato
+  let erroApi = null;
   try {
     const r = _pc_blingGet('/produtos', { codigo: sku.trim(), pagina: 1, limite: 20 });
     const lista = r.data || [];
     const exato = lista.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
     if (exato) return String(exato.id);
-    // aceita qualquer resultado se só veio um (busca do Bling já filtrou bem)
     if (lista.length === 1) return String(lista[0].id);
-  } catch(_) {}
+  } catch(e) {
+    // Se for erro de API (4xx/5xx), propaga para mostrar mensagem correta
+    if (/Bling \d{3}/.test(e.message)) throw e;
+    erroApi = e;
+  }
 
   Utilities.sleep(120);
 
@@ -537,13 +542,13 @@ function _pc_buscarProdutoId(sku) {
     try {
       const r2 = _pc_blingGet('/produtos', { codigo: baseCod, pagina: 1, limite: 20 });
       const lista2 = r2.data || [];
-      // Prefere match exato com o SKU original
       const exato2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
       if (exato2) return String(exato2.id);
-      // Fallback: match exato com o código base
       const base2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === baseCod);
       if (base2) return String(base2.id);
-    } catch(_) {}
+    } catch(e) {
+      if (/Bling \d{3}/.test(e.message)) throw e;
+    }
   }
 
   return null;
