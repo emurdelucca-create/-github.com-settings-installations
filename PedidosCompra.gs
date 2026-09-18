@@ -637,22 +637,20 @@ function pc_criarPedidos(pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
 
-      // Verifica se todos os itens têm ID no cache
+      // Tenta resolver ID pelo cache; se não tiver, usa código diretamente
       const idCache = _pc_lerCacheProdutos();
-      const semId = ped.itens.filter(it => !it.produtoId && !idCache[it.sku]);
-      if (semId.length) {
-        const skusFaltando = semId.map(it => it.sku).join(', ');
-        throw new Error('ID Bling não encontrado para: ' + skusFaltando + '. Use o botão "🔑 IDs Bling" para cadastrar.');
-      }
-      // Aplica IDs do cache nos itens que ainda não têm
       ped.itens.forEach(it => { if (!it.produtoId && idCache[it.sku]) it.produtoId = idCache[it.sku]; });
 
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
         itens: ped.itens.map(it => {
+          // Usa ID interno se disponível (cache), senão envia código do produto
+          const prodRef = it.produtoId
+            ? { id: Number(it.produtoId) }
+            : { codigo: String(it.sku || '').trim() };
           const item = {
-            produto:    { id: Number(it.produtoId) },
+            produto:    prodRef,
             descricao:  String(it.nome  || it.sku),
             quantidade: Number(it.qtd)   || 0,
             valor:      Number(it.preco) || 0,
