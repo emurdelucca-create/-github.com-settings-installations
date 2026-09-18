@@ -1675,15 +1675,37 @@ function escJs(s) {
   try { new Function(code); msg = 'recompilou OK (erro intermitente)'; }
   catch (err) { msg = err.message; }
 
-  // 3) Contagem de caracteres: pega qualquer alteracao que nao mude as linhas
+  // 3) Checksum por linha: aponta a linha exata que a colagem alterou.
+  //    HASHES tem 3 caracteres base36 por linha do bloco correto.
   var EXP = 46867;
   var difChars = code.length - EXP;
 
+  var HASHES = "000lqbsmkiik7ard39e9fs26gq1eibol9ux366qxwkb2j7puex6j5pl7s6ceeult8hrd6n2466qyl4gjvj5pxblbbi000z4e8vr000woto0e5wm0vxeub989js831a000xzk8bczqb000ny7d9vklroa4kf2ax4udy9l5brsdn2ly103h000lpmfo6ncgrmtlcwvh23fwmoe3r1vlg03h0002wtotb03h000qq84yb03h000c1fx0ifz0t8ckm0c4qudy1ilt3t15f8i7kgx4wc073lbbzcyl6l6cpnj6gsqyh8xb1wgpwac0md6cesom03h000fik9mrsz4222rcrf180nfefi9anp3ivqy7gtj9qx7kg2jol90zww7c03h000xpo3fq8obnbqsnvz4cjb7ol9zgf5a003h00013mszfwpe5u400000qqcfvhj000cxa8sdsmfdb4swnt5i7cg8mt14cj66f3q264ntsrr1ybyiwt000qtldsfiazo6pqwrr63iwt000kxy0qadsfiazo6pqwrr63iwt000lej1o45w8jof00012qlerblpgh5ulcoyorzbv01n16we5wb02dvad2iwt000l6l6cpvi8yh8ck3gx4hxobnrcov0qadsfiaz8bbrk8iwthxoplx31a000mp8dnr000rmh9t0oq6nr7000e8r8sdk7c6uzwzl6se1z26jllare17zx510vx0zzoru4371q8bb89piwtw82hxofm32g203h00063tgjslbcuk4j3onhapshga779po6z8sdvvt6uzz4r8pcrkmhxofm3h8w03h000y75pju8sdbhq6uzn4yhxofm37m903h000znmk1xk91z3uvhx8sdvvtat9tbyil79gardnr63iwtahk389ua0wpsiwthxoudnat9701hxow8b03h00024joir5y0fo67c7f7zhnfsv2349ol903h000y9q0cv36akea8sdvvt6uztbyil71rlrdnbabqk5r63iwt0id004rxbhczh5qfgdhxofm32st03h0000tkuxeaax23d0008sdvvttbyxvfcngqk5r63iwt2h3485xvfcng79mr63iwt000zwlyxcyptfjldrgnqtbvvn0qeb18c95zavmi8gtckveegd0r8j3cvbp2e9f9o7j00ksa49tgw4fer3gxq0005waqbz4wctyj000qgl2xz1h8000l6lxu30qjgjlhve2v7e7b5hr1ky04vqgfrr1orv2cv1bzkzh5brpp65ciyh88p70qjorve3c74zkzh5brpp65ciyh89jhhxoudn6uz4wc1ug701hxooji03h000jzlnrtj2s0lzr12ap4ea7uvulujga703h0009lhgzjjuiakpi6vcbfkp5ztru4h000ch2pdu03h000ko8uooi9yyd4os0grkosr03h000lkn4yu1f2rcv03h0002uu1ylch2b6p01d4qg8ffhtq1ty03h000sr2w4t3us94r000nud0003ssbmogy5po9yfeg4ms67bfyw2peti1fowmckkeyuo58gfob0vimt6ol90009tvmm9e9yihanse000zikvg8gzpqd1000bj7o966fz0fgl1n504mzqdmx0001493ecbca0000qlh0psnkztlz4dim8dw10vi000inkjhw8tiobejqwyulkhh000534uycyw3ssw1s43o5khh000q5w6ak76o3uoso1moj1db5e6t8isoqp5dza4segnse000256erz0000psi9i000kw6kjxuqrvjptg6v2fqq74ph8a3pp3jefdyb2rlibk58gtg69lj37dhwkztwt7858gwbjxqbzeurxh9x558gwbjxqbphjugg9x558gwbjxqbiulnp19x558gmrbwbjxqba1cme39x558g5c0000gb9vjptg6i4vv7xverbvcibk58gh9ktg6p83yxh4zsygnyl48exv7xow5i48ibk58gyl4coqv7xovsly9ibk58g5c0000zksqjr7i8000o6zvnh6qustxuexw7stp0mdv0mev16we10p95c0lq2ecswyuuystdanyuecane03cnwwz8324a90959fxyzcoml5sta3dktf5c07i8000hy303h000t6g1nkfqog4o03h000sem4xrnrxhbtvhj53oal3lpmh9flqjol903h000b0ck8jsthzkxe9fnl87v5xyc4is0cmh0zigpp3yol98ff03h000z65sfm1sn5435oq03h0009ffxmn53s6sdb6p8ff03h000dm6tqfb6p8ff03h000qiku4cf1bb6p8ff000t4f000pgk3usq8aanw4c2qx5000o5pot6d3i8sdvvt6uzaibey3zw7mpkxmlur3529t4bjb2hxoudn6uz701hxoxjo03h000vb8gk7b6p8ff03h000ptq3mtr2fcsb8ff03h00006m3gw3usi3oloj5pxssa8f57djh83m02rvwj5pga7az1xiqpl7ol9b6p8ff2hn03h0000xrwsxwt0ot6000ygmjxudlury3yefl6l6cp0qjd5n0005usqwbz7zk54mdoub19xpyerwe54h8tin000s1dplzednrr1w4horvg5oyh8xxny4cj5p4c203h000179tox0rddq003h000ml0nn5jixb6p5g5r046ey03h000t0qpcr3ushppugv000ygmlngr7fry3wlfe7zg6qwnfur3529t4b0tbj5p4c203h0006httkv3mtir2dez8ff03h000s1z3mt1tvd998ff03h000tg4e9s8ff03h0009aeg4w8ff03h00058152dwdwb9tkaooym03h0005zk9vhz40cc87b503h000tiyduiwt0ssqa2o000in6zxj000ygm8qpffzbky4c203h000rj0881pfugy5h1k7gpj5pol97ncz7kkzgfxuysyol9rvh03h000t9m947l1t000iuiwcdn1hiio000pf3wjcavh39452wrxo0bllu7qshgxbg1bo3xrbc0y2b7p56thetru44b169ompstp0kv576845oenjovjiwtj5pal3ue9g8n7wpvxlnw7oo1sjzz0mbdmov1pka000tri000ct3ybx9ywtpx4xhmh4ur30009idtcdybs4zuc66wb9jjr2oxhg0jk6i2bqfx6ei1vnmktm64rctvzp7tftinxmliwtj5pol9qe503h000gkgwlzj1fcy6wz66ograuzerdbf9bwrhkzmewbi83vol9bxj03h000d6taxb8sdvvt6uzf6lhxoudn6uzr0f9ov8bbwttiwthxoqbd03h000g27watyufu1jwiajnrx9vkw8bao58gfob8ev0zm2c9jnrx9vms658gfobj5pnse0009ezj6303h0007fxk9hkpwvviy3nue0fxm03h000n7ibsn03h0001s0ufwim33r803h000mk1apsiqujhwk6tclug042uapb5xpr78e240ol903h0000pq268i9dgbvtxjtnt03h0005htbwq03h000e1t40i03h000x4zg2e03h000";
+  function hash3(s) {
+    var h = 0;
+    for (var n = 0; n < s.length; n++) h = (h * 31 + s.charCodeAt(n)) % 46656;
+    var r = h.toString(36);
+    while (r.length < 3) r = '0' + r;
+    return r;
+  }
+  var difLinha = '';
+  if (typeof HASHES === 'string' && HASHES.length === linhas.length * 3) {
+    for (var q = 0; q < linhas.length; q++) {
+      if (hash3(linhas[q]) !== HASHES.substr(q * 3, 3)) {
+        difLinha = 'LINHA ' + (OFFSET + q) + ' FOI ALTERADA -> recebido: '
+                 + JSON.stringify(linhas[q].slice(0, 90));
+        break;
+      }
+    }
+    if (!difLinha) difLinha = 'todas as 1209 linhas conferem com o original';
+  }
+
   d.textContent = 'ERRO: ' + msg
     + '  |  ' + linhas.length + ' linhas (esp 1209' + (linhas.length === 1209 ? ' OK' : ' DIF') + ')'
-    + '  |  ' + code.length + ' chars (esp ' + EXP + ', '
-    + (difChars === 0 ? 'IDENTICO' : (difChars > 0 ? '+' : '') + difChars + ' -> COLAGEM ALTEROU O CODIGO') + ')'
-    + (maus.length ? '  |  ACHADO: ' + maus.join(' ; ') : '  |  sem caractere suspeito');
+    + '  |  ' + code.length + '/' + EXP + ' chars'
+    + (difChars === 0 ? ' IDENTICO' : ' (' + (difChars > 0 ? '+' : '') + difChars + ')')
+    + (difLinha ? '  |  ' + difLinha : '')
+    + (maus.length ? '  |  ACHADO: ' + maus.join(' ; ') : '');
 })();
 </script>
 </body>
