@@ -316,8 +316,9 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
       <strong style="color:var(--cyan)">Passo 3:</strong> Cole o código abaixo e clique em <strong>Confirmar</strong>.
       Feito isso, o token se renova automaticamente para sempre.
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:14px">
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" id="btnAbrirBling" onclick="abrirBling()">🔗 Abrir Bling para autorizar</button>
+      <button class="btn btn-sm" style="background:rgba(255,68,68,.15);color:var(--red);border:1px solid rgba(255,68,68,.3)" onclick="limparTokensBling()">🗑 Limpar tokens e re-autorizar</button>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <input id="codigoInput" type="text" placeholder="Cole aqui a URL inteira do Google ou só o código"
@@ -553,6 +554,17 @@ window.onload = () => {
 
 // ── Setup OAuth Bling ─────────────────────────────────────────
 let _blingAuthWindow = null;
+
+function limparTokensBling() {
+  setOverlay(true, 'Limpando tokens Bling...');
+  google.script.run
+    .withSuccessHandler(() => {
+      setOverlay(false);
+      toast('🗑 Tokens apagados — agora clique em "Abrir Bling para autorizar"', 'inf');
+    })
+    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
+    .pc_limparTokens();
+}
 
 function abrirBling() {
   google.script.run
