@@ -663,12 +663,18 @@ function confirmarCodigo() {
     .withSuccessHandler(res => {
       setOverlay(false);
       if (!res.ok) {
-        document.getElementById('setupErr').textContent = 'Erro: ' + res.error;
-        document.getElementById('setupErr').style.display = '';
+        const errEl = document.getElementById('setupErr');
+        errEl.textContent = '❌ ' + res.error;
+        errEl.style.display = '';
+        errEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        toast('❌ ' + res.error, 'err');
         return;
       }
       closeModal('setupModal');
       document.getElementById('codigoInput').value = '';
+      // Restaura descrição original se foi substituída pelo aviso de re-auth
+      const desc = document.getElementById('setupModalDesc');
+      if (desc && desc.querySelector('strong[style*="red"]')) desc.innerHTML = '';
       toast('✅ Bling autorizado com sucesso!', 'ok');
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
