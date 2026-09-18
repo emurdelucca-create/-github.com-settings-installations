@@ -229,7 +229,7 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 /* ── MODAL ── */
 .modal-bg {
   position: fixed; inset: 0; background: rgba(8,12,20,.85);
-  display: none; align-items: center; justify-content: center; z-index: 800;
+  display: none; align-items: center; justify-content: center; z-index: 950;
 }
 .modal-bg.open { display: flex; }
 .modal {
@@ -277,7 +277,7 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
     </div>
   </div>
   <div class="header-right">
-    <button class="btn btn-ghost btn-sm" id="btnBling"  onclick="document.getElementById('setupModal').classList.add('open')" title="Configurar autenticação Bling">🔗 Bling</button>
+    <button class="btn btn-ghost btn-sm" id="btnBling"  onclick="openModal('setupModal')" title="Configurar autenticação Bling">🔗 Bling</button>
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('csvInput').click()" title="Importe o CSV exportado pelo Bling (Cadastros → Clientes e Fornecedores → Exportar)">📂 CSV Fornecedores</button>
     <input type="file" id="csvInput" accept=".csv,.txt" style="display:none" onchange="onCsvUpload(this)">
     <button class="btn btn-ghost btn-sm" id="btnCriar"  onclick="criarAbas()" disabled>▶ Criar Abas</button>
@@ -567,7 +567,7 @@ window.onload = () => {
 
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.autorizado) document.getElementById('setupModal').classList.add('open');
+          if (!res.autorizado) openModal('setupModal');
         })
         .withFailureHandler(() => {})
         .pc_checkAuth();
@@ -611,7 +611,7 @@ function abrirModalIds() {
       } else {
         lista.insertAdjacentHTML('afterbegin', `<div style="color:var(--yellow);font-size:11px;margin-bottom:4px">⚠ ${semCache.length} SKU(s) sem ID — preencha abaixo:</div>`);
       }
-      document.getElementById('idsModal').classList.add('open');
+      openModal('idsModal');
     })
     .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
     .pc_getSkusSemCache(todosSkus);
@@ -1469,7 +1469,7 @@ function _erroAuthBling(mensagem) {
       '3. Faça login no Bling novamente — a tela de autorização aparecerá com todos os escopos.<br>' +
       '4. Após autorizar, copie a URL do Google e cole abaixo.';
   }
-  document.getElementById('setupModal').classList.add('open');
+  openModal('setupModal');
 }
 
 function enviarPedidos(pedidos) {
@@ -1513,7 +1513,7 @@ function mostrarResultado(resultados) {
   }).join('');
 
   document.getElementById('resultBody').innerHTML = html;
-  document.getElementById('resultModal').classList.add('open');
+  openModal('resultModal');
 }
 
 // ── Confirm modal ─────────────────────────────────────────────
@@ -1522,17 +1522,32 @@ function confirm2(title, body, onOk) {
   document.getElementById('confirmBody').textContent  = body;
   const btn = document.getElementById('confirmOk');
   btn.onclick = () => { closeModal('confirmModal'); onOk(); };
-  document.getElementById('confirmModal').classList.add('open');
+  openModal('confirmModal');
 }
 
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
 
+// Abre um modal garantindo que o overlay de loading não fique por cima
+function openModal(id) {
+  setOverlay(false);
+  document.getElementById(id).classList.add('open');
+}
+
 // ── Helpers UI ────────────────────────────────────────────────
+let _overlayTimer = null;
 function setOverlay(show, msg) {
   document.getElementById('overlay').style.display = show ? 'flex' : 'none';
   if (msg) document.getElementById('overlayMsg').textContent = msg;
+  clearTimeout(_overlayTimer);
+  // Trava de segurança: nunca deixa o overlay preso bloqueando cliques
+  if (show) {
+    _overlayTimer = setTimeout(() => {
+      document.getElementById('overlay').style.display = 'none';
+      toast('⚠ Operação demorou demais — tela liberada', 'err');
+    }, 45000);
+  }
 }
 
 function toast(msg, type) {
