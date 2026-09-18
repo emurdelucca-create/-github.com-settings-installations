@@ -159,6 +159,15 @@ function pc_checkAuth() {
   return { autorizado: !!refresh };
 }
 
+// Limpa todos os tokens — force no GAS editor antes de re-autorizar
+function pc_limparTokens() {
+  const p = _pc_props();
+  p.deleteProperty('BLING_ACCESS_TOKEN');
+  p.deleteProperty('BLING_REFRESH_TOKEN');
+  p.deleteProperty('BLING_TOKEN_EXPIRES');
+  Logger.log('Tokens apagados. Agora clique em "Bling" no app para re-autorizar.');
+}
+
 // ── Helpers de API ────────────────────────────────────────────
 function _pc_blingGet(path, params) {
   const token = _pc_getToken();
