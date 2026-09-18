@@ -612,53 +612,17 @@ function pc_criarPedidos(pedidos) {
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const resultados = [];
 
-  // Carrega cache de IDs de produto uma vez só
-  const idCache = _pc_lerCacheProdutos();
-  let cacheModificado = false;
-
-  // Coleta todos os SKUs sem ID entre todos os pedidos
-  const skusSemId = [];
-  pedidos.forEach(ped => ped.itens.forEach(it => {
-    if (!it.produtoId && idCache[it.sku]) {
-      it.produtoId = idCache[it.sku];  // resolve pelo cache
-    } else if (!it.produtoId) {
-      skusSemId.push(it.sku);
-    }
-  }));
-
-  // Busca no Bling apenas os SKUs ainda sem ID (deduplicados)
-  const skusUnicos = [...new Set(skusSemId)];
-  for (const sku of skusUnicos) {
-    try {
-      const id = _pc_buscarProdutoId(sku);
-      if (id) {
-        idCache[sku]    = id;
-        cacheModificado = true;
-        pedidos.forEach(ped => ped.itens.forEach(it => {
-          if (it.sku === sku && !it.produtoId) it.produtoId = id;
-        }));
-      }
-    } catch(e) { /* ignora; vai falhar abaixo no item sem ID */ }
-    Utilities.sleep(180);
-  }
-
-  if (cacheModificado) _pc_salvarCacheProdutos(idCache);
-
   for (const ped of pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
-
-      // Verifica se todos os itens têm ID
-      for (const it of ped.itens) {
-        if (!it.produtoId) throw new Error('Produto não encontrado no Bling para SKU: ' + it.sku);
-      }
 
       const payload = {
         data:       hoje,
         fornecedor: { id: Number(ped.fornecedorId) },
         itens: ped.itens.map(it => {
           const item = {
-            produto:    { id: Number(it.produtoId) },
+            // Usa código do produto em vez de ID interno — não requer GET /produtos
+            produto:    { codigo: String(it.sku || '').trim() },
             descricao:  String(it.nome  || it.sku),
             quantidade: Number(it.qtd)   || 0,
             valor:      Number(it.preco) || 0,
