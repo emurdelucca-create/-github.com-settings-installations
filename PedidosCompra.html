@@ -1651,17 +1651,21 @@ function escJs(s) {
   var linhas = code.split('\n');
   var OFFSET = 415; // linha da tag <script> do bloco principal no arquivo
 
-  // 1) Caractere invisivel: causa classica de "Invalid or unexpected token"
+  // 1) Caractere trocado ou invisivel: causa de "Invalid or unexpected token"
   var maus = [];
   for (var i = 0; i < linhas.length && maus.length < 3; i++) {
     for (var j = 0; j < linhas[i].length; j++) {
       var cp = linhas[i].charCodeAt(j), nome = null;
       if (cp === 0xA0)                                          nome = 'NBSP';
+      else if (cp === 0x2018 || cp === 0x2019)                  nome = 'ASPA SIMPLES CURVA';
+      else if (cp === 0x201C || cp === 0x201D)                  nome = 'ASPA DUPLA CURVA';
+      else if (cp === 0x2032 || cp === 0x2033)                  nome = 'PRIME (aspa falsa)';
       else if (cp === 0x2028 || cp === 0x2029)                  nome = 'separador U+' + cp.toString(16);
       else if (cp === 0xFEFF)                                   nome = 'BOM';
       else if (cp === 0x200B || cp === 0x200E || cp === 0x200F) nome = 'invisivel U+' + cp.toString(16);
       else if (cp < 0x20 && cp !== 9)                           nome = 'controle U+' + cp.toString(16);
-      else if (cp >= 0xD800 && cp <= 0xDBFF && !(linhas[i].charCodeAt(j + 1) >= 0xDC00)) nome = 'emoji partido';
+      else if (cp >= 0xD800 && cp <= 0xDBFF && !(linhas[i].charCodeAt(j + 1) >= 0xDC00 && linhas[i].charCodeAt(j + 1) <= 0xDFFF)) nome = 'surrogate alto solto';
+      else if (cp >= 0xDC00 && cp <= 0xDFFF && !(j > 0 && linhas[i].charCodeAt(j - 1) >= 0xD800 && linhas[i].charCodeAt(j - 1) <= 0xDBFF)) nome = 'surrogate baixo solto';
       if (nome) { maus.push('L' + (OFFSET + i) + ' c' + (j + 1) + ' ' + nome); break; }
     }
   }
@@ -1671,11 +1675,15 @@ function escJs(s) {
   try { new Function(code); msg = 'recompilou OK (erro intermitente)'; }
   catch (err) { msg = err.message; }
 
+  // 3) Contagem de caracteres: pega qualquer alteracao que nao mude as linhas
+  var EXP = 46867;
+  var difChars = code.length - EXP;
+
   d.textContent = 'ERRO: ' + msg
-    + '  |  bloco: ' + linhas.length + ' linhas (esperado 1209'
-    + (linhas.length === 1209 ? ', CONFERE' : ', DIFERENTE - colagem corrompida') + ')'
-    + (maus.length ? '  |  CARACTERE INVALIDO: ' + maus.join(' ; ')
-                   : '  |  nenhum caractere invisivel encontrado');
+    + '  |  ' + linhas.length + ' linhas (esp 1209' + (linhas.length === 1209 ? ' OK' : ' DIF') + ')'
+    + '  |  ' + code.length + ' chars (esp ' + EXP + ', '
+    + (difChars === 0 ? 'IDENTICO' : (difChars > 0 ? '+' : '') + difChars + ' -> COLAGEM ALTEROU O CODIGO') + ')'
+    + (maus.length ? '  |  ACHADO: ' + maus.join(' ; ') : '  |  sem caractere suspeito');
 })();
 </script>
 </body>
