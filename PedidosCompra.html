@@ -325,7 +325,15 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
       <button class="btn btn-ghost btn-sm" id="btnAbrirBling" onclick="abrirBling()">🔗 Abrir Bling para autorizar</button>
       <button class="btn btn-sm" style="background:rgba(255,68,68,.15);color:var(--red);border:1px solid rgba(255,68,68,.3)" onclick="limparTokensBling()">🗑 Limpar tokens e re-autorizar</button>
     </div>
-    <div id="blingLinkBox" style="display:none;background:rgba(0,200,130,.08);border:1px solid rgba(0,200,130,.25);border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--text);line-height:1.7"></div>
+    <div id="blingLinkBox" style="display:none;background:rgba(0,200,130,.08);border:1px solid rgba(0,200,130,.25);border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--text);line-height:1.7">
+      <div style="margin-bottom:6px">👆 <strong>Copie a URL abaixo</strong> e cole direto na barra de endereço do navegador (nova aba):</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="blingUrlGerada" type="text" readonly
+          style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:4px;color:var(--cyan);font-size:10px;padding:5px 8px;font-family:monospace;outline:none"
+          onclick="this.select()">
+        <button class="btn btn-green btn-sm" onclick="copiarUrlBling()">📋 Copiar</button>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;align-items:center">
       <input id="codigoInput" type="text" placeholder="Cole aqui a URL inteira do Google ou só o código"
         style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px 10px;outline:none;font-family:monospace">
@@ -644,20 +652,20 @@ function limparTokensBling() {
 function abrirBling() {
   const btn = document.getElementById('btnAbrirBling');
   const linkBox = document.getElementById('blingLinkBox');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Carregando...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando URL...'; }
   if (linkBox) linkBox.style.display = 'none';
   google.script.run
     .withSuccessHandler(res => {
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gerar novo link'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Abrir Bling para autorizar'; }
       if (!res.ok) {
-        document.getElementById('setupErr').textContent = res.error;
-        document.getElementById('setupErr').style.display = '';
+        const errEl = document.getElementById('setupErr');
+        errEl.textContent = res.error;
+        errEl.style.display = '';
         return;
       }
       if (linkBox) {
-        linkBox.innerHTML = '👆 <strong>Clique no link abaixo</strong> para abrir o Bling (abrirá numa nova aba):<br>' +
-          '<a href="' + res.url + '" target="_blank" rel="noopener" ' +
-          'style="color:var(--cyan);word-break:break-all;font-size:11px">' + res.url.slice(0, 80) + '...</a>';
+        const urlInput = document.getElementById('blingUrlGerada');
+        if (urlInput) urlInput.value = res.url;
         linkBox.style.display = '';
       }
     })
@@ -666,6 +674,18 @@ function abrirBling() {
       toast('❌ ' + e.message, 'err');
     })
     .pc_getAuthUrl();
+}
+
+function copiarUrlBling() {
+  const inp = document.getElementById('blingUrlGerada');
+  if (!inp || !inp.value) return;
+  try {
+    navigator.clipboard.writeText(inp.value).then(() => toast('✅ URL copiada! Cole na barra de endereço do navegador', 'ok'));
+  } catch(e) {
+    inp.select();
+    document.execCommand('copy');
+    toast('✅ URL copiada! Cole na barra de endereço do navegador', 'ok');
+  }
 }
 
 function confirmarCodigo() {
