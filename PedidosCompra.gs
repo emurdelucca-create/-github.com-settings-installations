@@ -512,6 +512,43 @@ function pc_buscarFornecedoresBling() {
 // ── Cache de IDs de produto ───────────────────────────────────
 const PC_PROP_PROD_CACHE = 'BLING_PRODUTO_IDS_CACHE';
 
+// Busca o ID de um produto no Bling pelo SKU com várias estratégias:
+// 1) código exato (case-insensitive, pega até 20 resultados e filtra)
+// 2) código sem o sufixo após o último hífen (ex: "20087-S" → "20087")
+// Retorna o id como string ou null se não encontrado.
+function _pc_buscarProdutoId(sku) {
+  const skuUp  = sku.trim().toUpperCase();
+
+  // Estratégia 1: busca pelo código completo, pega 20 e filtra exato
+  try {
+    const r = _pc_blingGet('/produtos', { codigo: sku.trim(), pagina: 1, limite: 20 });
+    const lista = r.data || [];
+    const exato = lista.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
+    if (exato) return String(exato.id);
+    // aceita qualquer resultado se só veio um (busca do Bling já filtrou bem)
+    if (lista.length === 1) return String(lista[0].id);
+  } catch(_) {}
+
+  Utilities.sleep(120);
+
+  // Estratégia 2: tenta sem o sufixo (ex: "20087-S" → "20087")
+  const baseCod = skuUp.includes('-') ? skuUp.slice(0, skuUp.lastIndexOf('-')) : null;
+  if (baseCod) {
+    try {
+      const r2 = _pc_blingGet('/produtos', { codigo: baseCod, pagina: 1, limite: 20 });
+      const lista2 = r2.data || [];
+      // Prefere match exato com o SKU original
+      const exato2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
+      if (exato2) return String(exato2.id);
+      // Fallback: match exato com o código base
+      const base2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === baseCod);
+      if (base2) return String(base2.id);
+    } catch(_) {}
+  }
+
+  return null;
+}
+
 function _pc_lerCacheProdutos() {
   const raw = _pc_props().getProperty(PC_PROP_PROD_CACHE);
   if (!raw) return {};
@@ -545,14 +582,12 @@ function pc_criarPedidos(pedidos) {
   const skusUnicos = [...new Set(skusSemId)];
   for (const sku of skusUnicos) {
     try {
-      const r = _pc_blingGet('/produtos', { codigo: sku, pagina: 1, limite: 1 });
-      const p = (r.data || [])[0];
-      if (p) {
-        idCache[sku]     = String(p.id);
-        cacheModificado  = true;
-        // Aplica de volta nos itens
+      const id = _pc_buscarProdutoId(sku);
+      if (id) {
+        idCache[sku]    = id;
+        cacheModificado = true;
         pedidos.forEach(ped => ped.itens.forEach(it => {
-          if (it.sku === sku && !it.produtoId) it.produtoId = idCache[sku];
+          if (it.sku === sku && !it.produtoId) it.produtoId = id;
         }));
       }
     } catch(e) { /* ignora; vai falhar abaixo no item sem ID */ }
