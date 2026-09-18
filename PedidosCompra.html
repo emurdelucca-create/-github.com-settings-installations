@@ -267,6 +267,12 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 </head>
 <body>
 
+<!-- Banner de diagnostico: o JS reescreve isso na primeira linha do script.
+     Se continuar vermelho, o bloco de script nao executou no navegador. -->
+<div id="jsDiag" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:6px 12px;font:12px/1.5 monospace;background:#5a0000;color:#ffb3b3;border-top:2px solid #ff4444">
+  ⚠ JavaScript NÃO executou — nenhum botão vai funcionar. Reporte esta mensagem.
+</div>
+
 <!-- Header -->
 <div class="header">
   <div class="header-left">
@@ -392,6 +398,36 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 </div>
 
 <script>
+// ── Diagnóstico: prova que o bloco de script executou ──────────
+var PC_BUILD = '2026-09-18-diag1';
+(function () {
+  var d = document.getElementById('jsDiag');
+  if (d) {
+    d.style.background = '#00331f';
+    d.style.color      = '#7fffd4';
+    d.style.borderTop  = '2px solid #00c882';
+    d.textContent      = '✅ JS OK — build ' + PC_BUILD + ' — clique num botão para testar';
+  }
+  window.onerror = function (msg, src, line, col) {
+    var e = document.getElementById('jsDiag');
+    if (e) {
+      e.style.background = '#5a0000';
+      e.style.color      = '#ffb3b3';
+      e.textContent      = '❌ ERRO JS linha ' + line + ':' + col + ' — ' + msg;
+    }
+    return false;
+  };
+  // Prova que cliques chegam aos elementos
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest ? ev.target.closest('button') : null;
+    if (!t) return;
+    var e = document.getElementById('jsDiag');
+    if (e && e.style.background !== 'rgb(90, 0, 0)') {
+      e.textContent = '🖱 clique recebido: "' + (t.textContent || '').trim().slice(0, 40) + '" — build ' + PC_BUILD;
+    }
+  }, true);
+})();
+
 // ── Constantes ────────────────────────────────────────────────
 const EMPRESAS = ['HUMBLE', 'NAJUMI', 'SKY', 'EDMOTOS', 'MOTO VIBE'];
 
