@@ -379,8 +379,13 @@ let _saveTimer = null;
 function salvarEstado() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
+    // Salva localmente (rápido) e no servidor (compartilhado entre todos)
     try { localStorage.setItem(LS_STATE, JSON.stringify({ tabs: S.tabs, activeTab: S.activeTab })); } catch(e) {}
-  }, 400);
+    try {
+      const json = JSON.stringify({ tabs: S.tabs, activeTab: S.activeTab });
+      google.script.run.pc_salvarEstado(json);
+    } catch(e) {}
+  }, 800);
 }
 
 function _carregarEstado() {
@@ -466,55 +471,84 @@ function _parsarLinhaCsv(linha) {
 
 // ── Boot ─────────────────────────────────────────────────────
 window.onload = () => {
-  // 1. Carrega fornecedores do localStorage (CSV importado anteriormente)
-  const forn = _carregarFornLS();
-  if (forn.length) {
-    S.fornBling  = forn;
-    S.fornLoaded = true;
-    document.getElementById('hdrSub').textContent = forn.length + ' fornecedores · use 📂 CSV para atualizar';
-    document.getElementById('btnCriar').disabled = false;
-  } else {
-    // localStorage vazio — tenta recuperar do servidor
-    document.getElementById('hdrSub').textContent = 'Recuperando fornecedores do servidor...';
-    google.script.run
-      .withSuccessHandler(res => {
-        if (res.ok && res.fornecedores.length) {
-          S.fornBling  = res.fornecedores;
-          S.fornLoaded = true;
-          _salvarFornLS(res.fornecedores);  // repopula localStorage
-          const data = res.dataAtualizacao ? ' (importado em ' + res.dataAtualizacao + ')' : '';
-          document.getElementById('hdrSub').textContent = res.fornecedores.length + ' fornecedores recuperados do servidor' + data;
-          toast('✅ ' + res.fornecedores.length + ' fornecedores recuperados do servidor', 'ok');
-        } else {
-          document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
-        }
-        document.getElementById('btnCriar').disabled = false;
-      })
-      .withFailureHandler(() => {
-        document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores (botão 📂 CSV Fornecedores)';
-        document.getElementById('btnCriar').disabled = false;
-      })
-      .pc_carregarFornecedoresCSV();
-  }
-
-  // Botão criar sempre habilitado (fornecedores podem ser carregados depois)
+  document.getElementById('hdrSub').textContent = 'Carregando...';
   document.getElementById('btnCriar').disabled = false;
 
-  // 2. Restaura estado salvo (abas, itens, preços, fornecedores selecionados)
-  if (_carregarEstado()) {
-    renderAll();
-    document.getElementById('btnApagar').disabled = false;
-    toast('✅ Estado anterior restaurado — aba: ' + (S.tabs[S.activeTab]?.nomeFornec || ''), 'ok');
-    return;
-  }
+  // Carrega fornecedores do localStorage (disponível imediatamente)
+  const forn = _carregarFornLS();
+  if (forn.length) { S.fornBling = forn; S.fornLoaded = true; }
 
-  // 3. Sem estado salvo: verifica autenticação Bling (apenas para poder criar pedidos)
+  // Carrega estado do servidor (compartilhado entre todos os acessos)
   google.script.run
-    .withSuccessHandler(res => {
-      if (!res.autorizado) document.getElementById('setupModal').classList.add('open');
+    .withSuccessHandler(json => {
+      let restauradoServidor = false;
+      if (json) {
+        try {
+          const st = JSON.parse(json);
+          if (st.tabs && st.tabs.length) {
+            S.tabs      = st.tabs;
+            S.activeTab = Math.min(st.activeTab || 0, st.tabs.length - 1);
+            // Sincroniza também no localStorage local
+            try { localStorage.setItem(LS_STATE, json); } catch(e) {}
+            restauradoServidor = true;
+          }
+        } catch(e) {}
+      }
+
+      if (restauradoServidor) {
+        renderAll();
+        document.getElementById('btnApagar').disabled = false;
+        document.getElementById('hdrSub').textContent =
+          S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '');
+        return;
+      }
+
+      // Servidor sem estado — tenta localStorage local
+      if (_carregarEstado()) {
+        renderAll();
+        document.getElementById('btnApagar').disabled = false;
+        document.getElementById('hdrSub').textContent =
+          S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '');
+        return;
+      }
+
+      // Sem estado em nenhum lugar
+      document.getElementById('hdrSub').textContent = S.fornLoaded
+        ? (S.fornBling.length + ' fornecedores · clique em ▶ Criar Abas')
+        : 'Importe o CSV de fornecedores ou clique em ▶ Criar Abas';
+
+      // Recupera fornecedores do servidor se não tiver local
+      if (!S.fornLoaded) {
+        google.script.run
+          .withSuccessHandler(res => {
+            if (res.ok && res.fornecedores.length) {
+              S.fornBling = res.fornecedores; S.fornLoaded = true;
+              _salvarFornLS(res.fornecedores);
+              document.getElementById('hdrSub').textContent =
+                res.fornecedores.length + ' fornecedores · clique em ▶ Criar Abas';
+            }
+          })
+          .withFailureHandler(() => {})
+          .pc_carregarFornecedoresCSV();
+      }
+
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.autorizado) document.getElementById('setupModal').classList.add('open');
+        })
+        .withFailureHandler(() => {})
+        .pc_checkAuth();
     })
-    .withFailureHandler(() => {})
-    .pc_checkAuth();
+    .withFailureHandler(() => {
+      // Falhou no servidor — cai para localStorage
+      if (_carregarEstado()) {
+        renderAll();
+        document.getElementById('btnApagar').disabled = false;
+      } else {
+        document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores ou clique em ▶ Criar Abas';
+      }
+    })
+    .pc_carregarEstado();
 };
 
 // ── Setup OAuth Bling ─────────────────────────────────────────
@@ -657,6 +691,7 @@ function apagarDados() {
   confirm2('Apagar todos os dados?', 'Todas as abas e itens serão removidos da tela. Os dados nas planilhas não são alterados.', () => {
     S.tabs = []; S.activeTab = -1;
     try { localStorage.removeItem(LS_STATE); } catch(e) {}
+    google.script.run.pc_limparEstado();
     renderAll();
     document.getElementById('btnApagar').disabled = true;
     toast('🗑 Dados apagados', 'inf');

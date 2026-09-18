@@ -640,15 +640,39 @@ function pc_criarPedidos(pedidos) {
   return { resultados };
 }
 
-// ── Última aba ativa (compartilhada globalmente via ScriptProperties) ─────────
-function pc_salvarUltimaAba(nome) {
+// ── Estado global compartilhado (servidor) ────────────────────────────────────
+// Usa uma aba oculta "_pc_state_" na planilha de compras para guardar o JSON
+// completo do estado. Qualquer conta que abrir o link vê o mesmo estado.
+
+const PC_ABA_STATE = '_pc_state_';
+
+function _pc_abaEstado() {
+  const ss = SpreadsheetApp.openById(PC_SS_COMPRAS_ID);
+  let aba  = ss.getSheetByName(PC_ABA_STATE);
+  if (!aba) {
+    aba = ss.insertSheet(PC_ABA_STATE);
+    aba.hideSheet();
+  }
+  return aba;
+}
+
+function pc_salvarEstado(json) {
   try {
-    PropertiesService.getScriptProperties().setProperty('PC_ULTIMA_ABA', String(nome || ''));
+    _pc_abaEstado().getRange('A1').setValue(String(json || ''));
   } catch(e) {}
 }
 
-function pc_getUltimaAba() {
+function pc_carregarEstado() {
   try {
-    return PropertiesService.getScriptProperties().getProperty('PC_ULTIMA_ABA') || '';
-  } catch(e) { return ''; }
+    const val = _pc_abaEstado().getRange('A1').getValue();
+    return val ? String(val) : null;
+  } catch(e) { return null; }
 }
+
+function pc_limparEstado() {
+  try { _pc_abaEstado().getRange('A1').clearContent(); } catch(e) {}
+}
+
+// Mantida para compatibilidade (usa o estado global agora)
+function pc_salvarUltimaAba(nome) {}
+function pc_getUltimaAba() { return ''; }
