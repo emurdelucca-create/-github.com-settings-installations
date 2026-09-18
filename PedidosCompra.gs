@@ -524,6 +524,26 @@ function pc_testarBuscaProduto(sku) {
   }
 }
 
+// Diagnóstico — mostra qual Client ID e se o token existe
+function pc_diagnosticoAuth() {
+  const p         = _pc_props();
+  const clientId  = p.getProperty('BLING_CLIENT_ID') || '(não configurado)';
+  const hasAccess = !!(p.getProperty('BLING_ACCESS_TOKEN'));
+  const hasRefresh= !!(p.getProperty('BLING_REFRESH_TOKEN'));
+  const expires   = p.getProperty('BLING_TOKEN_EXPIRES') || '0';
+  Logger.log('BLING_CLIENT_ID  : ' + clientId);
+  Logger.log('Tem ACCESS_TOKEN : ' + hasAccess);
+  Logger.log('Tem REFRESH_TOKEN: ' + hasRefresh);
+  Logger.log('Token expira em  : ' + new Date(parseInt(expires)).toISOString());
+  // Testa chamada simples à API
+  try {
+    const me = _pc_blingGet('/empresas', {});
+    Logger.log('Conta Bling      : ' + JSON.stringify(me).slice(0, 300));
+  } catch(e) {
+    Logger.log('Teste /empresas  : ERRO — ' + e.message);
+  }
+}
+
 // Busca o ID de um produto no Bling pelo SKU com várias estratégias:
 // 1) código exato com limite 100, compara campos codigo/sku/codigoVariacao
 // 2) código sem o sufixo após o último hífen (ex: "20087-S" → "20087")
