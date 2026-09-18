@@ -1606,5 +1606,21 @@ function escJs(s) {
   return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
 </script>
+
+<!-- Sonda independente: bloco separado, roda mesmo se o principal for
+     rejeitado por erro de sintaxe. Diz qual dos dois casos ocorreu. -->
+<script>
+(function () {
+  var d = document.getElementById('jsDiag');
+  if (!d) return;
+  if (typeof window.PC_BUILD === 'string') return; // principal rodou, banner ja verde
+  d.style.background = '#4a2600';
+  d.style.color      = '#ffd28a';
+  d.style.borderTop  = '2px solid #ff9500';
+  d.textContent = 'SONDA OK, PRINCIPAL FALHOU -> o bloco de script grande foi '
+    + 'rejeitado (erro de sintaxe ou colagem truncada no editor do Apps Script). '
+    + 'Abra o Console do navegador (F12) e reporte a primeira linha em vermelho.';
+})();
+</script>
 </body>
 </html>
