@@ -512,26 +512,39 @@ function pc_buscarFornecedoresBling() {
 // ── Cache de IDs de produto ───────────────────────────────────
 const PC_PROP_PROD_CACHE = 'BLING_PRODUTO_IDS_CACHE';
 
+// Diagnóstico — rode diretamente no editor GAS para ver o retorno da API
+// Ex: pc_testarBuscaProduto('20087-S')
+function pc_testarBuscaProduto(sku) {
+  try {
+    const r = _pc_blingGet('/produtos', { codigo: sku, pagina: 1, limite: 100 });
+    Logger.log('TOTAL de itens retornados: ' + (r.data || []).length);
+    Logger.log('Resposta completa: ' + JSON.stringify(r).slice(0, 2000));
+  } catch(e) {
+    Logger.log('ERRO: ' + e.message);
+  }
+}
+
 // Busca o ID de um produto no Bling pelo SKU com várias estratégias:
-// 1) código exato (case-insensitive, pega até 20 resultados e filtra)
+// 1) código exato com limite 100, compara campos codigo/sku/codigoVariacao
 // 2) código sem o sufixo após o último hífen (ex: "20087-S" → "20087")
-// Retorna o id como string ou null se não encontrado.
-// Lança exceção se a API retornar 4xx (ex: escopo "Produtos" não autorizado).
+// Lança exceção se a API retornar 4xx.
 function _pc_buscarProdutoId(sku) {
   const skuUp = sku.trim().toUpperCase();
 
-  // Estratégia 1: busca pelo código completo, pega 20 e filtra exato
-  let erroApi = null;
+  function _codigoItem(p) {
+    // Bling v3 pode retornar o código em campos diferentes
+    return String(p.codigo || p.codigoSKU || p.sku || p.referencia || '').trim().toUpperCase();
+  }
+
+  // Estratégia 1: busca pelo código completo, limite 100, filtra exato
   try {
-    const r = _pc_blingGet('/produtos', { codigo: sku.trim(), pagina: 1, limite: 20 });
+    const r = _pc_blingGet('/produtos', { codigo: sku.trim(), pagina: 1, limite: 100 });
     const lista = r.data || [];
-    const exato = lista.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
+    const exato = lista.find(p => _codigoItem(p) === skuUp);
     if (exato) return String(exato.id);
     if (lista.length === 1) return String(lista[0].id);
   } catch(e) {
-    // Se for erro de API (4xx/5xx), propaga para mostrar mensagem correta
     if (/Bling \d{3}/.test(e.message)) throw e;
-    erroApi = e;
   }
 
   Utilities.sleep(120);
@@ -540,11 +553,11 @@ function _pc_buscarProdutoId(sku) {
   const baseCod = skuUp.includes('-') ? skuUp.slice(0, skuUp.lastIndexOf('-')) : null;
   if (baseCod) {
     try {
-      const r2 = _pc_blingGet('/produtos', { codigo: baseCod, pagina: 1, limite: 20 });
+      const r2 = _pc_blingGet('/produtos', { codigo: baseCod, pagina: 1, limite: 100 });
       const lista2 = r2.data || [];
-      const exato2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === skuUp);
+      const exato2 = lista2.find(p => _codigoItem(p) === skuUp);
       if (exato2) return String(exato2.id);
-      const base2 = lista2.find(p => String(p.codigo || '').trim().toUpperCase() === baseCod);
+      const base2 = lista2.find(p => _codigoItem(p) === baseCod);
       if (base2) return String(base2.id);
     } catch(e) {
       if (/Bling \d{3}/.test(e.message)) throw e;
