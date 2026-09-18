@@ -1635,50 +1635,47 @@ function escJs(s) {
   d.textContent = 'ETAPA 3 - LARANJA: arquivo COMPLETO, bloco principal com erro de '
     + 'sintaxe. Localizando...';
 
-  // Busca o documento REALMENTE servido pelo Apps Script, recompila o bloco
-  // principal com new Function (que lanca SyntaxError capturavel) e mostra a
-  // linha exata do arquivo que esta quebrada.
-  try {
-    var x = new XMLHttpRequest();
-    x.open('GET', location.href, true);
-    x.onload = function () {
-      var doc = x.responseText;
-      var ini = doc.indexOf('PC_BUILD');
-      if (ini < 0) { d.textContent += ' (bloco principal ausente no doc servido)'; return; }
-      ini = doc.lastIndexOf('<scr' + 'ipt>', ini);
-      var fim = doc.indexOf('</scr' + 'ipt>', ini);
-      var code = doc.slice(ini + 8, fim);
-      var antes = doc.slice(0, ini + 8).split('\n').length; // offset no documento
-      try {
-        new Function(code);
-        d.textContent += ' (recompilou OK - erro intermitente)';
-      } catch (err) {
-        // "Invalid or unexpected token" quase sempre e um caractere invisivel
-        // inserido pela colagem (NBSP, separador de linha, controle).
-        var linhas = code.split('\n');
-        var maus = [];
-        for (var i = 0; i < linhas.length && maus.length < 4; i++) {
-          for (var j = 0; j < linhas[i].length; j++) {
-            var cp = linhas[i].charCodeAt(j);
-            var nome = null;
-            if (cp === 0xA0)                      nome = 'NBSP (espaco duro)';
-            else if (cp === 0x2028 || cp === 0x2029) nome = 'separador de linha U+' + cp.toString(16);
-            else if (cp === 0xFEFF)               nome = 'BOM';
-            else if (cp === 0x200B || cp === 0x200E || cp === 0x200F) nome = 'invisivel U+' + cp.toString(16);
-            else if (cp < 0x20 && cp !== 9)       nome = 'controle U+' + cp.toString(16);
-            else if (cp >= 0xD800 && cp <= 0xDBFF && !(linhas[i].charCodeAt(j + 1) >= 0xDC00)) nome = 'emoji quebrado';
-            if (nome) { maus.push('linha ' + (antes + i) + ' col ' + (j + 1) + ': ' + nome); break; }
-          }
-        }
-        d.textContent = 'ERRO: ' + err.message
-          + '  |  bloco servido: ' + linhas.length + ' linhas (esperado 1209'
-          + (linhas.length === 1209 ? ' - CONFERE' : ' - DIFERENTE, colagem corrompida') + ')'
-          + '  |  ' + (maus.length ? 'CARACTERE INVALIDO -> ' + maus.join(' ; ')
-                                   : 'nenhum caractere invisivel');
-      }
-    };
-    x.send();
-  } catch (_) {}
+  // O script que falhou continua no DOM com seu texto original. Le direto
+  // dali (sem rede) e recompila com new Function, que lanca SyntaxError
+  // capturavel. Depois localiza a linha por busca binaria.
+  var code = null;
+  for (var k = 0; k < document.scripts.length; k++) {
+    var t = document.scripts[k].text || '';
+    if (t.indexOf('PC_BUILD') >= 0) { code = t; break; }
+  }
+  if (code === null) {
+    d.textContent += ' (bloco principal nao encontrado no DOM)';
+    return;
+  }
+
+  var linhas = code.split('\n');
+  var OFFSET = 415; // linha da tag <script> do bloco principal no arquivo
+
+  // 1) Caractere invisivel: causa classica de "Invalid or unexpected token"
+  var maus = [];
+  for (var i = 0; i < linhas.length && maus.length < 3; i++) {
+    for (var j = 0; j < linhas[i].length; j++) {
+      var cp = linhas[i].charCodeAt(j), nome = null;
+      if (cp === 0xA0)                                          nome = 'NBSP';
+      else if (cp === 0x2028 || cp === 0x2029)                  nome = 'separador U+' + cp.toString(16);
+      else if (cp === 0xFEFF)                                   nome = 'BOM';
+      else if (cp === 0x200B || cp === 0x200E || cp === 0x200F) nome = 'invisivel U+' + cp.toString(16);
+      else if (cp < 0x20 && cp !== 9)                           nome = 'controle U+' + cp.toString(16);
+      else if (cp >= 0xD800 && cp <= 0xDBFF && !(linhas[i].charCodeAt(j + 1) >= 0xDC00)) nome = 'emoji partido';
+      if (nome) { maus.push('L' + (OFFSET + i) + ' c' + (j + 1) + ' ' + nome); break; }
+    }
+  }
+
+  // 2) Mensagem exata do compilador
+  var msg = '';
+  try { new Function(code); msg = 'recompilou OK (erro intermitente)'; }
+  catch (err) { msg = err.message; }
+
+  d.textContent = 'ERRO: ' + msg
+    + '  |  bloco: ' + linhas.length + ' linhas (esperado 1209'
+    + (linhas.length === 1209 ? ', CONFERE' : ', DIFERENTE - colagem corrompida') + ')'
+    + (maus.length ? '  |  CARACTERE INVALIDO: ' + maus.join(' ; ')
+                   : '  |  nenhum caractere invisivel encontrado');
 })();
 </script>
 </body>
