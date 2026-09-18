@@ -641,17 +641,33 @@ function limparTokensBling() {
 }
 
 function abrirBling() {
+  const btn = document.getElementById('btnAbrirBling');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Carregando URL...'; }
   google.script.run
     .withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Abrir Bling para autorizar'; }
       if (!res.ok) {
         document.getElementById('setupErr').textContent = res.error;
         document.getElementById('setupErr').style.display = '';
         return;
       }
-      _blingAuthWindow = window.open(res.url, '_blank');
-      toast('ℹ Autorize no Bling e copie o code= da URL do Google', 'inf');
+      // Cria link temporário e clica nele para contornar bloqueio de popup
+      const a = document.createElement('a');
+      a.href = res.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Fallback: mostra link caso o clique seja bloqueado
+      const errEl = document.getElementById('setupErr');
+      errEl.innerHTML = '🔗 Se não abriu: <a href="' + res.url + '" target="_blank" style="color:var(--cyan)">clique aqui para autorizar</a>';
+      errEl.style.display = '';
     })
-    .withFailureHandler(e => toast('❌ ' + e.message, 'err'))
+    .withFailureHandler(e => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Abrir Bling para autorizar'; }
+      toast('❌ ' + e.message, 'err');
+    })
     .pc_getAuthUrl();
 }
 
