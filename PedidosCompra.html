@@ -625,14 +625,22 @@ function criarAbas() {
               });
             });
           }
-          renderTabContent(S.activeTab);
           salvarEstado();
           toast('✅ Abas criadas: ' + S.tabs.length + ' fornecedor(es)', 'ok');
+          // Restaura a última aba ativa (global, compartilhada)
+          google.script.run
+            .withSuccessHandler(nome => { if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab); })
+            .withFailureHandler(() => renderTabContent(S.activeTab))
+            .pc_getUltimaAba();
         })
         .withFailureHandler(e => {
           setOverlay(false);
           salvarEstado();
           toast('⚠ Nomes parcialmente carregados: ' + e.message, 'err');
+          google.script.run
+            .withSuccessHandler(nome => { if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab); })
+            .withFailureHandler(() => renderTabContent(S.activeTab))
+            .pc_getUltimaAba();
         })
         .pc_buscarProdutosBling(allSkus);
     })
@@ -678,6 +686,12 @@ function renderTabBar() {
   ).join('');
 }
 
+function _ativarAbaPorNome(nome) {
+  const idx = S.tabs.findIndex(t => t.nomeFornec === nome);
+  if (idx >= 0 && idx !== S.activeTab) { switchTab(idx); }
+  else renderTabContent(S.activeTab);
+}
+
 function switchTab(idx) {
   S.activeTab = idx;
   renderTabBar();
@@ -685,6 +699,8 @@ function switchTab(idx) {
   document.getElementById('hdrSub').textContent =
     S.tabs.length + ' fornecedor(es) | aba: ' + S.tabs[idx].nomeFornec;
   salvarEstado();
+  // Salva a aba ativa no servidor (compartilhado entre todos os acessos)
+  google.script.run.pc_salvarUltimaAba(S.tabs[idx].nomeFornec);
 }
 
 // ── Tab content ───────────────────────────────────────────────

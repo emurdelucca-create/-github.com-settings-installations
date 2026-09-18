@@ -604,3 +604,16 @@ function pc_criarPedidos(pedidos) {
   }
   return { resultados };
 }
+
+// ── Última aba ativa (compartilhada globalmente via ScriptProperties) ─────────
+function pc_salvarUltimaAba(nome) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('PC_ULTIMA_ABA', String(nome || ''));
+  } catch(e) {}
+}
+
+function pc_getUltimaAba() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('PC_ULTIMA_ABA') || '';
+  } catch(e) { return ''; }
+}
