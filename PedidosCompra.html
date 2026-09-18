@@ -305,17 +305,21 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 <div class="modal-bg" id="setupModal">
   <div class="modal" style="max-width:520px">
     <div class="modal-title">🔗 Conectar ao Bling</div>
-    <div style="font-size:12px;color:var(--muted2);line-height:1.7;margin-bottom:16px">
+    <div id="setupModalDesc" style="font-size:12px;color:var(--muted2);line-height:1.7;margin-bottom:16px">
       <strong style="color:var(--cyan)">Passo 1:</strong> Acesse
       <a href="https://developer.bling.com.br" target="_blank" style="color:var(--cyan)">developer.bling.com.br</a>,
       crie um app e registre o <strong>Redirect URI</strong> como:<br>
       <code style="background:#0a1220;padding:2px 8px;border-radius:4px;color:var(--green);display:inline-block;margin:4px 0">https://www.google.com</code><br>
       Copie o <strong>Client ID</strong> e <strong>Client Secret</strong> e salve nas
       <em>Propriedades do Script</em> como <code>BLING_CLIENT_ID</code> e <code>BLING_CLIENT_SECRET</code>.<br><br>
-      <strong style="color:var(--cyan)">Passo 2:</strong> Clique no botão abaixo. Uma nova aba vai abrir no Bling para autorizar.
-      Após autorizar, você será redirecionado ao Google — copie o valor de <code>code=</code> que aparece na URL.<br><br>
-      <strong style="color:var(--cyan)">Passo 3:</strong> Cole o código abaixo e clique em <strong>Confirmar</strong>.
-      Feito isso, o token se renova automaticamente para sempre.
+      <strong style="color:var(--cyan)">Passo 2:</strong> <strong style="color:var(--yellow)">⚠ IMPORTANTE:</strong>
+      Antes de clicar em "Abrir Bling", <strong>faça logout do Bling no navegador</strong>
+      (abra <a href="https://www.bling.com.br" target="_blank" style="color:var(--cyan)">bling.com.br</a> e saia da conta).
+      Isso garante que a tela de autorização apareça com todos os escopos atualizados.<br><br>
+      <strong style="color:var(--cyan)">Passo 3:</strong> Clique em "Abrir Bling para autorizar". Após autorizar, você será
+      redirecionado ao Google — copie a URL inteira ou só o valor de <code>code=</code>.<br><br>
+      <strong style="color:var(--cyan)">Passo 4:</strong> Cole abaixo e clique em <strong>Confirmar</strong>.
+      O token se renova automaticamente.
     </div>
     <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" id="btnAbrirBling" onclick="abrirBling()">🔗 Abrir Bling para autorizar</button>
@@ -752,6 +756,7 @@ function criarAbas() {
         .withFailureHandler(e => {
           setOverlay(false);
           salvarEstado();
+          if (e.message && e.message.startsWith('AUTH_REQUIRED:')) { _erroAuthBling(e.message); return; }
           toast('⚠ Nomes parcialmente carregados: ' + e.message, 'err');
           google.script.run
             .withSuccessHandler(nome => { if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab); })
@@ -763,6 +768,7 @@ function criarAbas() {
     .withFailureHandler(e => {
       setOverlay(false);
       document.getElementById('btnCriar').disabled = false;
+      if (e.message && e.message.startsWith('AUTH_REQUIRED:')) { _erroAuthBling(e.message); return; }
       toast('❌ ' + e.message, 'err');
     })
     .pc_carregarDados();
@@ -1409,6 +1415,24 @@ function montarPedidos(tab) {
   return pedidos;
 }
 
+function _erroAuthBling(mensagem) {
+  // Abre modal de autenticação com aviso especial de re-auth
+  const desc = document.getElementById('setupModalDesc');
+  if (desc) {
+    desc.innerHTML = '<div style="background:rgba(255,180,0,.1);border:1px solid rgba(255,180,0,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px;color:var(--yellow)">' +
+      '<strong>⚠ Re-autorização necessária</strong><br>' +
+      'Os tokens foram apagados automaticamente porque o Bling negou acesso (403).<br>' +
+      'O token antigo não tem os escopos de API necessários.' +
+      '</div>' +
+      '<strong style="color:var(--red)">OBRIGATÓRIO antes de autorizar:</strong><br>' +
+      '1. Abra <a href="https://www.bling.com.br" target="_blank" style="color:var(--cyan)">bling.com.br</a> em outra aba e <strong>faça logout</strong> da conta Bling.<br>' +
+      '2. Volte aqui e clique em "Abrir Bling para autorizar".<br>' +
+      '3. Faça login no Bling novamente — a tela de autorização aparecerá com todos os escopos.<br>' +
+      '4. Após autorizar, copie a URL do Google e cole abaixo.';
+  }
+  document.getElementById('setupModal').classList.add('open');
+}
+
 function enviarPedidos(pedidos) {
   setOverlay(true, 'Criando pedidos no Bling...');
   google.script.run
@@ -1418,7 +1442,11 @@ function enviarPedidos(pedidos) {
     })
     .withFailureHandler(e => {
       setOverlay(false);
-      toast('❌ ' + e.message, 'err');
+      if (e.message && e.message.startsWith('AUTH_REQUIRED:')) {
+        _erroAuthBling(e.message);
+      } else {
+        toast('❌ ' + e.message, 'err');
+      }
     })
     .pc_criarPedidos(pedidos);
 }

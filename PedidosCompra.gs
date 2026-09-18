@@ -170,43 +170,57 @@ function pc_limparTokens() {
 }
 
 // ── Helpers de API ────────────────────────────────────────────
-function _pc_blingGet(path, params) {
+
+// Limpa todos os tokens e lança AUTH_REQUIRED para forçar re-autorização no HTML
+function _pc_forcarReautorizacao(motivo) {
+  const p = _pc_props();
+  p.deleteProperty('BLING_ACCESS_TOKEN');
+  p.deleteProperty('BLING_REFRESH_TOKEN');
+  p.deleteProperty('BLING_TOKEN_EXPIRES');
+  throw new Error('AUTH_REQUIRED: ' + (motivo || 'Tokens apagados — re-autorize o Bling.'));
+}
+
+function _pc_blingCall(method, path, params, bodyPayload) {
   const token = _pc_getToken();
   let url = BLING_API_BASE + path;
   if (params && Object.keys(params).length) {
     url += '?' + Object.entries(params).map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
   }
-  const res  = UrlFetchApp.fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-    muteHttpExceptions: true,
-  });
-  const code = res.getResponseCode();
-  const body = JSON.parse(res.getContentText() || '{}');
-  if (code < 200 || code >= 300) {
-    throw new Error('Bling ' + code + ': ' + (body?.error?.message || JSON.stringify(body).slice(0, 250)));
-  }
-  return body;
-}
-
-function _pc_blingPost(path, payload) {
-  const token = _pc_getToken();
-  const res   = UrlFetchApp.fetch(BLING_API_BASE + path, {
-    method: 'POST',
+  const opts = {
+    method: method,
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    payload: JSON.stringify(payload),
     muteHttpExceptions: true,
-  });
+  };
+  if (bodyPayload !== null) opts.payload = JSON.stringify(bodyPayload);
+
+  const res  = UrlFetchApp.fetch(url, opts);
   const code = res.getResponseCode();
   const body = JSON.parse(res.getContentText() || '{}');
+
+  if (code === 403 || code === 401) {
+    // Token inválido ou sem escopos corretos — limpa tudo e exige nova autorização
+    _pc_forcarReautorizacao(
+      'Bling retornou ' + code + ' em ' + method + ' ' + path + '. ' +
+      'O token não tem os escopos necessários. Faça logout do Bling no navegador e re-autorize.'
+    );
+  }
+
   if (code < 200 || code >= 300) {
-    // Monta mensagem de erro com o máximo de detalhe possível
-    const err   = body?.error || body;
-    const msg   = err?.message || '';
+    const err    = body?.error || body;
+    const msg    = err?.message || '';
     const fields = (err?.fields || []).map(f => f.msg || f.message || JSON.stringify(f)).join('; ');
     const detail = [msg, fields].filter(Boolean).join(' | ') || JSON.stringify(body).slice(0, 400);
     throw new Error('Bling ' + code + ': ' + detail);
   }
   return body;
+}
+
+function _pc_blingGet(path, params) {
+  return _pc_blingCall('GET', path, params, null);
+}
+
+function _pc_blingPost(path, payload) {
+  return _pc_blingCall('POST', path, null, payload);
 }
 
 // ── Planilhas ────────────────────────────────────────────────
