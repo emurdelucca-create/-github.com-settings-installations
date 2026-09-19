@@ -548,6 +548,37 @@ function pc_testarBuscaProduto(sku) {
   }
 }
 
+// Diagnóstico — testa varios endpoints SEM apagar tokens em caso de erro
+// (chama a API diretamente, sem passar por _pc_blingCall)
+function pc_testarEndpointsBling() {
+  const token = _pc_getToken();
+  function chamar(method, path, payload) {
+    const opts = {
+      method: method,
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      muteHttpExceptions: true,
+    };
+    if (payload !== undefined) opts.payload = JSON.stringify(payload);
+    const res = UrlFetchApp.fetch(BLING_API_BASE + path, opts);
+    const code = res.getResponseCode();
+    const body = res.getContentText().slice(0, 300);
+    Logger.log(method + ' ' + path + '  ->  ' + code + '  |  ' + body);
+  }
+  Logger.log('=== Testando endpoints Bling (tokens preservados) ===');
+  chamar('GET', '/empresas');
+  Utilities.sleep(200);
+  chamar('GET', '/produtos?limite=1');
+  Utilities.sleep(200);
+  chamar('GET', '/pedidos/compras?limite=1');
+  Utilities.sleep(200);
+  chamar('GET', '/contatos?limite=1');
+  Utilities.sleep(200);
+  // POST com payload deliberadamente incompleto — 400/422 = escopo OK mas payload invalido;
+  // 403 = falta escopo "Pedidos de Compra" mesmo
+  chamar('POST', '/pedidos/compras', { data: '2026-01-01' });
+  Logger.log('=== Fim do teste ===');
+}
+
 // Diagnóstico — mostra qual Client ID e se o token existe
 function pc_diagnosticoAuth() {
   const p         = _pc_props();
