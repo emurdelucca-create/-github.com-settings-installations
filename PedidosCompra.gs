@@ -682,9 +682,22 @@ function pc_criarPedidos(pedidos) {
     try {
       if (!ped.fornecedorId) throw new Error('Fornecedor não selecionado');
 
-      // Tenta resolver ID pelo cache; se não tiver, usa código diretamente
+      // Resolve ID do produto: cache primeiro, senão busca na API do Bling e
+      // grava no cache. Só cai no fallback de código se a busca não achar nada.
       const idCache = _pc_lerCacheProdutos();
-      ped.itens.forEach(it => { if (!it.produtoId && idCache[it.sku]) it.produtoId = idCache[it.sku]; });
+      let cacheAlterado = false;
+      ped.itens.forEach(it => {
+        if (it.produtoId) return;
+        if (idCache[it.sku]) { it.produtoId = idCache[it.sku]; return; }
+        const idEncontrado = _pc_buscarProdutoId(it.sku);
+        if (idEncontrado) {
+          it.produtoId = idEncontrado;
+          idCache[it.sku] = idEncontrado;
+          cacheAlterado = true;
+        }
+        Utilities.sleep(120);
+      });
+      if (cacheAlterado) _pc_salvarCacheProdutos(idCache);
 
       const payload = {
         data:       hoje,
