@@ -46,8 +46,8 @@ const PC_CE_IDX_DADOSEXTRA  = 15; // col P
 const PC_CE_NCOLS           = 16; // lê A..P
 
 const BLING_REDIRECT = 'https://www.google.com';
-const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
-const BLING_API_BASE  = 'https://www.bling.com.br/Api/v3';
+const BLING_TOKEN_URL = 'https://api.bling.com.br/Api/v3/oauth/token';
+const BLING_API_BASE  = 'https://api.bling.com.br/Api/v3';
 
 // ── Web App ──────────────────────────────────────────────────
 function doGet() {
