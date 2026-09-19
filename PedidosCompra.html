@@ -275,18 +275,15 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
 
 <!-- Sonda 1 (inicio do arquivo, bloco proprio). Se ficar AZUL, scripts
      inline funcionam e o arquivo chegou ate aqui. -->
-<script>
-(function () {
-  var d = document.getElementById('jsDiag');
+<script>(function() {
+  var d = document.getElementById("jsDiag");
   if (!d) return;
   window.PC_ETAPA1 = true;
-  d.style.background = '#002b45';
-  d.style.color      = '#9fd8ff';
-  d.style.borderTop  = '2px solid #3aa0ff';
-  d.textContent = 'ETAPA 1 - AZUL: scripts inline funcionam, mas o bloco principal '
-    + 'NAO rodou e o fim do arquivo NAO chegou. Colagem truncada no meio.';
-})();
-</script>
+  d.style.background = "#002b45";
+  d.style.color = "#9fd8ff";
+  d.style.borderTop = "2px solid #3aa0ff";
+  d.textContent = "ETAPA 1 - AZUL: scripts inline funcionam, mas o bloco principal " + "NAO rodou e o fim do arquivo NAO chegou. Colagem truncada no meio.";
+})();</script>
 
 <!-- Header -->
 <div class="header">
@@ -412,63 +409,67 @@ td.clone-cell { border-left: 2px solid rgba(68,138,255,.15); }
   </div>
 </div>
 
-<script>
-// ── Diagnóstico: prova que o bloco de script executou ──────────
-var PC_BUILD = '2026-09-18-diag1';
-(function () {
-  var d = document.getElementById('jsDiag');
+<script>var PC_BUILD = "2026-09-18-diag1";
+
+(function() {
+  var d = document.getElementById("jsDiag");
   if (d) {
-    d.style.background = '#00331f';
-    d.style.color      = '#7fffd4';
-    d.style.borderTop  = '2px solid #00c882';
-    d.textContent      = '✅ JS OK — build ' + PC_BUILD + ' — clique num botão para testar';
+    d.style.background = "#00331f";
+    d.style.color = "#7fffd4";
+    d.style.borderTop = "2px solid #00c882";
+    d.textContent = "✅ JS OK — build " + PC_BUILD + " — clique num botão para testar";
   }
-  window.onerror = function (msg, src, line, col) {
-    var e = document.getElementById('jsDiag');
+  window.onerror = function(msg, src, line, col) {
+    var e = document.getElementById("jsDiag");
     if (e) {
-      e.style.background = '#5a0000';
-      e.style.color      = '#ffb3b3';
-      e.textContent      = '❌ ERRO JS linha ' + line + ':' + col + ' — ' + msg;
+      e.style.background = "#5a0000";
+      e.style.color = "#ffb3b3";
+      e.textContent = "❌ ERRO JS linha " + line + ":" + col + " — " + msg;
     }
     return false;
   };
-  // Prova que cliques chegam aos elementos
-  document.addEventListener('click', function (ev) {
-    var t = ev.target.closest ? ev.target.closest('button') : null;
+  document.addEventListener("click", function(ev) {
+    var t = ev.target.closest ? ev.target.closest("button") : null;
     if (!t) return;
-    var e = document.getElementById('jsDiag');
-    if (e && e.style.background !== 'rgb(90, 0, 0)') {
-      e.textContent = '🖱 clique recebido: "' + (t.textContent || '').trim().slice(0, 40) + '" — build ' + PC_BUILD;
+    var e = document.getElementById("jsDiag");
+    if (e && e.style.background !== "rgb(90, 0, 0)") {
+      e.textContent = '🖱 clique recebido: "' + (t.textContent || "").trim().slice(0, 40) + '" — build ' + PC_BUILD;
     }
   }, true);
 })();
 
-// ── Constantes ────────────────────────────────────────────────
-const EMPRESAS = ['HUMBLE', 'NAJUMI', 'SKY', 'EDMOTOS', 'MOTO VIBE'];
+const EMPRESAS = [ "HUMBLE", "NAJUMI", "SKY", "EDMOTOS", "MOTO VIBE" ];
 
-// ── Estado global ─────────────────────────────────────────────
 const S = {
-  tabs:             [],
-  activeTab:        -1,
-  fornBling:        [],
-  fornLoaded:       false,
-  mostrarFontePreco: false,
+  tabs: [],
+  activeTab: -1,
+  fornBling: [],
+  fornLoaded: false,
+  mostrarFontePreco: false
 };
 
-// ── LocalStorage ──────────────────────────────────────────────
-const LS_STATE = 'pc_estado_v3';
-const LS_FORN  = 'pc_forn_v3';
+const LS_STATE = "pc_estado_v3";
+
+const LS_FORN = "pc_forn_v3";
 
 let _saveTimer = null;
+
 function salvarEstado() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
-    // Salva localmente (rápido) e no servidor (compartilhado entre todos)
-    try { localStorage.setItem(LS_STATE, JSON.stringify({ tabs: S.tabs, activeTab: S.activeTab })); } catch(e) {}
     try {
-      const json = JSON.stringify({ tabs: S.tabs, activeTab: S.activeTab });
+      localStorage.setItem(LS_STATE, JSON.stringify({
+        tabs: S.tabs,
+        activeTab: S.activeTab
+      }));
+    } catch (e) {}
+    try {
+      const json = JSON.stringify({
+        tabs: S.tabs,
+        activeTab: S.activeTab
+      });
       google.script.run.pc_salvarEstado(json);
-    } catch(e) {}
+    } catch (e) {}
   }, 800);
 }
 
@@ -476,709 +477,537 @@ function _carregarEstado() {
   try {
     const raw = localStorage.getItem(LS_STATE);
     if (!raw) return false;
-    const st  = JSON.parse(raw);
+    const st = JSON.parse(raw);
     if (!st.tabs || !st.tabs.length) return false;
-    S.tabs      = st.tabs;
+    S.tabs = st.tabs;
     S.activeTab = Math.min(st.activeTab || 0, st.tabs.length - 1);
     return true;
-  } catch(e) { return false; }
+  } catch (e) {
+    return false;
+  }
 }
 
 function _salvarFornLS(lista) {
-  try { localStorage.setItem(LS_FORN, JSON.stringify(lista)); } catch(e) {}
+  try {
+    localStorage.setItem(LS_FORN, JSON.stringify(lista));
+  } catch (e) {}
 }
 
 function _carregarFornLS() {
-  try { const r = localStorage.getItem(LS_FORN); return r ? JSON.parse(r) : []; } catch(e) { return []; }
+  try {
+    const r = localStorage.getItem(LS_FORN);
+    return r ? JSON.parse(r) : [];
+  } catch (e) {
+    return [];
+  }
 }
 
-// ── CSV Fornecedores ──────────────────────────────────────────
 function onCsvUpload(input) {
   const file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
+  const reader = new FileReader;
   reader.onload = e => {
     try {
       const lista = parsearCSVFornecedores(e.target.result);
-      if (!lista.length) { toast('⚠ Nenhum fornecedor encontrado no CSV', 'err'); return; }
-      S.fornBling  = lista;
+      if (!lista.length) {
+        toast("⚠ Nenhum fornecedor encontrado no CSV", "err");
+        return;
+      }
+      S.fornBling = lista;
       S.fornLoaded = true;
       _salvarFornLS(lista);
-      document.getElementById('btnCriar').disabled = false;
-      document.getElementById('hdrSub').textContent = lista.length + ' fornecedores carregados do CSV';
-      toast('✅ ' + lista.length + ' fornecedores importados — salvando no servidor...', 'ok');
-      // Salva também no servidor para persistir entre browsers/sessões
-      google.script.run
-        .withSuccessHandler(res => {
-          if (res.ok) toast('✅ Fornecedores salvos no servidor (' + lista.length + ')', 'ok');
-          else        toast('⚠ Salvo local mas erro no servidor: ' + res.error, 'err');
-        })
-        .withFailureHandler(e => toast('⚠ Salvo local mas erro no servidor: ' + e.message, 'err'))
-        .pc_salvarFornecedoresCSV(lista);
-    } catch(e) { toast('❌ Erro ao ler CSV: ' + e.message, 'err'); }
-    input.value = '';
+      document.getElementById("btnCriar").disabled = false;
+      document.getElementById("hdrSub").textContent = lista.length + " fornecedores carregados do CSV";
+      toast("✅ " + lista.length + " fornecedores importados — salvando no servidor...", "ok");
+      google.script.run.withSuccessHandler(res => {
+        if (res.ok) toast("✅ Fornecedores salvos no servidor (" + lista.length + ")", "ok"); else toast("⚠ Salvo local mas erro no servidor: " + res.error, "err");
+      }).withFailureHandler(e => toast("⚠ Salvo local mas erro no servidor: " + e.message, "err")).pc_salvarFornecedoresCSV(lista);
+    } catch (e) {
+      toast("❌ Erro ao ler CSV: " + e.message, "err");
+    }
+    input.value = "";
   };
-  reader.readAsText(file, 'UTF-8');
+  reader.readAsText(file, "UTF-8");
 }
 
 function parsearCSVFornecedores(text) {
   const linhas = text.split(/\r?\n/);
-  const lista  = [];
+  const lista = [];
   for (let i = 1; i < linhas.length; i++) {
     const cols = _parsarLinhaCsv(linhas[i]);
     if (!cols || cols.length < 3) continue;
-    const id      = (cols[0] || '').trim();
-    const codigo  = (cols[1] || '').trim();
-    const nome    = (cols[2] || '').trim();
-    const fantasia = (cols[3] || '').trim();
+    const id = (cols[0] || "").trim();
+    const codigo = (cols[1] || "").trim();
+    const nome = (cols[2] || "").trim();
+    const fantasia = (cols[3] || "").trim();
     if (!id || !nome) continue;
-    // Monta nome de exibição: prefere Código (apelido curto) se diferente do nome
-    const display = (codigo && codigo !== nome) ? codigo + ' — ' + nome :
-                    (fantasia && fantasia !== nome) ? fantasia + ' — ' + nome : nome;
-    lista.push({ id, nome: display });
+    const display = codigo && codigo !== nome ? codigo + " — " + nome : fantasia && fantasia !== nome ? fantasia + " — " + nome : nome;
+    lista.push({
+      id: id,
+      nome: display
+    });
   }
-  lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", {
+    sensitivity: "base"
+  }));
   return lista;
 }
 
 function _parsarLinhaCsv(linha) {
   const cols = [];
-  let cur = '', inQ = false;
+  let cur = "", inQ = false;
   for (const ch of linha) {
-    if (ch === '"')      { inQ = !inQ; }
-    else if (ch === ';' && !inQ) { cols.push(cur); cur = ''; }
-    else                { cur += ch; }
+    if (ch === '"') {
+      inQ = !inQ;
+    } else if (ch === ";" && !inQ) {
+      cols.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
   }
   cols.push(cur);
   return cols;
 }
 
-// ── Boot ─────────────────────────────────────────────────────
 window.onload = () => {
-  document.getElementById('hdrSub').textContent = 'Carregando...';
-  document.getElementById('btnCriar').disabled = false;
-
-  // Carrega fornecedores do localStorage (disponível imediatamente)
+  document.getElementById("hdrSub").textContent = "Carregando...";
+  document.getElementById("btnCriar").disabled = false;
   const forn = _carregarFornLS();
-  if (forn.length) { S.fornBling = forn; S.fornLoaded = true; }
-
-  // Carrega estado do servidor (compartilhado entre todos os acessos)
-  google.script.run
-    .withSuccessHandler(json => {
-      let restauradoServidor = false;
-      if (json) {
-        try {
-          const st = JSON.parse(json);
-          if (st.tabs && st.tabs.length) {
-            S.tabs      = st.tabs;
-            S.activeTab = Math.min(st.activeTab || 0, st.tabs.length - 1);
-            // Sincroniza também no localStorage local
-            try { localStorage.setItem(LS_STATE, json); } catch(e) {}
-            restauradoServidor = true;
-          }
-        } catch(e) {}
-      }
-
-      if (restauradoServidor) {
-        renderAll();
-        document.getElementById('btnApagar').disabled = false;
-        document.getElementById('hdrSub').textContent =
-          S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '');
-        return;
-      }
-
-      // Servidor sem estado — tenta localStorage local
-      if (_carregarEstado()) {
-        renderAll();
-        document.getElementById('btnApagar').disabled = false;
-        document.getElementById('hdrSub').textContent =
-          S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '');
-        return;
-      }
-
-      // Sem estado em nenhum lugar
-      document.getElementById('hdrSub').textContent = S.fornLoaded
-        ? (S.fornBling.length + ' fornecedores · clique em ▶ Criar Abas')
-        : 'Importe o CSV de fornecedores ou clique em ▶ Criar Abas';
-
-      // Recupera fornecedores do servidor se não tiver local
-      if (!S.fornLoaded) {
-        google.script.run
-          .withSuccessHandler(res => {
-            if (res.ok && res.fornecedores.length) {
-              S.fornBling = res.fornecedores; S.fornLoaded = true;
-              _salvarFornLS(res.fornecedores);
-              document.getElementById('hdrSub').textContent =
-                res.fornecedores.length + ' fornecedores · clique em ▶ Criar Abas';
-            }
-          })
-          .withFailureHandler(() => {})
-          .pc_carregarFornecedoresCSV();
-      }
-
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.autorizado) openModal('setupModal');
-        })
-        .withFailureHandler(() => {})
-        .pc_checkAuth();
-    })
-    .withFailureHandler(() => {
-      // Falhou no servidor — cai para localStorage
-      if (_carregarEstado()) {
-        renderAll();
-        document.getElementById('btnApagar').disabled = false;
-      } else {
-        document.getElementById('hdrSub').textContent = 'Importe o CSV de fornecedores ou clique em ▶ Criar Abas';
-      }
-    })
-    .pc_carregarEstado();
+  if (forn.length) {
+    S.fornBling = forn;
+    S.fornLoaded = true;
+  }
+  google.script.run.withSuccessHandler(json => {
+    let restauradoServidor = false;
+    if (json) {
+      try {
+        const st = JSON.parse(json);
+        if (st.tabs && st.tabs.length) {
+          S.tabs = st.tabs;
+          S.activeTab = Math.min(st.activeTab || 0, st.tabs.length - 1);
+          try {
+            localStorage.setItem(LS_STATE, json);
+          } catch (e) {}
+          restauradoServidor = true;
+        }
+      } catch (e) {}
+    }
+    if (restauradoServidor) {
+      renderAll();
+      document.getElementById("btnApagar").disabled = false;
+      document.getElementById("hdrSub").textContent = S.tabs.length + " fornecedor(es) | aba: " + (S.tabs[S.activeTab]?.nomeFornec || "");
+      return;
+    }
+    if (_carregarEstado()) {
+      renderAll();
+      document.getElementById("btnApagar").disabled = false;
+      document.getElementById("hdrSub").textContent = S.tabs.length + " fornecedor(es) | aba: " + (S.tabs[S.activeTab]?.nomeFornec || "");
+      return;
+    }
+    document.getElementById("hdrSub").textContent = S.fornLoaded ? S.fornBling.length + " fornecedores · clique em ▶ Criar Abas" : "Importe o CSV de fornecedores ou clique em ▶ Criar Abas";
+    if (!S.fornLoaded) {
+      google.script.run.withSuccessHandler(res => {
+        if (res.ok && res.fornecedores.length) {
+          S.fornBling = res.fornecedores;
+          S.fornLoaded = true;
+          _salvarFornLS(res.fornecedores);
+          document.getElementById("hdrSub").textContent = res.fornecedores.length + " fornecedores · clique em ▶ Criar Abas";
+        }
+      }).withFailureHandler(() => {}).pc_carregarFornecedoresCSV();
+    }
+    google.script.run.withSuccessHandler(res => {
+      if (!res.autorizado) openModal("setupModal");
+    }).withFailureHandler(() => {}).pc_checkAuth();
+  }).withFailureHandler(() => {
+    if (_carregarEstado()) {
+      renderAll();
+      document.getElementById("btnApagar").disabled = false;
+    } else {
+      document.getElementById("hdrSub").textContent = "Importe o CSV de fornecedores ou clique em ▶ Criar Abas";
+    }
+  }).pc_carregarEstado();
 };
 
-// ── Setup OAuth Bling ─────────────────────────────────────────
 let _blingAuthWindow = null;
 
 function abrirModalIds() {
-  // Coleta todos os SKUs das abas abertas
-  const todosSkus = [...new Set((S.tabs || []).flatMap(t => (t.itens || []).map(i => i.sku).filter(Boolean)))];
-  if (!todosSkus.length) { toast('ℹ Crie as abas primeiro', 'inf'); return; }
-
-  setOverlay(true, 'Verificando cache de IDs...');
-  google.script.run
-    .withSuccessHandler(semCache => {
-      setOverlay(false);
-      const lista = document.getElementById('idsLista');
-      // Mostra todos os SKUs: os sem cache ficam editáveis, os com cache mostram que já estão ok
-      const skusParaMostrar = semCache.length ? semCache : todosSkus.slice(0, 20);
-      lista.innerHTML = skusParaMostrar.map(sku => `
-        <div style="display:flex;align-items:center;gap:8px">
-          <code style="color:var(--cyan);min-width:120px;font-size:12px">${escHtml(sku)}</code>
-          <input type="text" placeholder="ID Bling (ex: 15941188395)"
-            data-sku="${escHtml(sku)}"
-            style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:5px 8px;outline:none;font-family:monospace">
-        </div>`).join('');
-      if (!semCache.length) {
-        lista.innerHTML = '<div style="color:var(--green);font-size:12px">✅ Todos os SKUs já têm ID cadastrado no cache!</div>' + lista.innerHTML;
-      } else {
-        lista.insertAdjacentHTML('afterbegin', `<div style="color:var(--yellow);font-size:11px;margin-bottom:4px">⚠ ${semCache.length} SKU(s) sem ID — preencha abaixo:</div>`);
-      }
-      openModal('idsModal');
-    })
-    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-    .pc_getSkusSemCache(todosSkus);
+  const todosSkus = [ ...new Set((S.tabs || []).flatMap(t => (t.itens || []).map(i => i.sku).filter(Boolean))) ];
+  if (!todosSkus.length) {
+    toast("ℹ Crie as abas primeiro", "inf");
+    return;
+  }
+  setOverlay(true, "Verificando cache de IDs...");
+  google.script.run.withSuccessHandler(semCache => {
+    setOverlay(false);
+    const lista = document.getElementById("idsLista");
+    const skusParaMostrar = semCache.length ? semCache : todosSkus.slice(0, 20);
+    lista.innerHTML = skusParaMostrar.map(sku => `\n        <div style="display:flex;align-items:center;gap:8px">\n          <code style="color:var(--cyan);min-width:120px;font-size:12px">${escHtml(sku)}</code>\n          <input type="text" placeholder="ID Bling (ex: 15941188395)"\n            data-sku="${escHtml(sku)}"\n            style="flex:1;background:#0a1220;border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:5px 8px;outline:none;font-family:monospace">\n        </div>`).join("");
+    if (!semCache.length) {
+      lista.innerHTML = '<div style="color:var(--green);font-size:12px">✅ Todos os SKUs já têm ID cadastrado no cache!</div>' + lista.innerHTML;
+    } else {
+      lista.insertAdjacentHTML("afterbegin", `<div style="color:var(--yellow);font-size:11px;margin-bottom:4px">⚠ ${semCache.length} SKU(s) sem ID — preencha abaixo:</div>`);
+    }
+    openModal("idsModal");
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    toast("❌ " + e.message, "err");
+  }).pc_getSkusSemCache(todosSkus);
 }
 
 function salvarIdsManual() {
-  const inputs = document.querySelectorAll('#idsLista input[data-sku]');
+  const inputs = document.querySelectorAll("#idsLista input[data-sku]");
   const pares = [];
   inputs.forEach(inp => {
-    const sku = inp.getAttribute('data-sku');
-    const id  = inp.value.trim().replace(/\D/g, ''); // só dígitos
-    if (sku && id) pares.push({ sku, id });
+    const sku = inp.getAttribute("data-sku");
+    const id = inp.value.trim().replace(/\D/g, "");
+    if (sku && id) pares.push({
+      sku: sku,
+      id: id
+    });
   });
-  if (!pares.length) { toast('ℹ Nenhum ID preenchido', 'inf'); return; }
-  setOverlay(true, 'Salvando IDs no cache...');
-  google.script.run
-    .withSuccessHandler(res => {
-      setOverlay(false);
-      if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
-      closeModal('idsModal');
-      toast('✅ ' + pares.length + ' ID(s) salvo(s) no cache. Total no cache: ' + res.total, 'ok');
-    })
-    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-    .pc_salvarIdsManual(pares);
+  if (!pares.length) {
+    toast("ℹ Nenhum ID preenchido", "inf");
+    return;
+  }
+  setOverlay(true, "Salvando IDs no cache...");
+  google.script.run.withSuccessHandler(res => {
+    setOverlay(false);
+    if (!res.ok) {
+      toast("❌ " + res.error, "err");
+      return;
+    }
+    closeModal("idsModal");
+    toast("✅ " + pares.length + " ID(s) salvo(s) no cache. Total no cache: " + res.total, "ok");
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    toast("❌ " + e.message, "err");
+  }).pc_salvarIdsManual(pares);
 }
 
 function limparTokensBling() {
-  setOverlay(true, 'Limpando tokens Bling...');
-  google.script.run
-    .withSuccessHandler(() => {
-      setOverlay(false);
-      toast('🗑 Tokens apagados — agora clique em "Abrir Bling para autorizar"', 'inf');
-    })
-    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-    .pc_limparTokens();
+  setOverlay(true, "Limpando tokens Bling...");
+  google.script.run.withSuccessHandler(() => {
+    setOverlay(false);
+    toast('🗑 Tokens apagados — agora clique em "Abrir Bling para autorizar"', "inf");
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    toast("❌ " + e.message, "err");
+  }).pc_limparTokens();
 }
 
 function abrirBling() {
-  const btn = document.getElementById('btnAbrirBling');
-  const linkBox = document.getElementById('blingLinkBox');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando URL...'; }
-  if (linkBox) linkBox.style.display = 'none';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Abrir Bling para autorizar'; }
-      if (!res.ok) {
-        const errEl = document.getElementById('setupErr');
-        errEl.textContent = res.error;
-        errEl.style.display = '';
-        return;
-      }
-      if (linkBox) {
-        const urlInput = document.getElementById('blingUrlGerada');
-        if (urlInput) urlInput.value = res.url;
-        linkBox.style.display = '';
-      }
-    })
-    .withFailureHandler(e => {
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Abrir Bling para autorizar'; }
-      toast('❌ ' + e.message, 'err');
-    })
-    .pc_getAuthUrl();
+  const btn = document.getElementById("btnAbrirBling");
+  const linkBox = document.getElementById("blingLinkBox");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Gerando URL...";
+  }
+  if (linkBox) linkBox.style.display = "none";
+  google.script.run.withSuccessHandler(res => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "🔗 Abrir Bling para autorizar";
+    }
+    if (!res.ok) {
+      const errEl = document.getElementById("setupErr");
+      errEl.textContent = res.error;
+      errEl.style.display = "";
+      return;
+    }
+    if (linkBox) {
+      const urlInput = document.getElementById("blingUrlGerada");
+      if (urlInput) urlInput.value = res.url;
+      linkBox.style.display = "";
+    }
+  }).withFailureHandler(e => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "🔗 Abrir Bling para autorizar";
+    }
+    toast("❌ " + e.message, "err");
+  }).pc_getAuthUrl();
 }
 
 function copiarUrlBling() {
-  const inp = document.getElementById('blingUrlGerada');
+  const inp = document.getElementById("blingUrlGerada");
   if (!inp || !inp.value) return;
   try {
-    navigator.clipboard.writeText(inp.value).then(() => toast('✅ URL copiada! Cole na barra de endereço do navegador', 'ok'));
-  } catch(e) {
+    navigator.clipboard.writeText(inp.value).then(() => toast("✅ URL copiada! Cole na barra de endereço do navegador", "ok"));
+  } catch (e) {
     inp.select();
-    document.execCommand('copy');
-    toast('✅ URL copiada! Cole na barra de endereço do navegador', 'ok');
+    document.execCommand("copy");
+    toast("✅ URL copiada! Cole na barra de endereço do navegador", "ok");
   }
 }
 
 function confirmarCodigo() {
-  const code = document.getElementById('codigoInput').value.trim();
-  if (!code) { toast('ℹ Cole o código primeiro', 'inf'); return; }
-  setOverlay(true, 'Trocando código por tokens Bling...');
-  google.script.run
-    .withSuccessHandler(res => {
-      setOverlay(false);
-      if (!res.ok) {
-        const errEl = document.getElementById('setupErr');
-        errEl.textContent = '❌ ' + res.error;
-        errEl.style.display = '';
-        errEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        toast('❌ ' + res.error, 'err');
-        return;
-      }
-      closeModal('setupModal');
-      document.getElementById('codigoInput').value = '';
-      // Restaura descrição original se foi substituída pelo aviso de re-auth
-      const desc = document.getElementById('setupModalDesc');
-      if (desc && desc.querySelector('strong[style*="red"]')) desc.innerHTML = '';
-      toast('✅ Bling autorizado com sucesso!', 'ok');
-    })
-    .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-    .pc_trocarCodigo(code);
+  const code = document.getElementById("codigoInput").value.trim();
+  if (!code) {
+    toast("ℹ Cole o código primeiro", "inf");
+    return;
+  }
+  setOverlay(true, "Trocando código por tokens Bling...");
+  google.script.run.withSuccessHandler(res => {
+    setOverlay(false);
+    if (!res.ok) {
+      const errEl = document.getElementById("setupErr");
+      errEl.textContent = "❌ " + res.error;
+      errEl.style.display = "";
+      errEl.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest"
+      });
+      toast("❌ " + res.error, "err");
+      return;
+    }
+    closeModal("setupModal");
+    document.getElementById("codigoInput").value = "";
+    const desc = document.getElementById("setupModalDesc");
+    if (desc && desc.querySelector('strong[style*="red"]')) desc.innerHTML = "";
+    toast("✅ Bling autorizado com sucesso!", "ok");
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    toast("❌ " + e.message, "err");
+  }).pc_trocarCodigo(code);
 }
 
-// ── Criar abas ───────────────────────────────────────────────
 function criarAbas() {
-  setOverlay(true, 'Lendo dados da planilha Base Compras...');
-  document.getElementById('btnCriar').disabled = true;
-
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.ok) {
-        setOverlay(false);
-        document.getElementById('btnCriar').disabled = false;
-        toast('❌ ' + res.error, 'err');
-        return;
-      }
-      const fornKeys = Object.keys(res.fornecedores || {});
-      if (!fornKeys.length) {
-        setOverlay(false);
-        document.getElementById('btnCriar').disabled = false;
-        toast('ℹ Nenhum item com quantidade preenchida encontrado', 'inf');
-        return;
-      }
-
-      // Montar tabs
-      S.tabs = fornKeys.map((nome, i) => ({
-        id:         'tab_' + i,
-        nomeFornec: nome,
-        blingId:         null,
-        blingNome:       '',
-        desconto:        0,
-        clonar:            false,
-        numPedidos:        1,
-        separarEmpresas:   false,
-        incluirSemCodForn: true,
-        filtro:            '',
-        itens: (res.fornecedores[nome] || []).map(it => ({
-          sku:       it.sku,
-          nome:      '⏳ carregando...',
-          produtoId: null,
-          codForn:      '',
-          qtd:       it.qtd,
-          precoBase:    it.preco,
-          preco:        it.preco,
-          precoFonte:   it.precoFonte || '',
-          ipi:          0,
-          precos:       [it.preco, it.preco, it.preco, it.preco, it.preco],
-          codsForn:     ['', '', '', '', ''],
-          qtdEmpresas:  it.qtdEmpresas || { HUMBLE:0, NAJUMI:0, SKY:0, EDMOTOS:0, 'MOTO VIBE':0 },
-        })),
-      }));
-
-      S.activeTab = 0;
-      renderAll();
-      document.getElementById('btnCriar').disabled = false;
-      document.getElementById('btnApagar').disabled = false;
-
-      // Buscar nomes dos produtos no Bling
-      const allSkus = [...new Set(S.tabs.flatMap(t => t.itens.map(i => i.sku)))];
-      setOverlay(true, 'Buscando nomes no Bling (' + allSkus.length + ' SKUs)...');
-
-      google.script.run
-        .withSuccessHandler(nr => {
-          setOverlay(false);
-          if (nr.ok && nr.produtos) {
-            S.tabs.forEach(tab => {
-              tab.itens.forEach(item => {
-                const p = nr.produtos[item.sku];
-                item.nome      = p ? p.nome : '— não encontrado —';
-                item.produtoId = p ? p.id   : null;
-              });
-            });
-          }
-          salvarEstado();
-          toast('✅ Abas criadas: ' + S.tabs.length + ' fornecedor(es)', 'ok');
-          // Restaura a última aba ativa (global, compartilhada)
-          google.script.run
-            .withSuccessHandler(nome => { if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab); })
-            .withFailureHandler(() => renderTabContent(S.activeTab))
-            .pc_getUltimaAba();
-        })
-        .withFailureHandler(e => {
-          setOverlay(false);
-          salvarEstado();
-          if (e.message && e.message.startsWith('AUTH_REQUIRED:')) { _erroAuthBling(e.message); return; }
-          toast('⚠ Nomes parcialmente carregados: ' + e.message, 'err');
-          google.script.run
-            .withSuccessHandler(nome => { if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab); })
-            .withFailureHandler(() => renderTabContent(S.activeTab))
-            .pc_getUltimaAba();
-        })
-        .pc_buscarProdutosBling(allSkus);
-    })
-    .withFailureHandler(e => {
+  setOverlay(true, "Lendo dados da planilha Base Compras...");
+  document.getElementById("btnCriar").disabled = true;
+  google.script.run.withSuccessHandler(res => {
+    if (!res.ok) {
       setOverlay(false);
-      document.getElementById('btnCriar').disabled = false;
-      if (e.message && e.message.startsWith('AUTH_REQUIRED:')) { _erroAuthBling(e.message); return; }
-      toast('❌ ' + e.message, 'err');
-    })
-    .pc_carregarDados();
+      document.getElementById("btnCriar").disabled = false;
+      toast("❌ " + res.error, "err");
+      return;
+    }
+    const fornKeys = Object.keys(res.fornecedores || {});
+    if (!fornKeys.length) {
+      setOverlay(false);
+      document.getElementById("btnCriar").disabled = false;
+      toast("ℹ Nenhum item com quantidade preenchida encontrado", "inf");
+      return;
+    }
+    S.tabs = fornKeys.map((nome, i) => ({
+      id: "tab_" + i,
+      nomeFornec: nome,
+      blingId: null,
+      blingNome: "",
+      desconto: 0,
+      clonar: false,
+      numPedidos: 1,
+      separarEmpresas: false,
+      incluirSemCodForn: true,
+      filtro: "",
+      itens: (res.fornecedores[nome] || []).map(it => ({
+        sku: it.sku,
+        nome: "⏳ carregando...",
+        produtoId: null,
+        codForn: "",
+        qtd: it.qtd,
+        precoBase: it.preco,
+        preco: it.preco,
+        precoFonte: it.precoFonte || "",
+        ipi: 0,
+        precos: [ it.preco, it.preco, it.preco, it.preco, it.preco ],
+        codsForn: [ "", "", "", "", "" ],
+        qtdEmpresas: it.qtdEmpresas || {
+          HUMBLE: 0,
+          NAJUMI: 0,
+          SKY: 0,
+          EDMOTOS: 0,
+          "MOTO VIBE": 0
+        }
+      }))
+    }));
+    S.activeTab = 0;
+    renderAll();
+    document.getElementById("btnCriar").disabled = false;
+    document.getElementById("btnApagar").disabled = false;
+    const allSkus = [ ...new Set(S.tabs.flatMap(t => t.itens.map(i => i.sku))) ];
+    setOverlay(true, "Buscando nomes no Bling (" + allSkus.length + " SKUs)...");
+    google.script.run.withSuccessHandler(nr => {
+      setOverlay(false);
+      if (nr.ok && nr.produtos) {
+        S.tabs.forEach(tab => {
+          tab.itens.forEach(item => {
+            const p = nr.produtos[item.sku];
+            item.nome = p ? p.nome : "— não encontrado —";
+            item.produtoId = p ? p.id : null;
+          });
+        });
+      }
+      salvarEstado();
+      toast("✅ Abas criadas: " + S.tabs.length + " fornecedor(es)", "ok");
+      google.script.run.withSuccessHandler(nome => {
+        if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab);
+      }).withFailureHandler(() => renderTabContent(S.activeTab)).pc_getUltimaAba();
+    }).withFailureHandler(e => {
+      setOverlay(false);
+      salvarEstado();
+      if (e.message && e.message.startsWith("AUTH_REQUIRED:")) {
+        _erroAuthBling(e.message);
+        return;
+      }
+      toast("⚠ Nomes parcialmente carregados: " + e.message, "err");
+      google.script.run.withSuccessHandler(nome => {
+        if (nome) _ativarAbaPorNome(nome); else renderTabContent(S.activeTab);
+      }).withFailureHandler(() => renderTabContent(S.activeTab)).pc_getUltimaAba();
+    }).pc_buscarProdutosBling(allSkus);
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    document.getElementById("btnCriar").disabled = false;
+    if (e.message && e.message.startsWith("AUTH_REQUIRED:")) {
+      _erroAuthBling(e.message);
+      return;
+    }
+    toast("❌ " + e.message, "err");
+  }).pc_carregarDados();
 }
 
-// ── Apagar dados ─────────────────────────────────────────────
 function apagarDados() {
-  confirm2('Apagar todos os dados?', 'Todas as abas e itens serão removidos da tela. Os dados nas planilhas não são alterados.', () => {
-    S.tabs = []; S.activeTab = -1;
-    try { localStorage.removeItem(LS_STATE); } catch(e) {}
+  confirm2("Apagar todos os dados?", "Todas as abas e itens serão removidos da tela. Os dados nas planilhas não são alterados.", () => {
+    S.tabs = [];
+    S.activeTab = -1;
+    try {
+      localStorage.removeItem(LS_STATE);
+    } catch (e) {}
     google.script.run.pc_limparEstado();
     renderAll();
-    document.getElementById('btnApagar').disabled = true;
-    toast('🗑 Dados apagados', 'inf');
+    document.getElementById("btnApagar").disabled = true;
+    toast("🗑 Dados apagados", "inf");
   });
 }
 
-// ── Render geral ─────────────────────────────────────────────
 function renderAll() {
   const hasTabs = S.tabs.length > 0;
-  document.getElementById('emptyState').style.display    = hasTabs ? 'none' : 'flex';
-  document.getElementById('tabBarWrap').style.display    = hasTabs ? 'block' : 'none';
-  document.getElementById('tabContent').style.display    = hasTabs ? 'block' : 'none';
-  document.getElementById('hdrSub').textContent = hasTabs
-    ? S.tabs.length + ' fornecedor(es) | aba: ' + (S.tabs[S.activeTab]?.nomeFornec || '')
-    : 'Nenhuma aba criada';
-
+  document.getElementById("emptyState").style.display = hasTabs ? "none" : "flex";
+  document.getElementById("tabBarWrap").style.display = hasTabs ? "block" : "none";
+  document.getElementById("tabContent").style.display = hasTabs ? "block" : "none";
+  document.getElementById("hdrSub").textContent = hasTabs ? S.tabs.length + " fornecedor(es) | aba: " + (S.tabs[S.activeTab]?.nomeFornec || "") : "Nenhuma aba criada";
   renderTabBar();
   if (hasTabs) renderTabContent(S.activeTab);
 }
 
-// ── Tab bar ───────────────────────────────────────────────────
 function renderTabBar() {
-  document.getElementById('tabBar').innerHTML = S.tabs.map((t, i) =>
-    `<div class="tab-item${i === S.activeTab ? ' active' : ''}" onclick="switchTab(${i})" title="${t.nomeFornec}">
-      ${t.nomeFornec}
-    </div>`
-  ).join('');
+  document.getElementById("tabBar").innerHTML = S.tabs.map((t, i) => `<div class="tab-item${i === S.activeTab ? " active" : ""}" onclick="switchTab(${i})" title="${t.nomeFornec}">\n      ${t.nomeFornec}\n    </div>`).join("");
 }
 
 function _ativarAbaPorNome(nome) {
   const idx = S.tabs.findIndex(t => t.nomeFornec === nome);
-  if (idx >= 0 && idx !== S.activeTab) { switchTab(idx); }
-  else renderTabContent(S.activeTab);
+  if (idx >= 0 && idx !== S.activeTab) {
+    switchTab(idx);
+  } else renderTabContent(S.activeTab);
 }
 
 function switchTab(idx) {
   S.activeTab = idx;
   renderTabBar();
   renderTabContent(idx);
-  document.getElementById('hdrSub').textContent =
-    S.tabs.length + ' fornecedor(es) | aba: ' + S.tabs[idx].nomeFornec;
+  document.getElementById("hdrSub").textContent = S.tabs.length + " fornecedor(es) | aba: " + S.tabs[idx].nomeFornec;
   salvarEstado();
-  // Salva a aba ativa no servidor (compartilhado entre todos os acessos)
   google.script.run.pc_salvarUltimaAba(S.tabs[idx].nomeFornec);
 }
 
-// ── Tab content ───────────────────────────────────────────────
 function renderTabContent(idx) {
   const tab = S.tabs[idx];
   if (!tab) return;
-
   const cloneCount = tab.clonar ? tab.numPedidos : 0;
-
-  // Clone fornecedor selectors
-  let cloneFornHtml = '';
+  let cloneFornHtml = "";
   if (tab.clonar) {
-    const selectors = Array.from({length: cloneCount}, (_, ci) => {
-      const sel = tab['fornClone' + ci] || { blingId: null, blingNome: '' };
-      return `<div class="field-group">
-        <span class="field-label">Fornecedor ${ci + 2}</span>
-        <div class="ac-wrap" id="acClone${idx}_${ci}">
-          <input class="ac-input" style="width:220px" placeholder="Buscar fornecedor..."
-            value="${escHtml(sel.blingNome)}"
-            onfocus="acOpen(this,'acClone${idx}_${ci}')"
-            oninput="acFilter(this,'acClone${idx}_${ci}')"
-            onblur="acBlur('acClone${idx}_${ci}')">
-          <div class="ac-dropdown" id="acClone${idx}_${ci}_dd"></div>
-        </div>
-      </div>`;
-    }).join('');
+    const selectors = Array.from({
+      length: cloneCount
+    }, (_, ci) => {
+      const sel = tab["fornClone" + ci] || {
+        blingId: null,
+        blingNome: ""
+      };
+      return `<div class="field-group">\n        <span class="field-label">Fornecedor ${ci + 2}</span>\n        <div class="ac-wrap" id="acClone${idx}_${ci}">\n          <input class="ac-input" style="width:220px" placeholder="Buscar fornecedor..."\n            value="${escHtml(sel.blingNome)}"\n            onfocus="acOpen(this,'acClone${idx}_${ci}')"\n            oninput="acFilter(this,'acClone${idx}_${ci}')"\n            onblur="acBlur('acClone${idx}_${ci}')">\n          <div class="ac-dropdown" id="acClone${idx}_${ci}_dd"></div>\n        </div>\n      </div>`;
+    }).join("");
     cloneFornHtml = `<div class="tab-hdr-row"><div class="clone-fornecs">${selectors}</div></div>`;
   }
-
-  // Clone col headers
-  const cloneThHtml = Array.from({length: cloneCount}, (_, ci) => {
+  const cloneThHtml = Array.from({
+    length: cloneCount
+  }, (_, ci) => {
     const n = ci + 2;
     return `<th class="clone-hdr">Cód. Forn. ${n}</th><th class="clone-hdr r">Preço Unit. ${n}</th><th class="clone-hdr r">Preço Total ${n}</th>`;
-  }).join('');
-
-  // Empresa column headers (only when separarEmpresas)
-  const empThHtml = tab.separarEmpresas
-    ? EMPRESAS.map(e => `<th class="emp-hdr r">${e}</th>`).join('')
-    : '';
-
-  // Filtro de linha
-  const filtroQ = (tab.filtro || '').toLowerCase().trim();
-  const visRows = tab.itens
-    .map((item, ri) => ({ item, ri }))
-    .filter(({ item }) => !filtroQ ||
-      item.nome.toLowerCase().includes(filtroQ) ||
-      item.sku.toLowerCase().includes(filtroQ) ||
-      (item.codForn || '').toLowerCase().includes(filtroQ));
-
-  const rowsHtml = visRows.map(({ item, ri }, visIdx) => {
+  }).join("");
+  const empThHtml = tab.separarEmpresas ? EMPRESAS.map(e => `<th class="emp-hdr r">${e}</th>`).join("") : "";
+  const filtroQ = (tab.filtro || "").toLowerCase().trim();
+  const visRows = tab.itens.map((item, ri) => ({
+    item: item,
+    ri: ri
+  })).filter(({item: item}) => !filtroQ || item.nome.toLowerCase().includes(filtroQ) || item.sku.toLowerCase().includes(filtroQ) || (item.codForn || "").toLowerCase().includes(filtroQ));
+  const rowsHtml = visRows.map(({item: item, ri: ri}, visIdx) => {
     const total = (item.preco * item.qtd).toFixed(2);
-    const nomeClass = item.nome.startsWith('⏳') ? 'td-nome loading' : 'td-nome';
-
-    const cloneTdHtml = Array.from({length: cloneCount}, (_, ci) => {
-      const codF = escHtml(item.codsForn[ci] || '');
-      const p    = item.precos[ci] || 0;
+    const nomeClass = item.nome.startsWith("⏳") ? "td-nome loading" : "td-nome";
+    const cloneTdHtml = Array.from({
+      length: cloneCount
+    }, (_, ci) => {
+      const codF = escHtml(item.codsForn[ci] || "");
+      const p = item.precos[ci] || 0;
       const pTot = (p * item.qtd).toFixed(2);
-      return `<td class="clone-cell"><input class="td-inp w90" type="text" value="${codF}" oninput="updateCodForn(${idx},${ri},${ci},this.value)" placeholder="—"></td>
-              <td class="clone-cell"><input class="td-inp w110" type="number" step="0.01" value="${p}" oninput="updatePreco(${idx},${ri},${ci},this.value)"></td>
-              <td class="clone-cell r td-total">${fmt(pTot)}</td>`;
-    }).join('');
-
-    // Empresa qty cells
-    const empTdHtml = tab.separarEmpresas
-      ? EMPRESAS.map(e => {
-          const q = (item.qtdEmpresas && item.qtdEmpresas[e]) || 0;
-          return `<td class="emp-cell"><input class="td-inp w60" type="number" min="0" value="${q}" oninput="updateQtdEmpresa(${idx},${ri},'${e}',this.value)"></td>`;
-        }).join('')
-      : '';
-
-    const codfHtml  = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
+      return `<td class="clone-cell"><input class="td-inp w90" type="text" value="${codF}" oninput="updateCodForn(${idx},${ri},${ci},this.value)" placeholder="—"></td>\n              <td class="clone-cell"><input class="td-inp w110" type="number" step="0.01" value="${p}" oninput="updatePreco(${idx},${ri},${ci},this.value)"></td>\n              <td class="clone-cell r td-total">${fmt(pTot)}</td>`;
+    }).join("");
+    const empTdHtml = tab.separarEmpresas ? EMPRESAS.map(e => {
+      const q = item.qtdEmpresas && item.qtdEmpresas[e] || 0;
+      return `<td class="emp-cell"><input class="td-inp w60" type="number" min="0" value="${q}" oninput="updateQtdEmpresa(${idx},${ri},'${e}',this.value)"></td>`;
+    }).join("") : "";
+    const codfHtml = `<input class="td-inp w90" type="text" value="${escHtml(item.codForn)}" oninput="updateField(${idx},${ri},'codForn',this.value)" placeholder="—">`;
     const precoHtml = `<input class="td-inp w110" type="number" step="0.01" value="${item.preco}" oninput="updatePrecoMain(${idx},${ri},this.value)">`;
-    const ipiHtml   = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
-    const fonteColor = item.precoFonte === 'Novo' ? 'var(--green)' : item.precoFonte === 'Antigo' ? 'var(--yellow)' : 'var(--muted)';
-    const fonteTd = S.mostrarFontePreco
-      ? `<td style="text-align:center;font-size:10px;font-weight:700;color:${fonteColor};white-space:nowrap">${escHtml(item.precoFonte || '—')}</td>`
-      : '';
-
-    return `<tr>
-      <td class="td-num">${visIdx + 1}</td>
-      <td class="td-nome ${nomeClass}" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>
-      <td>${codfHtml}</td>
-      <td class="td-sku">${escHtml(item.sku)}</td>
-      <td class="r"><input class="td-inp w60" type="number" min="0" value="${item.qtd}" oninput="updateField(${idx},${ri},'qtd',this.value)"></td>
-      <td>${precoHtml}</td>
-      ${fonteTd}
-      <td>${ipiHtml}</td>
-      <td class="r td-total" id="tot_${idx}_${ri}">${fmt(total)}</td>
-      ${empTdHtml}
-      ${cloneTdHtml}
-    </tr>`;
-  }).join('');
-
+    const ipiHtml = `<input class="td-inp w60" type="number" step="0.01" min="0" value="${item.ipi}" oninput="updateField(${idx},${ri},'ipi',this.value)" placeholder="0">`;
+    const fonteColor = item.precoFonte === "Novo" ? "var(--green)" : item.precoFonte === "Antigo" ? "var(--yellow)" : "var(--muted)";
+    const fonteTd = S.mostrarFontePreco ? `<td style="text-align:center;font-size:10px;font-weight:700;color:${fonteColor};white-space:nowrap">${escHtml(item.precoFonte || "—")}</td>` : "";
+    return `<tr>\n      <td class="td-num">${visIdx + 1}</td>\n      <td class="td-nome ${nomeClass}" title="${escHtml(item.nome)}">${escHtml(item.nome)}</td>\n      <td>${codfHtml}</td>\n      <td class="td-sku">${escHtml(item.sku)}</td>\n      <td class="r"><input class="td-inp w60" type="number" min="0" value="${item.qtd}" oninput="updateField(${idx},${ri},'qtd',this.value)"></td>\n      <td>${precoHtml}</td>\n      ${fonteTd}\n      <td>${ipiHtml}</td>\n      <td class="r td-total" id="tot_${idx}_${ri}">${fmt(total)}</td>\n      ${empTdHtml}\n      ${cloneTdHtml}\n    </tr>`;
+  }).join("");
   const grandTotal = tab.itens.reduce((s, it) => s + it.preco * it.qtd, 0);
   const filtroInfo = filtroQ ? ` · ${visRows.length} de ${tab.itens.length} visíveis` : ` · ${tab.itens.length} SKUs`;
-
-  document.getElementById('tabContent').innerHTML = `
-  <div class="tab-panel">
-
-    <!-- Header card -->
-    <div class="tab-hdr-card">
-      <!-- Row 1: Fornecedor + desconto -->
-      <div class="tab-hdr-row">
-        <div class="field-group">
-          <span class="field-label">Fornecedor no Bling</span>
-          <div class="ac-wrap" id="acMain${idx}">
-            <input class="ac-input" placeholder="Buscar fornecedor..."
-              value="${escHtml(tab.blingNome)}"
-              onfocus="acOpen(this,'acMain${idx}')"
-              oninput="acFilter(this,'acMain${idx}')"
-              onblur="acBlur('acMain${idx}')">
-            <div class="ac-dropdown" id="acMain${idx}_dd"></div>
-          </div>
-        </div>
-        <div class="field-group">
-          <span class="field-label">Desconto %</span>
-          <input class="num-input" type="number" min="0" max="100" step="0.1"
-            value="${tab.desconto || 0}"
-            oninput="S.tabs[${idx}].desconto = parseFloat(this.value)||0; salvarEstado()"
-            placeholder="0">
-        </div>
-        <div class="field-group" style="justify-content:flex-end">
-          <span class="field-label">&nbsp;</span>
-          <button class="btn btn-ghost btn-sm" onclick="executarDesconto(${idx})">
-            🏷 Executar Desconto
-          </button>
-        </div>
-        <div class="field-group" style="justify-content:flex-end">
-          <span class="field-label">&nbsp;</span>
-          <button class="btn btn-ghost btn-sm" onclick="preencherPrecosPlanilha(${idx})" title="Preenche todos os preços unitários com o valor da planilha Base Compras">
-            ↓ Preços planilha
-          </button>
-        </div>
-        <div class="field-group" style="justify-content:flex-end">
-          <span class="field-label">&nbsp;</span>
-          <button class="btn btn-ghost btn-sm" style="color:var(--yellow);border-color:rgba(255,214,0,.3)" onclick="importarCodsFornecedor(${idx})" title="Preenche o Cód. Fornecedor de cada item com o último código registrado na planilha Controle de Compras">
-            📥 Importar Cód. Forn.
-          </button>
-        </div>
-        <div style="flex:1"></div>
-        <div class="field-group" style="justify-content:flex-end">
-          <span class="field-label">&nbsp;</span>
-          <button class="btn btn-orange btn-sm" onclick="criarPedidosAba(${idx})">
-            ✅ Criar Pedidos no Bling
-          </button>
-        </div>
-      </div>
-
-      <!-- Row 2: Clonar + Separar por empresa -->
-      <div class="tab-hdr-row">
-        <div class="field-group">
-          <span class="field-label">Clonar Pedido</span>
-          <div class="toggle-wrap">
-            <button class="toggle-btn ${tab.clonar ? 'on' : ''}" onclick="setClonar(${idx},true)">Sim</button>
-            <button class="toggle-btn ${!tab.clonar ? 'off' : ''}" onclick="setClonar(${idx},false)">Não</button>
-          </div>
-        </div>
-        ${tab.clonar ? `
-        <div class="field-group">
-          <span class="field-label">Qtd. pedidos extras</span>
-          <input class="num-input" type="number" min="1" max="5" value="${tab.numPedidos}"
-            oninput="setNumPedidos(${idx},this.value)" style="width:70px">
-        </div>` : ''}
-        <div class="field-group" style="margin-left:24px">
-          <span class="field-label" style="color:var(--green)">Separar por empresa</span>
-          <div class="toggle-wrap">
-            <button class="toggle-btn ${tab.separarEmpresas ? 'on' : ''}" onclick="setSepararEmpresas(${idx},true)">Sim</button>
-            <button class="toggle-btn ${!tab.separarEmpresas ? 'off' : ''}" onclick="setSepararEmpresas(${idx},false)">Não</button>
-          </div>
-        </div>
-        <div class="field-group" style="margin-left:24px">
-          <span class="field-label" style="color:var(--yellow)">Sem cód. fornecedor</span>
-          <div class="toggle-wrap">
-            <button class="toggle-btn ${tab.incluirSemCodForn !== false ? 'on' : ''}" onclick="setIncluirSemCodForn(${idx},true)">Incluir</button>
-            <button class="toggle-btn ${tab.incluirSemCodForn === false ? 'off' : ''}" onclick="setIncluirSemCodForn(${idx},false)">Excluir</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Clone supplier selectors -->
-      ${cloneFornHtml}
-    </div>
-
-    <!-- Table card -->
-    <div class="table-card">
-      <div class="table-toolbar">
-        <span class="table-title">Itens do Pedido de Compra${filtroInfo}</span>
-        <input id="filtroInput${idx}" type="text" placeholder="Filtrar por nome, SKU, cód. fornecedor..."
-          value="${escHtml(tab.filtro || '')}"
-          oninput="filtrarTabela(${idx},this.value)"
-          style="flex:1;max-width:320px;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 10px;outline:none;margin:0 12px;font-family:inherit">
-        <button class="btn btn-ghost btn-sm" onclick="toggleFontePreco()" style="margin-right:10px;color:${S.mostrarFontePreco?'var(--yellow)':'var(--muted2)'};border-color:${S.mostrarFontePreco?'rgba(255,214,0,.4)':'var(--border)'}" title="Mostrar/ocultar coluna Fonte do Preço">
-          👁 Fonte
-        </button>
-        <span class="table-total" id="grandTot${idx}">Total: ${fmt(grandTotal.toFixed(2))}</span>
-      </div>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:32px">Nº</th>
-              <th>Item</th>
-              <th>Cód. Fornecedor</th>
-              <th>SKU</th>
-              <th class="r">Qtd</th>
-              <th class="r">Preço Unit.</th>
-              ${S.mostrarFontePreco ? '<th style="text-align:center;color:var(--yellow)">Fonte</th>' : ''}
-              <th class="r">IPI %</th>
-              <th class="r">Preço Total</th>
-              ${empThHtml}
-              ${cloneThHtml}
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      </div>
-    </div>
-
-  </div>`;
+  document.getElementById("tabContent").innerHTML = `\n  <div class="tab-panel">\n\n    \x3c!-- Header card --\x3e\n    <div class="tab-hdr-card">\n      \x3c!-- Row 1: Fornecedor + desconto --\x3e\n      <div class="tab-hdr-row">\n        <div class="field-group">\n          <span class="field-label">Fornecedor no Bling</span>\n          <div class="ac-wrap" id="acMain${idx}">\n            <input class="ac-input" placeholder="Buscar fornecedor..."\n              value="${escHtml(tab.blingNome)}"\n              onfocus="acOpen(this,'acMain${idx}')"\n              oninput="acFilter(this,'acMain${idx}')"\n              onblur="acBlur('acMain${idx}')">\n            <div class="ac-dropdown" id="acMain${idx}_dd"></div>\n          </div>\n        </div>\n        <div class="field-group">\n          <span class="field-label">Desconto %</span>\n          <input class="num-input" type="number" min="0" max="100" step="0.1"\n            value="${tab.desconto || 0}"\n            oninput="S.tabs[${idx}].desconto = parseFloat(this.value)||0; salvarEstado()"\n            placeholder="0">\n        </div>\n        <div class="field-group" style="justify-content:flex-end">\n          <span class="field-label">&nbsp;</span>\n          <button class="btn btn-ghost btn-sm" onclick="executarDesconto(${idx})">\n            🏷 Executar Desconto\n          </button>\n        </div>\n        <div class="field-group" style="justify-content:flex-end">\n          <span class="field-label">&nbsp;</span>\n          <button class="btn btn-ghost btn-sm" onclick="preencherPrecosPlanilha(${idx})" title="Preenche todos os preços unitários com o valor da planilha Base Compras">\n            ↓ Preços planilha\n          </button>\n        </div>\n        <div class="field-group" style="justify-content:flex-end">\n          <span class="field-label">&nbsp;</span>\n          <button class="btn btn-ghost btn-sm" style="color:var(--yellow);border-color:rgba(255,214,0,.3)" onclick="importarCodsFornecedor(${idx})" title="Preenche o Cód. Fornecedor de cada item com o último código registrado na planilha Controle de Compras">\n            📥 Importar Cód. Forn.\n          </button>\n        </div>\n        <div style="flex:1"></div>\n        <div class="field-group" style="justify-content:flex-end">\n          <span class="field-label">&nbsp;</span>\n          <button class="btn btn-orange btn-sm" onclick="criarPedidosAba(${idx})">\n            ✅ Criar Pedidos no Bling\n          </button>\n        </div>\n      </div>\n\n      \x3c!-- Row 2: Clonar + Separar por empresa --\x3e\n      <div class="tab-hdr-row">\n        <div class="field-group">\n          <span class="field-label">Clonar Pedido</span>\n          <div class="toggle-wrap">\n            <button class="toggle-btn ${tab.clonar ? "on" : ""}" onclick="setClonar(${idx},true)">Sim</button>\n            <button class="toggle-btn ${!tab.clonar ? "off" : ""}" onclick="setClonar(${idx},false)">Não</button>\n          </div>\n        </div>\n        ${tab.clonar ? `\n        <div class="field-group">\n          <span class="field-label">Qtd. pedidos extras</span>\n          <input class="num-input" type="number" min="1" max="5" value="${tab.numPedidos}"\n            oninput="setNumPedidos(${idx},this.value)" style="width:70px">\n        </div>` : ""}\n        <div class="field-group" style="margin-left:24px">\n          <span class="field-label" style="color:var(--green)">Separar por empresa</span>\n          <div class="toggle-wrap">\n            <button class="toggle-btn ${tab.separarEmpresas ? "on" : ""}" onclick="setSepararEmpresas(${idx},true)">Sim</button>\n            <button class="toggle-btn ${!tab.separarEmpresas ? "off" : ""}" onclick="setSepararEmpresas(${idx},false)">Não</button>\n          </div>\n        </div>\n        <div class="field-group" style="margin-left:24px">\n          <span class="field-label" style="color:var(--yellow)">Sem cód. fornecedor</span>\n          <div class="toggle-wrap">\n            <button class="toggle-btn ${tab.incluirSemCodForn !== false ? "on" : ""}" onclick="setIncluirSemCodForn(${idx},true)">Incluir</button>\n            <button class="toggle-btn ${tab.incluirSemCodForn === false ? "off" : ""}" onclick="setIncluirSemCodForn(${idx},false)">Excluir</button>\n          </div>\n        </div>\n      </div>\n\n      \x3c!-- Clone supplier selectors --\x3e\n      ${cloneFornHtml}\n    </div>\n\n    \x3c!-- Table card --\x3e\n    <div class="table-card">\n      <div class="table-toolbar">\n        <span class="table-title">Itens do Pedido de Compra${filtroInfo}</span>\n        <input id="filtroInput${idx}" type="text" placeholder="Filtrar por nome, SKU, cód. fornecedor..."\n          value="${escHtml(tab.filtro || "")}"\n          oninput="filtrarTabela(${idx},this.value)"\n          style="flex:1;max-width:320px;background:#0a1220;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 10px;outline:none;margin:0 12px;font-family:inherit">\n        <button class="btn btn-ghost btn-sm" onclick="toggleFontePreco()" style="margin-right:10px;color:${S.mostrarFontePreco ? "var(--yellow)" : "var(--muted2)"};border-color:${S.mostrarFontePreco ? "rgba(255,214,0,.4)" : "var(--border)"}" title="Mostrar/ocultar coluna Fonte do Preço">\n          👁 Fonte\n        </button>\n        <span class="table-total" id="grandTot${idx}">Total: ${fmt(grandTotal.toFixed(2))}</span>\n      </div>\n      <div class="table-scroll">\n        <table>\n          <thead>\n            <tr>\n              <th style="width:32px">Nº</th>\n              <th>Item</th>\n              <th>Cód. Fornecedor</th>\n              <th>SKU</th>\n              <th class="r">Qtd</th>\n              <th class="r">Preço Unit.</th>\n              ${S.mostrarFontePreco ? '<th style="text-align:center;color:var(--yellow)">Fonte</th>' : ""}\n              <th class="r">IPI %</th>\n              <th class="r">Preço Total</th>\n              ${empThHtml}\n              ${cloneThHtml}\n            </tr>\n          </thead>\n          <tbody>${rowsHtml}</tbody>\n        </table>\n      </div>\n    </div>\n\n  </div>`;
 }
 
-// ── Autocomplete ──────────────────────────────────────────────
 function acOpen(input, wrapperId) {
   acFilter(input, wrapperId);
-  document.getElementById(wrapperId + '_dd').style.display = 'block';
+  document.getElementById(wrapperId + "_dd").style.display = "block";
 }
 
 function acFilter(input, wrapperId) {
-  const q   = input.value.trim().toLowerCase();
-  const dd  = document.getElementById(wrapperId + '_dd');
+  const q = input.value.trim().toLowerCase();
+  const dd = document.getElementById(wrapperId + "_dd");
   const hit = q ? S.fornBling.filter(f => f.nome.toLowerCase().includes(q)) : S.fornBling;
   if (!hit.length) {
     dd.innerHTML = '<div class="ac-empty">Nenhum fornecedor encontrado</div>';
   } else {
-    dd.innerHTML = hit.slice(0, 50).map(f =>
-      `<div class="ac-option" onmousedown="acSelect('${wrapperId}',${f.id},'${escJs(f.nome)}')">${escHtml(f.nome)}</div>`
-    ).join('');
+    dd.innerHTML = hit.slice(0, 50).map(f => `<div class="ac-option" onmousedown="acSelect('${wrapperId}',${f.id},'${escJs(f.nome)}')">${escHtml(f.nome)}</div>`).join("");
   }
 }
 
 function acSelect(wrapperId, id, nome) {
-  document.querySelector('#' + wrapperId + ' .ac-input').value = nome;
-  document.getElementById(wrapperId + '_dd').style.display = 'none';
-  // Determine which tab/clone to update
-  const parts = wrapperId.split('_');
-  if (wrapperId.startsWith('acMain')) {
-    const idx = parseInt(parts[0].replace('acMain', ''));
-    S.tabs[idx].blingId   = id;
+  document.querySelector("#" + wrapperId + " .ac-input").value = nome;
+  document.getElementById(wrapperId + "_dd").style.display = "none";
+  const parts = wrapperId.split("_");
+  if (wrapperId.startsWith("acMain")) {
+    const idx = parseInt(parts[0].replace("acMain", ""));
+    S.tabs[idx].blingId = id;
     S.tabs[idx].blingNome = nome;
-  } else if (wrapperId.startsWith('acClone')) {
-    const rest = wrapperId.replace('acClone', '');
-    const [tabIdx, ci] = rest.split('_').map(Number);
-    S.tabs[tabIdx]['fornClone' + ci] = { blingId: id, blingNome: nome };
+  } else if (wrapperId.startsWith("acClone")) {
+    const rest = wrapperId.replace("acClone", "");
+    const [tabIdx, ci] = rest.split("_").map(Number);
+    S.tabs[tabIdx]["fornClone" + ci] = {
+      blingId: id,
+      blingNome: nome
+    };
   }
   salvarEstado();
 }
 
 function acBlur(wrapperId) {
   setTimeout(() => {
-    const dd = document.getElementById(wrapperId + '_dd');
-    if (dd) dd.style.display = 'none';
+    const dd = document.getElementById(wrapperId + "_dd");
+    if (dd) dd.style.display = "none";
   }, 180);
 }
 
-// ── Clonar toggle ─────────────────────────────────────────────
 function setClonar(idx, val) {
   S.tabs[idx].clonar = val;
   if (!val) S.tabs[idx].numPedidos = 1;
@@ -1192,42 +1021,34 @@ function setNumPedidos(idx, val) {
   salvarEstado();
 }
 
-// ── Separar por empresa ───────────────────────────────────────
 function setSepararEmpresas(idx, val) {
   S.tabs[idx].separarEmpresas = val;
   renderTabContent(idx);
   salvarEstado();
-
   if (!val) return;
-
-  // Verifica se as qtds já estão preenchidas (dado carregado recentemente)
   const tab = S.tabs[idx];
-  const jaTemDados = tab.itens.some(it =>
-    it.qtdEmpresas && EMPRESAS.some(e => it.qtdEmpresas[e] > 0)
-  );
+  const jaTemDados = tab.itens.some(it => it.qtdEmpresas && EMPRESAS.some(e => it.qtdEmpresas[e] > 0));
   if (jaTemDados) return;
-
-  // Busca qtds da planilha automaticamente
   const skus = tab.itens.map(it => it.sku);
-  setOverlay(true, 'Buscando quantidades por empresa na planilha...');
-  google.script.run
-    .withSuccessHandler(res => {
-      setOverlay(false);
-      if (!res.ok) { toast('❌ Erro ao buscar qtds: ' + res.error, 'err'); return; }
-      tab.itens.forEach(it => {
-        if (res.qtds[it.sku]) {
-          it.qtdEmpresas = res.qtds[it.sku];
-        }
-      });
-      renderTabContent(idx);
-      salvarEstado();
-      toast('✅ Quantidades por empresa carregadas da planilha', 'ok');
-    })
-    .withFailureHandler(e => {
-      setOverlay(false);
-      toast('❌ ' + e.message, 'err');
-    })
-    .pc_carregarQtdEmpresas(skus);
+  setOverlay(true, "Buscando quantidades por empresa na planilha...");
+  google.script.run.withSuccessHandler(res => {
+    setOverlay(false);
+    if (!res.ok) {
+      toast("❌ Erro ao buscar qtds: " + res.error, "err");
+      return;
+    }
+    tab.itens.forEach(it => {
+      if (res.qtds[it.sku]) {
+        it.qtdEmpresas = res.qtds[it.sku];
+      }
+    });
+    renderTabContent(idx);
+    salvarEstado();
+    toast("✅ Quantidades por empresa carregadas da planilha", "ok");
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    toast("❌ " + e.message, "err");
+  }).pc_carregarQtdEmpresas(skus);
 }
 
 function setIncluirSemCodForn(idx, val) {
@@ -1238,117 +1059,110 @@ function setIncluirSemCodForn(idx, val) {
 
 function updateQtdEmpresa(tabIdx, rowIdx, empresa, val) {
   const item = S.tabs[tabIdx].itens[rowIdx];
-  if (!item.qtdEmpresas) item.qtdEmpresas = { HUMBLE:0, NAJUMI:0, SKY:0, EDMOTOS:0, 'MOTO VIBE':0 };
+  if (!item.qtdEmpresas) item.qtdEmpresas = {
+    HUMBLE: 0,
+    NAJUMI: 0,
+    SKY: 0,
+    EDMOTOS: 0,
+    "MOTO VIBE": 0
+  };
   item.qtdEmpresas[empresa] = parseInt(val) || 0;
   salvarEstado();
 }
 
-// ── Preencher preços da planilha ──────────────────────────────
 function preencherPrecosPlanilha(idx) {
   const tab = S.tabs[idx];
   let count = 0;
   tab.itens.forEach(item => {
-    // precoBase é o valor original da planilha; se não existir no estado antigo,
-    // não faz nada (o usuário precisa recriar as abas para obter o precoBase)
     const base = item.precoBase;
     if (base !== undefined && base !== null && base > 0) {
-      item.preco  = base;
+      item.preco = base;
       item.precos = item.precos.map(() => base);
       count++;
     }
   });
   if (count === 0) {
-    toast('ℹ Nenhum preço base encontrado — clique em 🗑 Apagar Dados e depois ▶ Criar Abas para recarregar', 'inf');
+    toast("ℹ Nenhum preço base encontrado — clique em 🗑 Apagar Dados e depois ▶ Criar Abas para recarregar", "inf");
     return;
   }
   renderTabContent(idx);
   salvarEstado();
-  toast('✅ Preços da planilha aplicados em ' + count + ' iten(s)', 'ok');
+  toast("✅ Preços da planilha aplicados em " + count + " iten(s)", "ok");
 }
 
-// ── Importar cód. fornecedor da planilha Controle ─────────────
 function importarCodsFornecedor(idx) {
-  const tab  = S.tabs[idx];
+  const tab = S.tabs[idx];
   const skus = tab.itens.map(it => it.sku);
-
-  confirm2(
-    '📥 Importar Cód. Fornecedor?',
-    'Vai buscar o último código de fornecedor registrado na planilha Controle de Compras para cada SKU desta aba.\n\nPreenche o Cód. Fornecedor principal e todos os campos de clone. Valores já preenchidos serão substituídos.',
-    () => {
-      setOverlay(true, 'Buscando códigos na planilha Controle de Compras...');
-      google.script.run
-        .withSuccessHandler(res => {
-          setOverlay(false);
-          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
-
-          let count = 0;
-          tab.itens.forEach(it => {
-            const cod = res.codigos[it.sku];
-            if (!cod) return;
-            it.codForn = cod;
-            // Preenche também todas as colunas clone
-            if (tab.clonar) {
-              it.codsForn = it.codsForn.map(() => cod);
-            }
-            count++;
-          });
-
-          if (!count) {
-            toast('ℹ Nenhum código encontrado para os SKUs desta aba', 'inf');
-            return;
-          }
-          renderTabContent(idx);
-          salvarEstado();
-          toast('✅ Cód. Fornecedor importado em ' + count + ' item(ns)', 'ok');
-        })
-        .withFailureHandler(e => { setOverlay(false); toast('❌ ' + e.message, 'err'); })
-        .pc_importarCodsFornecedor(skus);
-    }
-  );
+  confirm2("📥 Importar Cód. Fornecedor?", "Vai buscar o último código de fornecedor registrado na planilha Controle de Compras para cada SKU desta aba.\n\nPreenche o Cód. Fornecedor principal e todos os campos de clone. Valores já preenchidos serão substituídos.", () => {
+    setOverlay(true, "Buscando códigos na planilha Controle de Compras...");
+    google.script.run.withSuccessHandler(res => {
+      setOverlay(false);
+      if (!res.ok) {
+        toast("❌ " + res.error, "err");
+        return;
+      }
+      let count = 0;
+      tab.itens.forEach(it => {
+        const cod = res.codigos[it.sku];
+        if (!cod) return;
+        it.codForn = cod;
+        if (tab.clonar) {
+          it.codsForn = it.codsForn.map(() => cod);
+        }
+        count++;
+      });
+      if (!count) {
+        toast("ℹ Nenhum código encontrado para os SKUs desta aba", "inf");
+        return;
+      }
+      renderTabContent(idx);
+      salvarEstado();
+      toast("✅ Cód. Fornecedor importado em " + count + " item(ns)", "ok");
+    }).withFailureHandler(e => {
+      setOverlay(false);
+      toast("❌ " + e.message, "err");
+    }).pc_importarCodsFornecedor(skus);
+  });
 }
 
-// ── Toggle coluna Fonte Preço ─────────────────────────────────
 function toggleFontePreco() {
   S.mostrarFontePreco = !S.mostrarFontePreco;
   renderTabContent(S.activeTab);
 }
 
-// ── Filtro de tabela ──────────────────────────────────────────
 function filtrarTabela(idx, q) {
   S.tabs[idx].filtro = q;
   renderTabContent(idx);
-  // Reposiciona foco no input após re-render
-  const inp = document.getElementById('filtroInput' + idx);
-  if (inp) { inp.focus(); inp.setSelectionRange(q.length, q.length); }
+  const inp = document.getElementById("filtroInput" + idx);
+  if (inp) {
+    inp.focus();
+    inp.setSelectionRange(q.length, q.length);
+  }
 }
 
-// ── Executar desconto ─────────────────────────────────────────
 function executarDesconto(idx) {
   const tab = S.tabs[idx];
-  const d   = parseFloat(tab.desconto) || 0;
-  if (d <= 0) { toast('ℹ Informe um percentual de desconto maior que 0', 'inf'); return; }
-
-  confirm2(
-    '🏷 Executar Desconto de ' + d + '%?',
-    'O desconto será aplicado em todos os preços unitários desta aba (incluindo colunas de cópia).\nOs valores ficam editáveis após a aplicação.',
-    () => {
-      tab.itens.forEach(item => {
-        const novo = parseFloat((item.preco * (1 - d / 100)).toFixed(2));
-        item.preco = novo;
-        item.precos = item.precos.map(() => novo);
-      });
-      renderTabContent(idx);
-      salvarEstado();
-      toast('✅ Desconto de ' + d + '% aplicado em ' + tab.itens.length + ' itens', 'ok');
-    }
-  );
+  const d = parseFloat(tab.desconto) || 0;
+  if (d <= 0) {
+    toast("ℹ Informe um percentual de desconto maior que 0", "inf");
+    return;
+  }
+  confirm2("🏷 Executar Desconto de " + d + "%?", "O desconto será aplicado em todos os preços unitários desta aba (incluindo colunas de cópia).\nOs valores ficam editáveis após a aplicação.", () => {
+    tab.itens.forEach(item => {
+      const novo = parseFloat((item.preco * (1 - d / 100)).toFixed(2));
+      item.preco = novo;
+      item.precos = item.precos.map(() => novo);
+    });
+    renderTabContent(idx);
+    salvarEstado();
+    toast("✅ Desconto de " + d + "% aplicado em " + tab.itens.length + " itens", "ok");
+  });
 }
 
-// ── Atualizar valores ─────────────────────────────────────────
 function updateField(tabIdx, rowIdx, field, val) {
   const item = S.tabs[tabIdx].itens[rowIdx];
-  item[field] = (field === 'codForn') ? val : (parseFloat(val) || 0);
-  if (field === 'qtd' || field === 'preco') recalcTotal(tabIdx, rowIdx);
+  item[field] = field === "codForn" ? val : parseFloat(val) || 0;
+  if (field === "qtd" || field === "preco") recalcTotal(tabIdx, rowIdx);
   salvarEstado();
 }
 
@@ -1370,49 +1184,43 @@ function updateCodForn(tabIdx, rowIdx, cloneIdx, val) {
 }
 
 function recalcTotal(tabIdx, rowIdx) {
-  const item  = S.tabs[tabIdx].itens[rowIdx];
+  const item = S.tabs[tabIdx].itens[rowIdx];
   const total = (item.preco * item.qtd).toFixed(2);
-  const el    = document.getElementById('tot_' + tabIdx + '_' + rowIdx);
+  const el = document.getElementById("tot_" + tabIdx + "_" + rowIdx);
   if (el) el.textContent = fmt(total);
   recalcGrand(tabIdx);
 }
 
 function recalcGrand(tabIdx) {
-  const tab   = S.tabs[tabIdx];
+  const tab = S.tabs[tabIdx];
   const grand = tab.itens.reduce((s, it) => s + it.preco * it.qtd, 0);
-  const el    = document.getElementById('grandTot' + tabIdx);
-  if (el) el.textContent = 'Total: ' + fmt(grand.toFixed(2));
+  const el = document.getElementById("grandTot" + tabIdx);
+  if (el) el.textContent = "Total: " + fmt(grand.toFixed(2));
 }
 
-// ── Criar pedidos (aba específica) ───────────────────────────
 function criarPedidosAba(idx) {
-  const tab  = S.tabs[idx];
+  const tab = S.tabs[idx];
   const errs = validarAba(tab);
-  if (errs.length) { toast('❌ ' + errs[0], 'err'); return; }
-
+  if (errs.length) {
+    toast("❌ " + errs[0], "err");
+    return;
+  }
   const pedidos = montarPedidos(tab);
-  const nomes   = pedidos.map(p => '• ' + p.fornecedorNome).join('\n');
-
-  confirm2(
-    '✅ Criar ' + pedidos.length + ' pedido(s) no Bling?',
-    'Serão criados:\n' + nomes + '\n\nDeseja continuar?',
-    () => enviarPedidos(pedidos)
-  );
+  const nomes = pedidos.map(p => "• " + p.fornecedorNome).join("\n");
+  confirm2("✅ Criar " + pedidos.length + " pedido(s) no Bling?", "Serão criados:\n" + nomes + "\n\nDeseja continuar?", () => enviarPedidos(pedidos));
 }
 
 function validarAba(tab) {
   const errs = [];
-  if (!tab.blingId) errs.push('Selecione o Fornecedor no Bling para esta aba');
+  if (!tab.blingId) errs.push("Selecione o Fornecedor no Bling para esta aba");
   if (tab.clonar) {
     for (let ci = 0; ci < tab.numPedidos; ci++) {
-      if (!tab['fornClone' + ci]?.blingId) errs.push('Selecione o Fornecedor ' + (ci + 2));
+      if (!tab["fornClone" + ci]?.blingId) errs.push("Selecione o Fornecedor " + (ci + 2));
     }
   }
   if (tab.separarEmpresas) {
-    const temAlguma = EMPRESAS.some(emp =>
-      tab.itens.some(it => (it.qtdEmpresas && it.qtdEmpresas[emp] > 0))
-    );
-    if (!temAlguma) errs.push('Nenhuma empresa possui quantidade preenchida nas colunas de empresa');
+    const temAlguma = EMPRESAS.some(emp => tab.itens.some(it => it.qtdEmpresas && it.qtdEmpresas[emp] > 0));
+    if (!temAlguma) errs.push("Nenhuma empresa possui quantidade preenchida nas colunas de empresa");
   }
   return errs;
 }
@@ -1420,83 +1228,76 @@ function validarAba(tab) {
 function montarPedidos(tab) {
   const pedidos = [];
   const inclSem = tab.incluirSemCodForn !== false;
-
-  // Filtra itens sem cód. fornecedor se a opção estiver como "Excluir"
-  const itensBase = inclSem
-    ? tab.itens
-    : tab.itens.filter(it => it.codForn && it.codForn.trim() !== '');
-
+  const itensBase = inclSem ? tab.itens : tab.itens.filter(it => it.codForn && it.codForn.trim() !== "");
   if (!tab.separarEmpresas) {
-    // Modo normal: pedido principal + clones
     pedidos.push({
-      fornecedorId:   tab.blingId,
+      fornecedorId: tab.blingId,
       fornecedorNome: tab.blingNome,
       itens: itensBase.map(it => ({
-        produtoId: it.produtoId, sku: it.sku, nome: it.nome,
+        produtoId: it.produtoId,
+        sku: it.sku,
+        nome: it.nome,
         codFornecedor: it.codForn,
-        qtd: it.qtd, preco: it.preco, ipi: it.ipi,
-      })),
+        qtd: it.qtd,
+        preco: it.preco,
+        ipi: it.ipi
+      }))
     });
     if (tab.clonar) {
       for (let ci = 0; ci < tab.numPedidos; ci++) {
-        const forn = tab['fornClone' + ci];
-        // Para clone, filtra pelo codsForn[ci] se "Excluir"
-        const itensClone = inclSem
-          ? tab.itens
-          : tab.itens.filter(it => it.codsForn[ci] && it.codsForn[ci].trim() !== '');
+        const forn = tab["fornClone" + ci];
+        const itensClone = inclSem ? tab.itens : tab.itens.filter(it => it.codsForn[ci] && it.codsForn[ci].trim() !== "");
         pedidos.push({
-          fornecedorId:   forn.blingId,
+          fornecedorId: forn.blingId,
           fornecedorNome: forn.blingNome,
           itens: itensClone.map(it => ({
-            produtoId: it.produtoId, sku: it.sku, nome: it.nome,
-            codFornecedor: it.codsForn[ci] || '',
-            qtd: it.qtd, preco: it.precos[ci] || it.preco, ipi: it.ipi,
-          })),
+            produtoId: it.produtoId,
+            sku: it.sku,
+            nome: it.nome,
+            codFornecedor: it.codsForn[ci] || "",
+            qtd: it.qtd,
+            preco: it.precos[ci] || it.preco,
+            ipi: it.ipi
+          }))
         });
       }
     }
   } else {
-    // Modo empresa: um pedido por empresa (onde há qty > 0)
     for (const emp of EMPRESAS) {
-      const itensEmp = tab.itens
-        .filter(it => inclSem || (it.codForn && it.codForn.trim() !== ''))
-        .map(it => ({
-          produtoId: it.produtoId, sku: it.sku, nome: it.nome,
-          codFornecedor: it.codForn,
-          qtd: (it.qtdEmpresas && it.qtdEmpresas[emp]) || 0,
-          preco: it.preco, ipi: it.ipi,
-        }))
-        .filter(it => it.qtd > 0);
-
+      const itensEmp = tab.itens.filter(it => inclSem || it.codForn && it.codForn.trim() !== "").map(it => ({
+        produtoId: it.produtoId,
+        sku: it.sku,
+        nome: it.nome,
+        codFornecedor: it.codForn,
+        qtd: it.qtdEmpresas && it.qtdEmpresas[emp] || 0,
+        preco: it.preco,
+        ipi: it.ipi
+      })).filter(it => it.qtd > 0);
       if (!itensEmp.length) continue;
-
-      // Pedido principal para esta empresa
       pedidos.push({
-        fornecedorId:   tab.blingId,
-        fornecedorNome: tab.blingNome + ' · ' + emp,
-        empresa:        emp,
-        itens:          itensEmp,
+        fornecedorId: tab.blingId,
+        fornecedorNome: tab.blingNome + " · " + emp,
+        empresa: emp,
+        itens: itensEmp
       });
-
-      // Pedidos clonados para esta empresa
       if (tab.clonar) {
         for (let ci = 0; ci < tab.numPedidos; ci++) {
-          const forn = tab['fornClone' + ci];
-          const itensClone = tab.itens
-            .filter(it => inclSem || (it.codsForn[ci] && it.codsForn[ci].trim() !== ''))
-            .map(it => ({
-              produtoId: it.produtoId, sku: it.sku, nome: it.nome,
-              codFornecedor: it.codsForn[ci] || '',
-              qtd: (it.qtdEmpresas && it.qtdEmpresas[emp]) || 0,
-              preco: it.precos[ci] || it.preco, ipi: it.ipi,
-            }))
-            .filter(it => it.qtd > 0);
+          const forn = tab["fornClone" + ci];
+          const itensClone = tab.itens.filter(it => inclSem || it.codsForn[ci] && it.codsForn[ci].trim() !== "").map(it => ({
+            produtoId: it.produtoId,
+            sku: it.sku,
+            nome: it.nome,
+            codFornecedor: it.codsForn[ci] || "",
+            qtd: it.qtdEmpresas && it.qtdEmpresas[emp] || 0,
+            preco: it.precos[ci] || it.preco,
+            ipi: it.ipi
+          })).filter(it => it.qtd > 0);
           if (!itensClone.length) continue;
           pedidos.push({
-            fornecedorId:   forn.blingId,
-            fornecedorNome: forn.blingNome + ' · ' + emp,
-            empresa:        emp,
-            itens:          itensClone,
+            fornecedorId: forn.blingId,
+            fornecedorNome: forn.blingNome + " · " + emp,
+            empresa: emp,
+            itens: itensClone
           });
         }
       }
@@ -1506,207 +1307,160 @@ function montarPedidos(tab) {
 }
 
 function _erroAuthBling(mensagem) {
-  // Abre modal de autenticação com aviso especial de re-auth
-  const desc = document.getElementById('setupModalDesc');
+  const desc = document.getElementById("setupModalDesc");
   if (desc) {
-    desc.innerHTML = '<div style="background:rgba(255,180,0,.1);border:1px solid rgba(255,180,0,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px;color:var(--yellow)">' +
-      '<strong>⚠ Re-autorização necessária</strong><br>' +
-      'Os tokens foram apagados automaticamente porque o Bling negou acesso (403).<br>' +
-      'O token antigo não tem os escopos de API necessários.' +
-      '</div>' +
-      '<strong style="color:var(--red)">OBRIGATÓRIO antes de autorizar:</strong><br>' +
-      '1. Abra <a href="https://www.bling.com.br" target="_blank" style="color:var(--cyan)">bling.com.br</a> em outra aba e <strong>faça logout</strong> da conta Bling.<br>' +
-      '2. Volte aqui e clique em "Abrir Bling para autorizar".<br>' +
-      '3. Faça login no Bling novamente — a tela de autorização aparecerá com todos os escopos.<br>' +
-      '4. Após autorizar, copie a URL do Google e cole abaixo.';
+    desc.innerHTML = '<div style="background:rgba(255,180,0,.1);border:1px solid rgba(255,180,0,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px;color:var(--yellow)">' + "<strong>⚠ Re-autorização necessária</strong><br>" + "Os tokens foram apagados automaticamente porque o Bling negou acesso (403).<br>" + "O token antigo não tem os escopos de API necessários." + "</div>" + '<strong style="color:var(--red)">OBRIGATÓRIO antes de autorizar:</strong><br>' + '1. Abra <a href="https://www.bling.com.br" target="_blank" style="color:var(--cyan)">bling.com.br</a> em outra aba e <strong>faça logout</strong> da conta Bling.<br>' + '2. Volte aqui e clique em "Abrir Bling para autorizar".<br>' + "3. Faça login no Bling novamente — a tela de autorização aparecerá com todos os escopos.<br>" + "4. Após autorizar, copie a URL do Google e cole abaixo.";
   }
-  openModal('setupModal');
+  openModal("setupModal");
 }
 
 function enviarPedidos(pedidos) {
-  setOverlay(true, 'Criando pedidos no Bling...');
-  google.script.run
-    .withSuccessHandler(res => {
-      setOverlay(false);
-      mostrarResultado(res.resultados);
-    })
-    .withFailureHandler(e => {
-      setOverlay(false);
-      if (e.message && e.message.startsWith('AUTH_REQUIRED:')) {
-        _erroAuthBling(e.message);
-      } else {
-        toast('❌ ' + e.message, 'err');
-      }
-    })
-    .pc_criarPedidos(pedidos);
+  setOverlay(true, "Criando pedidos no Bling...");
+  google.script.run.withSuccessHandler(res => {
+    setOverlay(false);
+    mostrarResultado(res.resultados);
+  }).withFailureHandler(e => {
+    setOverlay(false);
+    if (e.message && e.message.startsWith("AUTH_REQUIRED:")) {
+      _erroAuthBling(e.message);
+    } else {
+      toast("❌ " + e.message, "err");
+    }
+  }).pc_criarPedidos(pedidos);
 }
 
 function mostrarResultado(resultados) {
   const html = resultados.map(r => {
     if (r.ok) {
-      return `<div class="result-item ok">
-        <div class="result-icon">✅</div>
-        <div class="result-text">
-          <div class="result-forn">${escHtml(r.fornecedor)}</div>
-          <div class="result-pedido">Pedido criado — ID: ${r.idPedido}${r.numero ? ' · Nº ' + r.numero : ''}</div>
-          <div class="result-detail">${r.numItens} iten(s)</div>
-        </div>
-      </div>`;
+      return `<div class="result-item ok">\n        <div class="result-icon">✅</div>\n        <div class="result-text">\n          <div class="result-forn">${escHtml(r.fornecedor)}</div>\n          <div class="result-pedido">Pedido criado — ID: ${r.idPedido}${r.numero ? " · Nº " + r.numero : ""}</div>\n          <div class="result-detail">${r.numItens} iten(s)</div>\n        </div>\n      </div>`;
     } else {
-      return `<div class="result-item err">
-        <div class="result-icon">❌</div>
-        <div class="result-text">
-          <div class="result-forn">${escHtml(r.fornecedor)}</div>
-          <div class="result-detail">${escHtml(r.error)}</div>
-        </div>
-      </div>`;
+      return `<div class="result-item err">\n        <div class="result-icon">❌</div>\n        <div class="result-text">\n          <div class="result-forn">${escHtml(r.fornecedor)}</div>\n          <div class="result-detail">${escHtml(r.error)}</div>\n        </div>\n      </div>`;
     }
-  }).join('');
-
-  document.getElementById('resultBody').innerHTML = html;
-  openModal('resultModal');
+  }).join("");
+  document.getElementById("resultBody").innerHTML = html;
+  openModal("resultModal");
 }
 
-// ── Confirm modal ─────────────────────────────────────────────
 function confirm2(title, body, onOk) {
-  document.getElementById('confirmTitle').textContent = title;
-  document.getElementById('confirmBody').textContent  = body;
-  const btn = document.getElementById('confirmOk');
-  btn.onclick = () => { closeModal('confirmModal'); onOk(); };
-  openModal('confirmModal');
+  document.getElementById("confirmTitle").textContent = title;
+  document.getElementById("confirmBody").textContent = body;
+  const btn = document.getElementById("confirmOk");
+  btn.onclick = () => {
+    closeModal("confirmModal");
+    onOk();
+  };
+  openModal("confirmModal");
 }
 
 function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
+  document.getElementById(id).classList.remove("open");
 }
 
-// Abre um modal garantindo que o overlay de loading não fique por cima
 function openModal(id) {
   setOverlay(false);
-  document.getElementById(id).classList.add('open');
+  document.getElementById(id).classList.add("open");
 }
 
-// ── Helpers UI ────────────────────────────────────────────────
 let _overlayTimer = null;
+
 function setOverlay(show, msg) {
-  document.getElementById('overlay').style.display = show ? 'flex' : 'none';
-  if (msg) document.getElementById('overlayMsg').textContent = msg;
+  document.getElementById("overlay").style.display = show ? "flex" : "none";
+  if (msg) document.getElementById("overlayMsg").textContent = msg;
   clearTimeout(_overlayTimer);
-  // Trava de segurança: nunca deixa o overlay preso bloqueando cliques
   if (show) {
     _overlayTimer = setTimeout(() => {
-      document.getElementById('overlay').style.display = 'none';
-      toast('⚠ Operação demorou demais — tela liberada', 'err');
-    }, 45000);
+      document.getElementById("overlay").style.display = "none";
+      toast("⚠ Operação demorou demais — tela liberada", "err");
+    }, 45e3);
   }
 }
 
 function toast(msg, type) {
-  const t = document.createElement('div');
-  t.className   = 'toast ' + (type || 'inf');
+  const t = document.createElement("div");
+  t.className = "toast " + (type || "inf");
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 5000);
+  setTimeout(() => t.remove(), 5e3);
 }
 
 function fmt(v) {
-  return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "R$ " + parseFloat(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
 }
 
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function escJs(s) {
-  return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-}
-</script>
+  return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}</script>
 
 <!-- Sonda independente: bloco separado, roda mesmo se o principal for
      rejeitado por erro de sintaxe. Diz qual dos dois casos ocorreu. -->
-<script>
-(function () {
-  var d = document.getElementById('jsDiag');
+<script>(function() {
+  var d = document.getElementById("jsDiag");
   if (!d) return;
-  if (typeof window.PC_BUILD === 'string') return; // principal rodou, banner ja verde
-  d.style.background = '#4a2600';
-  d.style.color      = '#ffd28a';
-  d.style.borderTop  = '2px solid #ff9500';
-  d.textContent = 'ETAPA 3 - LARANJA: arquivo COMPLETO, bloco principal com erro de '
-    + 'sintaxe. Localizando...';
-
-  // O script que falhou continua no DOM com seu texto original. Le direto
-  // dali (sem rede) e recompila com new Function, que lanca SyntaxError
-  // capturavel. Depois localiza a linha por busca binaria.
+  if (typeof window.PC_BUILD === "string") return;
+  d.style.background = "#4a2600";
+  d.style.color = "#ffd28a";
+  d.style.borderTop = "2px solid #ff9500";
+  d.textContent = "ETAPA 3 - LARANJA: arquivo COMPLETO, bloco principal com erro de " + "sintaxe. Localizando...";
   var code = null;
   for (var k = 0; k < document.scripts.length; k++) {
-    var t = document.scripts[k].text || '';
-    if (t.indexOf('PC_BUILD') >= 0) { code = t; break; }
+    var t = document.scripts[k].text || "";
+    if (t.indexOf("PC_BUILD") >= 0) {
+      code = t;
+      break;
+    }
   }
   if (code === null) {
-    d.textContent += ' (bloco principal nao encontrado no DOM)';
+    d.textContent += " (bloco principal nao encontrado no DOM)";
     return;
   }
-
-  var linhas = code.split('\n');
-  var OFFSET = 415; // linha da tag de script do bloco principal no arquivo
-
-  // 1) Caractere trocado ou invisivel: causa de "Invalid or unexpected token"
+  var linhas = code.split("\n");
+  var OFFSET = 412;
   var maus = [];
   for (var i = 0; i < linhas.length && maus.length < 3; i++) {
     for (var j = 0; j < linhas[i].length; j++) {
       var cp = linhas[i].charCodeAt(j), nome = null;
-      if (cp === 0xA0)                                          nome = 'NBSP';
-      else if (cp === 0x2018 || cp === 0x2019)                  nome = 'ASPA SIMPLES CURVA';
-      else if (cp === 0x201C || cp === 0x201D)                  nome = 'ASPA DUPLA CURVA';
-      else if (cp === 0x2032 || cp === 0x2033)                  nome = 'PRIME (aspa falsa)';
-      else if (cp === 0x2028 || cp === 0x2029)                  nome = 'separador U+' + cp.toString(16);
-      else if (cp === 0xFEFF)                                   nome = 'BOM';
-      else if (cp === 0x200B || cp === 0x200E || cp === 0x200F) nome = 'invisivel U+' + cp.toString(16);
-      else if (cp < 0x20 && cp !== 9)                           nome = 'controle U+' + cp.toString(16);
-      else if (cp >= 0xD800 && cp <= 0xDBFF && !(linhas[i].charCodeAt(j + 1) >= 0xDC00 && linhas[i].charCodeAt(j + 1) <= 0xDFFF)) nome = 'surrogate alto solto';
-      else if (cp >= 0xDC00 && cp <= 0xDFFF && !(j > 0 && linhas[i].charCodeAt(j - 1) >= 0xD800 && linhas[i].charCodeAt(j - 1) <= 0xDBFF)) nome = 'surrogate baixo solto';
-      if (nome) { maus.push('L' + (OFFSET + i) + ' c' + (j + 1) + ' ' + nome); break; }
+      if (cp === 160) nome = "NBSP"; else if (cp === 8216 || cp === 8217) nome = "ASPA SIMPLES CURVA"; else if (cp === 8220 || cp === 8221) nome = "ASPA DUPLA CURVA"; else if (cp === 8242 || cp === 8243) nome = "PRIME (aspa falsa)"; else if (cp === 8232 || cp === 8233) nome = "separador U+" + cp.toString(16); else if (cp === 65279) nome = "BOM"; else if (cp === 8203 || cp === 8206 || cp === 8207) nome = "invisivel U+" + cp.toString(16); else if (cp < 32 && cp !== 9) nome = "controle U+" + cp.toString(16); else if (cp >= 55296 && cp <= 56319 && !(linhas[i].charCodeAt(j + 1) >= 56320 && linhas[i].charCodeAt(j + 1) <= 57343)) nome = "surrogate alto solto"; else if (cp >= 56320 && cp <= 57343 && !(j > 0 && linhas[i].charCodeAt(j - 1) >= 55296 && linhas[i].charCodeAt(j - 1) <= 56319)) nome = "surrogate baixo solto";
+      if (nome) {
+        maus.push("L" + (OFFSET + i) + " c" + (j + 1) + " " + nome);
+        break;
+      }
     }
   }
-
-  // 2) Mensagem exata do compilador
-  var msg = '';
-  try { new Function(code); msg = 'recompilou OK (erro intermitente)'; }
-  catch (err) { msg = err.message; }
-
-  // 3) Checksum por linha: aponta a linha exata que a colagem alterou.
-  //    HASHES tem 3 caracteres base36 por linha do bloco correto.
-  var EXP = 46867;
+  var msg = "";
+  try {
+    new Function(code);
+    msg = "recompilou OK (erro intermitente)";
+  } catch (err) {
+    msg = err.message;
+  }
+  var EXP = 42497;
   var difChars = code.length - EXP;
-
-  var HASHES = "000lqbsmkiik7ard39e9fs26gq1eibol9ux366qxwkb2j7puex6j5pl7s6ceeult8hrd6n2466qyl4gjvj5pxblbbi000z4e8vr000woto0e5wm0vxeub989js831a000xzk8bczqb000ny7d9vklroa4kf2ax4udy9l5brsdn2ly103h000lpmfo6ncgrmtlcwvh23fwmoe3r1vlg03h0002wtotb03h000qq84yb03h000c1fx0ifz0t8ckm0c4qudy1ilt3t15f8i7kgx4wc073lbbzcyl6l6cpnj6gsqyh8xb1wgpwac0md6cesom03h000fik9mrsz4222rcrf180nfefi9anp3ivqy7gtj9qx7kg2jol90zww7c03h000xpo3fq8obnbqsnvz4cjb7ol9zgf5a003h00013mszfwpe5u400000qqcfvhj000cxa8sdsmfdb4swnt5i7cg8mt14cj66f3q264ntsrr1ybyiwt000qtldsfiazo6pqwrr63iwt000kxy0qadsfiazo6pqwrr63iwt000lej1o45w8jof00012qlerblpgh5ulcoyorzbv01n16we5wb02dvad2iwt000l6l6cpvi8yh8ck3gx4hxobnrcov0qadsfiaz8bbrk8iwthxoplx31a000mp8dnr000rmh9t0oq6nr7000e8r8sdk7c6uzwzl6se1z26jllare17zx510vx0zzoru4371q8bb89piwtw82hxofm32g203h00063tgjslbcuk4j3onhapshga779po6z8sdvvt6uzz4r8pcrkmhxofm3h8w03h000y75pju8sdbhq6uzn4yhxofm37m903h000znmk1xk91z3uvhx8sdvvtat9tbyil79gardnr63iwtahk389ua0wpsiwthxoudnat9701hxow8b03h00024joir5y0fo67c7f7zhnfsv2349ol903h000y9q0cv36akea8sdvvt6uztbyil71rlrdnbabqk5r63iwt0id004rxbhczh5qfgdhxofm32st03h0000tkuxeaax23d0008sdvvttbyxvfcngqk5r63iwt2h3485xvfcng79mr63iwt000zwlyxcyptfjldrgnqtbvvn0qeb18c95zavmi8gtckveegd0r8j3cvbp2e9f9o7j00ksa49tgw4fer3gxq0005waqbz4wctyj000qgl2xz1h8000l6lxu30qjgjlhve2v7e7b5hr1ky04vqgfrr1orv2cv1bzkzh5brpp65ciyh88p70qjorve3c74zkzh5brpp65ciyh89jhhxoudn6uz4wc1ug701hxooji03h000jzlnrtj2s0lzr12ap4ea7uvulujga703h0009lhgzjjuiakpi6vcbfkp5ztru4h000ch2pdu03h000ko8uooi9yyd4os0grkosr03h000lkn4yu1f2rcv03h0002uu1ylch2b6p01d4qg8ffhtq1ty03h000sr2w4t3us94r000nud0003ssbmogy5po9yfeg4ms67bfyw2peti1fowmckkeyuo58gfob0vimt6ol90009tvmm9e9yihanse000zikvg8gzpqd1000bj7o966fz0fgl1n504mzqdmx0001493ecbca0000qlh0psnkztlz4dim8dw10vi000inkjhw8tiobejqwyulkhh000534uycyw3ssw1s43o5khh000q5w6ak76o3uoso1moj1db5e6t8isoqp5dza4segnse000256erz0000psi9i000kw6kjxuqrvjptg6v2fqq74ph8a3pp3jefdyb2rlibk58gtg69lj37dhwkztwt7858gwbjxqbzeurxh9x558gwbjxqbphjugg9x558gwbjxqbiulnp19x558gmrbwbjxqba1cme39x558g5c0000gb9vjptg6i4vv7xverbvcibk58gh9ktg6p83yxh4zsygnyl48exv7xow5i48ibk58gyl4coqv7xovsly9ibk58g5c0000zksqjr7i8000o6zvnh6qustxuexw7stp0mdv0mev16we10p95c0lq2ecswyuuystdanyuecane03cnwwz8324a90959fxyzcoml5sta3dktf5c07i8000hy303h000t6g1nkfqog4o03h000sem4xrnrxhbtvhj53oal3lpmh9flqjol903h000b0ck8jsthzkxe9fnl87v5xyc4is0cmh0zigpp3yol98ff03h000z65sfm1sn5435oq03h0009ffxmn53s6sdb6p8ff03h000dm6tqfb6p8ff03h000qiku4cf1bb6p8ff000t4f000pgk3usq8aanw4c2qx5000o5pot6d3i8sdvvt6uzaibey3zw7mpkxmlur3529t4bjb2hxoudn6uz701hxoxjo03h000vb8gk7b6p8ff03h000ptq3mtr2fcsb8ff03h00006m3gw3usi3oloj5pxssa8f57djh83m02rvwj5pga7az1xiqpl7ol9b6p8ff2hn03h0000xrwsxwt0ot6000ygmjxudlury3yefl6l6cp0qjd5n0005usqwbz7zk54mdoub19xpyerwe54h8tin000s1dplzednrr1w4horvg5oyh8xxny4cj5p4c203h000179tox0rddq003h000ml0nn5jixb6p5g5r046ey03h000t0qpcr3ushppugv000ygmlngr7fry3wlfe7zg6qwnfur3529t4b0tbj5p4c203h0006httkv3mtir2dez8ff03h000s1z3mt1tvd998ff03h000tg4e9s8ff03h0009aeg4w8ff03h00058152dwdwb9tkaooym03h0005zk9vhz40cc87b503h000tiyduiwt0ssqa2o000in6zxj000ygm8qpffzbky4c203h000rj0881pfugy5h1k7gpj5pol97ncz7kkzgfxuysyol9rvh03h000t9m947l1t000iuiwcdn1hiio000pf3wjcavh39452wrxo0bllu7qshgxbg1bo3xrbc0y2b7p56thetru44b169ompstp0kv576845oenjovjiwtj5pal3ue9g8n7wpvxlnw7oo1sjzz0mbdmov1pka000tri000ct3ybx9ywtpx4xhmh4ur30009idtcdybs4zuc66wb9jjr2oxhg0jk6i2bqfx6ei1vnmktm64rctvzp7tftinxmliwtj5pol9qe503h000gkgwlzj1fcy6wz66ograuzerdbf9bwrhkzmewbi83vol9bxj03h000d6taxb8sdvvt6uzf6lhxoudn6uzr0f9ov8bbwttiwthxoqbd03h000g27watyufu1jwiajnrx9vkw8bao58gfob8ev0zm2c9jnrx9vms658gfobj5pnse0009ezj6303h0007fxk9hkpwvviy3nue0fxm03h000n7ibsn03h0001s0ufwim33r803h000mk1apsiqujhwk6tclug042uapb5xpr78e240ol903h0000pq268i9dgbvtxjtnt03h0005htbwq03h000e1t40i03h000x4zg2e03h000";
+  var HASHES = "v640001lo1jnd39c3h8sgyvjut5ol9qyv0fmxwk8wlvaa6pkj5pl7s6cecdnlgqn240fmg4ijzfj5pxblbbi000xn5000o0em1yhxva7lmuxc9031a0004xk0001ib000ny7000d9vklroa4udy0gm3hrdy7gxq22mudy3ti3hrdy7ur3brs22mly103h000lpmfo6ncgrmtoecvh2ykamoe3r14bjl7sol903h0002wtfo6xvfq0u03h000qq8fo6qioj1i4bj33dol903h000x0ifz0t8cr09c4qudy1ilmafm7cr63iwt5dv8i7kgxyp8ui1scnd46tdco8qdzz3omj5pwsl6ce7ho03h000fik9mrb18222rcrf18iyj3p6y2jvn2vqyp5cqrc4lsqn7g1bol93d4dw40e6w7c03h000xpo3fqc97nbqlapq5557pk5bjso8evz54j5pol9zgf5a003h000szf58czn0qcfbkq32jhhrol9762l40j87oiex80jp13lmzpqq3ahegdrydpcxmlpj2j5pjihqbzpf99ucu8bj5pk8iqbzpf99ucu8bj5paqmuebd46exsa27rv3krri7fxml0qlj5p2ueswwt7zce3k8iqbzpf98ev8hej5pvo931a000dnr000rmhd6y82fej6pl7ol9az55pnol7aqpr3yysvdbn4xa8evpvhj5p3wi9hzol7f9j0ye03h00063tw3ilbcuk4tn8mbl4l2f5ewnwg1bga72zn1egpl7ol9l3vsvaol75vi16zu8bj5p2ggw1i9hzol7f9jhz803h000y75mgqck1ol7sk89hzol7f9jcsl03h000znmchnndxwi5l14anmol9g9hsvawelqa53ycj5p5vihtnzbujy3u8bj5pn14bcpqtkkjkj5p9hzwelqa53ycj5pf9jhun03h00024j9ab5y0fo6p754bjhnfolaggvol903h000y9q7tlimzq91pl7ol9qbcsvaol75vihtn8upjy3gdjaoyy4zur316zu8bj5p4hh0haudf2guhn79hzol7f9jz3503h000uxektb5dlsva5vi6uzyp816zu8bj5pbwnnfp6uzyp8o4gu8bj5phu8ahtp4hhik28lpsdxu0w4plvdveuqm6x5pfcf0dsm0bpxlgivxyyjbfycvwg4yxgz3opcycot29o74zqpl527xmluqlsqmzx6ea784stth93twakm3y6uzg015x6x4zxifecnseatinovjiwtt4bbs5ud5f0r4vgk2f6uzt4b2lb9ovr63iwtmsjud5f0r4vg11d9hzol784s6e75xru8bj5pf9j4zu03h000nrtklwfbjv54udyogu22map4ea7gsw1lnga703h000gzjjuix3v2sju73flrch2pdu03h000uoog3703h000lkn4yu6nd47cx9803h0002uu1ylch2b6py1r8ff1ty03h000w4t3us94rnud7swgy5of2o3ipslp6hnho1fbaamdo7q8emt6ol9sd25tqc9he9yihad5a9iqei24uoau8jkk7pan873ecx840beo3ipsl6dl6yeztlgbiq8ej5mk5r3ncchu2rwuyciubtc671gevmd5a256erzfmi03h0001nkfqoh2g03h000semm2n7nxhbtvhj53oal36vyol903h000b0cqbtklrbl52vgy4xcpw4isb5oo09bcfhfi1ug34ghy6ol98ff03h000z65sfmiz1pvn5oq03h000xmn53s6sdb6p8ff03h000dm6tqfb6p8ff03h000u4cf1bb6p8fft4f3us3mgqx5ot6vgksvaol75vi5zdu8bj5p7mzsl3x14iwtg1b275lyja4e9hzol7f9j94003h000vb8gk7b6p8ff03h000ptq3mt0uj03hpocvvnwc9tcv6cecsb8ff03h0003gw3usi3oloj8f57dj5rvm02rvwj5pga7az1e4opl7ol9b6p8ffraz03h000wsx3usot6z0r0f12ue6uztbyr0rr63iwthlwey3klrtyww7gjrhkj7xml4z0ur3fn54ivr63iwt529t4bwygk2f6uz7gnpm8ga703h000tox0rddq003h000nn5jixb6pch6roe6cln9gol903h000pcr3usy99ec2jzdpl7ol93e6sznsovp6abezg1b275lyj4prga703h000tkv3mtqqaf8r8ff03h000s1z3mt1tvd998ff03h000tg4e9s8ff03h0009aeg4w8ff03h0005813mtwdwg43kaooym03h0005zk70dz40rr4ex703h000dui3usssqeirkobpl7ol9in6jc7ptc03h000rj0881cu8gy5h1kxnhj5pol97nco2rn8ool9rvh03h000t9m947l1t9c2pf3avhcoo52wrxo7i9fcfvzjlu7givjbfhd3uqlg1bo3xrbcousely4b1t6kmpstp0hz53lb59r3cg4rrmqatrbti5ovjiwtj5pal3g8nvc87i9fcfvzjlu77sljbfhd3q6ftriybxgfs7enmc3wtqur3tcdybsswkc7zhz53lb59r3cgephmqatrb87b1vnmktj0c51jhzntdvtinxmliwtj5pol9qe503h000gkg3szcy6svtol9n7r03h000d6t7npsvaol7pct9hzol76e75xr8ev7gnj5p5fp03h000g27watyufqzm8evs68j5pd5akejc7503h000k9hrk477c461q5rjlk44f6cej2i03h000n7i7iv03h000ufwim3zhg03h000aps000iquhdq0t1clu2uapb5q3dmjijo2ol903h0000pqjcm8g7gbvtxjsop03h0005ht3tflzqb5wga703h000e1tde603h000x4z1fg03h";
   function hash3(s) {
     var h = 0;
     for (var n = 0; n < s.length; n++) h = (h * 31 + s.charCodeAt(n)) % 46656;
     var r = h.toString(36);
-    while (r.length < 3) r = '0' + r;
+    while (r.length < 3) r = "0" + r;
     return r;
   }
-  var difLinha = '';
-  if (typeof HASHES === 'string' && HASHES.length === linhas.length * 3) {
+  var difLinha = "";
+  if (typeof HASHES === "string" && HASHES.length === linhas.length * 3) {
     for (var q = 0; q < linhas.length; q++) {
       if (hash3(linhas[q]) !== HASHES.substr(q * 3, 3)) {
-        difLinha = 'LINHA ' + (OFFSET + q) + ' FOI ALTERADA -> recebido: '
-                 + JSON.stringify(linhas[q].slice(0, 90));
+        difLinha = "LINHA " + (OFFSET + q) + " FOI ALTERADA -> recebido: " + JSON.stringify(linhas[q].slice(0, 90));
         break;
       }
     }
-    if (!difLinha) difLinha = 'todas as 1209 linhas conferem com o original';
+    if (!difLinha) difLinha = "todas as 988 linhas conferem com o original";
   }
-
-  d.textContent = 'ERRO: ' + msg
-    + '  |  ' + linhas.length + ' linhas (esp 1209' + (linhas.length === 1209 ? ' OK' : ' DIF') + ')'
-    + '  |  ' + code.length + '/' + EXP + ' chars'
-    + (difChars === 0 ? ' IDENTICO' : ' (' + (difChars > 0 ? '+' : '') + difChars + ')')
-    + (difLinha ? '  |  ' + difLinha : '')
-    + (maus.length ? '  |  ACHADO: ' + maus.join(' ; ') : '');
-})();
-</script>
+  d.textContent = "ERRO: " + msg + "  |  " + linhas.length + " linhas (esp 988" + (linhas.length === 988 ? " OK" : " DIF") + ")" + "  |  " + code.length + "/" + EXP + " chars" + (difChars === 0 ? " IDENTICO" : " (" + (difChars > 0 ? "+" : "") + difChars + ")") + (difLinha ? "  |  " + difLinha : "") + (maus.length ? "  |  ACHADO: " + maus.join(" ; ") : "");
+})();</script>
 </body>
 </html>
