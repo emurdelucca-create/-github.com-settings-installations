@@ -762,9 +762,9 @@
   }
 
   function renderVisao() {
-    const { tsKey } = VISAO_KEYS[visaoMethod];
+    const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
     let filtered = allData
-      .filter(r => _visaoPadraoFilter(r) && skuMatch(r.sku) && _visaoSaldoFilter(r))
+      .filter(r => (r[qtyKey]||0) > 0 && _visaoPadraoFilter(r) && skuMatch(r.sku) && _visaoSaldoFilter(r))
       .sort((a,b) => {
         // sort by oldest date ascending (earliest first), items with no date last
         const ta = a[tsKey] || '9999';
@@ -868,8 +868,8 @@
       header = ['SKU','Vendas ('+periodo+'d)','ABC','Sep. Geral','Movimentação','Quantidade','Localização'];
       rows = filtered.map(r => { const sd = getSem(r.sku); return [r.sku,r[vKey],r.abc||'',r.pedTotal||0,r.pedMov||0,sd.quantidade,sd.localizacao]; });
     } else if (tab === 'visao') {
-      const { tsKey } = VISAO_KEYS[visaoMethod];
-      const filtered = allData.filter(r => _visaoPadraoFilter(r) && skuMatch(r.sku) && _visaoSaldoFilter(r)).sort((a,b) => { const ta=a[tsKey]||'9999',tb=b[tsKey]||'9999'; return ta<tb?-1:ta>tb?1:0; });
+      const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
+      const filtered = allData.filter(r => (r[qtyKey]||0) > 0 && _visaoPadraoFilter(r) && skuMatch(r.sku) && _visaoSaldoFilter(r)).sort((a,b) => { const ta=a[tsKey]||'9999',tb=b[tsKey]||'9999'; return ta<tb?-1:ta>tb?1:0; });
       const mLabel = { geral:'Geral', ed:'Entr. Direta', me2:'ME2', ret:'Retirada', xpr:'Shopee Xpress' };
       header = ['SKU','Data mais antiga ('+mLabel[visaoMethod]+')','Est. Padrão','Est. Armazenamento','Est. Chegou','Saldo Total'];
       rows = filtered.map(r => { const s=(r.pick||0)+(r.arm||0)+(r.chg||0); return [r.sku,r[tsKey]||'',r.pick||0,r.arm||0,r.chg||0,s]; });
