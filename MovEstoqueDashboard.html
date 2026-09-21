@@ -379,7 +379,11 @@
 
 <!-- CORRETIVA > VISÃO -->
 <div id="view_visao" style="display:none">
-  <div class="view-toolbar">
+  <div class="view-toolbar" style="justify-content:space-between">
+    <div class="filter-group">
+      <button class="fbtn ap" id="vstab_com" onclick="setVisaoSubTab('com')">📦 Com Estoque</button>
+      <button class="fbtn"    id="vstab_sem" onclick="setVisaoSubTab('sem')">📊 Sem Estoque</button>
+    </div>
     <button class="btn btn-csv" onclick="exportarCSV('visao')">📥 Exportar CSV</button>
   </div>
   <div class="table-wrap">
@@ -446,6 +450,7 @@
   let smartFilter  = null;
   let methodFilter = null;
   let visaoMethod  = 'geral'; // for Corretiva > Visão
+  let visaoSubTab  = 'com';   // 'com' = saldo > 0, 'sem' = saldo < 0
 
   const semData = {};
   function getSem(sku) { if (!semData[sku]) semData[sku] = { quantidade:'', localizacao:'' }; return semData[sku]; }
@@ -616,6 +621,19 @@
     render();
   }
 
+  // ── Visão sub-tab (Com Estoque / Sem Estoque) ───────────────────
+  function setVisaoSubTab(t) {
+    visaoSubTab = t;
+    document.getElementById('vstab_com').className = 'fbtn' + (t === 'com' ? ' ap' : '');
+    document.getElementById('vstab_sem').className = 'fbtn' + (t === 'sem' ? ' ap' : '');
+    render();
+  }
+
+  function _visaoSaldoFilter(r) {
+    const saldo = (r.pick||0) + (r.arm||0) + (r.chg||0);
+    return visaoSubTab === 'com' ? saldo > 0 : saldo < 0;
+  }
+
   // ── SKU chips ─────────────────────────────────────────────────
   function focusChipInput() { document.getElementById('chipRaw').focus(); }
   function addChips(values) {
@@ -738,7 +756,7 @@
   function renderVisao() {
     const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
     let filtered = allData
-      .filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku))
+      .filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku) && _visaoSaldoFilter(r))
       .sort((a,b) => {
         // sort by oldest date ascending (earliest first), items with no date last
         const ta = a[tsKey] || '9999';
@@ -843,7 +861,7 @@
       rows = filtered.map(r => { const sd = getSem(r.sku); return [r.sku,r[vKey],r.abc||'',r.pedTotal||0,r.pedMov||0,sd.quantidade,sd.localizacao]; });
     } else if (tab === 'visao') {
       const { qtyKey, tsKey } = VISAO_KEYS[visaoMethod];
-      const filtered = allData.filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku)).sort((a,b) => { const ta=a[tsKey]||'9999',tb=b[tsKey]||'9999'; return ta<tb?-1:ta>tb?1:0; });
+      const filtered = allData.filter(r => (r[qtyKey]||0) > 0 && skuMatch(r.sku) && _visaoSaldoFilter(r)).sort((a,b) => { const ta=a[tsKey]||'9999',tb=b[tsKey]||'9999'; return ta<tb?-1:ta>tb?1:0; });
       const mLabel = { geral:'Geral', ed:'Entr. Direta', me2:'ME2', ret:'Retirada', xpr:'Shopee Xpress' };
       header = ['SKU','Data mais antiga ('+mLabel[visaoMethod]+')','Est. Padrão','Est. Armazenamento','Est. Chegou','Saldo Total'];
       rows = filtered.map(r => { const s=(r.pick||0)+(r.arm||0)+(r.chg||0); return [r.sku,r[tsKey]||'',r.pick||0,r.arm||0,r.chg||0,s]; });
