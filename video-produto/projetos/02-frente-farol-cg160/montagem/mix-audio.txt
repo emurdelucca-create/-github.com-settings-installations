@@ -1,0 +1,4 @@
+[0:a]asplit=2[vo_out][vo_key];
+[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:30.209,asetpts=PTS-STARTPTS,volume=-14dB,afade=t=in:st=0:d=0.4,afade=t=out:st=28.4:d=1.8[mus];
+[mus][vo_key]sidechaincompress=threshold=0.025:ratio=12:attack=15:release=420[musd];
+[vo_out][musd]amix=inputs=2:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[aout]
