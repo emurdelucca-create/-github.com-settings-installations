@@ -8,7 +8,7 @@
 // é autossuficiente.
 //
 // Propriedades do Script necessárias (Configurações ⚙ → Propriedades):
-//   SHOPEE_PARTNER_KEY  — Live API Partner Key do app Open Platform
+//   NAJUMI_PARTNER_KEY  — Live API Partner Key do app Open Platform
 //                         (a mesma chave usada na loja Humble)
 //
 // Tokens desta loja são gerenciados automaticamente pelo código:
@@ -43,8 +43,8 @@ function _shopeeSign(message, partnerKey) {
 }
 
 function _shopeePartnerKey() {
-  const k = PropertiesService.getScriptProperties().getProperty('SHOPEE_PARTNER_KEY');
-  if (!k) throw new Error('SHOPEE_PARTNER_KEY não configurada nas propriedades do script.');
+  const k = PropertiesService.getScriptProperties().getProperty('NAJUMI_PARTNER_KEY');
+  if (!k) throw new Error('NAJUMI_PARTNER_KEY não configurada nas propriedades do script.');
   return k;
 }
 
