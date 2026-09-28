@@ -301,22 +301,125 @@ function sw_testarWalletAPI() {
 // execução e mande — a partir disso essas 3 funções são implementadas
 // de uma vez: sincronização, criação da planilha e trigger automático.
 // ============================================================
+// ============================================================
+// SINCRONIZAÇÃO — grava transações novas da carteira na aba
+// "Transações", sem duplicar (chave: transaction_id) e sem
+// reprocessar o histórico inteiro a cada vez (retoma de onde parou).
+// ============================================================
+const SW_ABA_TRANSACOES      = 'Transações';
+const SW_PROP_ULTIMO_SYNC    = 'SW_NAJUMI_ULTIMO_SYNC_TS';
+const SW_JANELA_SEGUNDOS     = 15 * 24 * 3600; // limite seguro por chamada
+const SW_PERIODO_INICIAL_DIAS = 90;            // 1ª sincronização (sem histórico salvo)
+const SW_MARGEM_SEGURANCA_S  = 300;            // reprocessa 5 min pra trás, dedup cobre o resto
+
+function _sw_abaTransacoes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let aba = ss.getSheetByName(SW_ABA_TRANSACOES);
+  if (!aba) {
+    aba = ss.insertSheet(SW_ABA_TRANSACOES);
+    aba.appendRow(['Data', 'Pedido', 'Tipo', 'Descrição', 'Fluxo', 'Valor', 'Status', 'Saldo Após', 'Comprador', 'Transaction ID']);
+    aba.setFrozenRows(1);
+  }
+  return aba;
+}
+
+function _sw_idsExistentes(aba) {
+  const last = aba.getLastRow();
+  if (last < 2) return new Set();
+  const vals = aba.getRange(2, 10, last - 1, 1).getValues(); // coluna J = Transaction ID
+  return new Set(vals.map(r => String(r[0])));
+}
+
 function sw_sincronizarCarteira() {
-  SpreadsheetApp.getUi().alert(
-    'Ainda não implementado.\n\nRode primeiro "🧪 Testar API da carteira (log)", ' +
-    'copie o Registro de execução completo e envie — a sincronização real ' +
-    'é implementada em cima dos campos que a API realmente devolver.'
-  );
+  const props = PropertiesService.getScriptProperties();
+  const agora = Math.floor(Date.now() / 1000);
+  let desde = parseInt(props.getProperty(SW_PROP_ULTIMO_SYNC) || '0');
+  desde = desde
+    ? desde - SW_MARGEM_SEGURANCA_S
+    : agora - SW_PERIODO_INICIAL_DIAS * 24 * 3600;
+
+  const aba        = _sw_abaTransacoes();
+  const existentes = _sw_idsExistentes(aba);
+  const linhasNovas = [];
+  let maxCreateTime = desde;
+
+  let janelaInicio = desde;
+  while (janelaInicio < agora) {
+    const janelaFim = Math.min(janelaInicio + SW_JANELA_SEGUNDOS, agora);
+    let pageNo = 1;
+
+    while (true) {
+      let r;
+      try {
+        r = _shopeeNajumiGet('/api/v2/payment/get_wallet_transaction_list', {
+          create_time_from: janelaInicio,
+          create_time_to:   janelaFim,
+          page_size:        100,
+          page_no:          pageNo,
+        });
+      } catch (e) {
+        Logger.log('Erro na janela ' + janelaInicio + '-' + janelaFim + ' página ' + pageNo + ': ' + e.message);
+        break;
+      }
+
+      const lista = r.transaction_list || [];
+      lista.forEach(t => {
+        const id = String(t.transaction_id);
+        if (t.create_time > maxCreateTime) maxCreateTime = t.create_time;
+        if (existentes.has(id)) return;
+        existentes.add(id);
+        linhasNovas.push([
+          new Date(t.create_time * 1000),
+          t.order_sn || '',
+          t.transaction_type || '',
+          (t.description || '').trim(),
+          t.money_flow === 'MONEY_IN' ? 'Entrada' : 'Saída',
+          t.amount || 0,
+          t.status || '',
+          t.current_balance || '',
+          t.buyer_name || '',
+          id,
+        ]);
+      });
+
+      if (!r.more) break;
+      pageNo++;
+      Utilities.sleep(250);
+    }
+
+    janelaInicio = janelaFim;
+    Utilities.sleep(250);
+  }
+
+  if (linhasNovas.length) {
+    linhasNovas.sort((a, b) => a[0] - b[0]);
+    aba.getRange(aba.getLastRow() + 1, 1, linhasNovas.length, linhasNovas[0].length).setValues(linhasNovas);
+  }
+  props.setProperty(SW_PROP_ULTIMO_SYNC, String(maxCreateTime));
+
+  const msg = linhasNovas.length + ' transação(ões) nova(s) lançada(s) na aba "' + SW_ABA_TRANSACOES + '".';
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* rodando via trigger, sem UI */ }
+  return msg;
 }
+
+// ── Trigger automático (roda a sincronização sozinha) ───────
 function sw_ativarTriggerAutomatico() {
-  SpreadsheetApp.getUi().alert(
-    'Ainda não implementado.\n\nPrimeiro preciso da sincronização funcionando ' +
-    '(veja "🔄 Sincronizar carteira agora").'
-  );
+  _sw_removerTriggers();
+  ScriptApp.newTrigger('sw_sincronizarCarteira')
+    .timeBased()
+    .everyHours(1)
+    .create();
+  SpreadsheetApp.getUi().alert('✅ Sincronização automática ativada — roda a cada 1 hora.\nVocê também pode continuar usando "🔄 Sincronizar carteira agora" a qualquer momento.');
 }
+
 function sw_desativarTriggerAutomatico() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'sw_sincronizarCarteira')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  SpreadsheetApp.getUi().alert('Sincronização automática desativada (se existia).');
+  const removidos = _sw_removerTriggers();
+  SpreadsheetApp.getUi().alert(removidos > 0 ? '⏹️ Sincronização automática desativada.' : 'Nenhuma sincronização automática estava ativa.');
+}
+
+function _sw_removerTriggers() {
+  const triggers = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'sw_sincronizarCarteira');
+  triggers.forEach(t => ScriptApp.deleteTrigger(t));
+  return triggers.length;
 }
