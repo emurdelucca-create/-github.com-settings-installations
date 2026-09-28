@@ -33,6 +33,7 @@ function onOpen() {
     .addItem('🔢 Conferir total de transações (90d)', 'sw_contarTransacoesAPI')
     .addItem('📊 Analisar tipos de transação (log)', 'sw_analisarTipos')
     .addItem('🔁 Gerar resumo por pedido (múltiplas transações)', 'sw_resumoPorPedido')
+    .addItem('🧪 Testar API de devoluções (log)', 'sw_testarReturnsAPI')
     .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
     .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
     .addToUi();
@@ -700,4 +701,41 @@ function sw_resumoPorPedido() {
     prejuizoTotal + ' com saldo final <= 0). Aba "' + SW_ABA_RESUMO_PEDIDO + '" atualizada.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* sem UI */ }
+}
+
+// ============================================================
+// DIAGNÓSTICO — testa a API de devoluções/reembolsos (returns) da
+// Shopee para um pedido real que já sabemos ter sido devolvido
+// (pega automaticamente o primeiro pedido classificado como
+// DEVOLUÇÃO na aba "Resumo por Pedido"). Só loga a resposta crua —
+// não grava nada ainda, até confirmarmos os nomes reais dos campos.
+// ============================================================
+function sw_testarReturnsAPI() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const abaResumo = ss.getSheetByName(SW_ABA_RESUMO_PEDIDO);
+  if (!abaResumo || abaResumo.getLastRow() < 2) {
+    Logger.log('Rode "🔁 Gerar resumo por pedido" primeiro — preciso de um pedido com devolução para testar.');
+    return;
+  }
+
+  const dados = abaResumo.getRange(2, 1, abaResumo.getLastRow() - 1, 8).getValues();
+  const linhaDevolucao = dados.find(r => String(r[7] || '').includes('DEVOLUÇÃO'));
+  if (!linhaDevolucao) {
+    Logger.log('Nenhum pedido classificado como DEVOLUÇÃO encontrado na aba "Resumo por Pedido".');
+    return;
+  }
+  const orderSn = String(linhaDevolucao[0]);
+  Logger.log('Testando API de devoluções para o pedido: ' + orderSn);
+
+  try {
+    const r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
+      order_sn:  orderSn,
+      page_size: 20,
+      page_no:   1,
+    });
+    Logger.log('=== RESPOSTA CRUA get_return_list ===');
+    Logger.log(JSON.stringify(r, null, 2));
+  } catch (e) {
+    Logger.log('ERRO get_return_list: ' + e.message);
+  }
 }
