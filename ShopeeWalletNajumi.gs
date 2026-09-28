@@ -628,6 +628,52 @@ function _sw_classificarMotivo(tipos) {
   return '❓ OUTRO';
 }
 
+// Busca devoluções na API cujo order_sn esteja no conjunto pedidoSet,
+// dentro do intervalo [dataMin, dataMax] (+ folga de 5 dias cada lado).
+// A API recusa períodos > 15 dias por chamada, então varre em janelas.
+function _sw_buscarDevolucoesPorOrderSn(pedidoSet, dataMin, dataMax) {
+  const RET_JANELA_SEGUNDOS = 15 * 24 * 3600;
+  const mapa = {};
+  if (!pedidoSet.size) return mapa;
+
+  const buscaDe  = Math.floor(dataMin.getTime() / 1000) - 5 * 24 * 3600;
+  const buscaAte = Math.floor(dataMax.getTime() / 1000) + 5 * 24 * 3600;
+
+  let janelaInicio = buscaDe;
+  while (janelaInicio < buscaAte) {
+    const janelaFim = Math.min(janelaInicio + RET_JANELA_SEGUNDOS, buscaAte);
+    let pageNo = 1;
+    while (true) {
+      let r;
+      try {
+        r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
+          create_time_from: janelaInicio,
+          create_time_to:   janelaFim,
+          page_size:        50,
+          page_no:          pageNo,
+        });
+      } catch (e) {
+        Logger.log('Erro buscando devoluções ' + janelaInicio + '-' + janelaFim + ': ' + e.message);
+        break;
+      }
+      (r.return || []).forEach(item => {
+        if (pedidoSet.has(item.order_sn)) mapa[item.order_sn] = item;
+      });
+      if (!r.more) break;
+      pageNo++;
+      Utilities.sleep(200);
+    }
+    janelaInicio = janelaFim;
+    Utilities.sleep(200);
+  }
+  return mapa;
+}
+
+const SW_RESP_LABELS = { SELLER: 'Vendedor', SHOPEE: 'Shopee', BUYER: 'Comprador', PENDING: 'Pendente' };
+function _sw_labelResponsavel(v) {
+  return SW_RESP_LABELS[v] || (v || '-');
+}
+
 function sw_resumoPorPedido() {
   const abaOrigem = _sw_abaTransacoes();
   const last = abaOrigem.getLastRow();
@@ -661,11 +707,28 @@ function sw_resumoPorPedido() {
 
   // Só pedidos com mais de uma transação — é o padrão que indica
   // devolução/estorno/ajuste depois da receita original.
-  const linhas = Object.entries(porPedido)
-    .filter(([, g]) => g.qtd > 1)
+  const gruposMultiplos = Object.entries(porPedido).filter(([, g]) => g.qtd > 1);
+
+  // Para os classificados como devolução, busca o motivo real e quem
+  // ficou responsável pelo frete (indicador de "de quem foi a culpa").
+  const pedidosDevolucao = new Set();
+  let dataMin = null, dataMax = null;
+  gruposMultiplos.forEach(([pedido, g]) => {
+    if (_sw_classificarMotivo(g.tipos).includes('DEVOLUÇÃO')) {
+      pedidosDevolucao.add(pedido);
+      if (!dataMin || g.primeiraData < dataMin) dataMin = g.primeiraData;
+      if (!dataMax || g.ultimaData   > dataMax) dataMax = g.ultimaData;
+    }
+  });
+  const devolucoes = pedidosDevolucao.size
+    ? _sw_buscarDevolucoesPorOrderSn(pedidosDevolucao, dataMin, dataMax)
+    : {};
+
+  const linhas = gruposMultiplos
     .map(([pedido, g]) => {
       const pctPerdido = g.positivo > 0 ? (-g.negativo / g.positivo * 100) : 0;
       const status = g.saldo <= 0 ? '🔴 PREJUÍZO TOTAL' : (g.negativo < 0 ? '🟡 PARCIAL' : '🟢 OK');
+      const dev = devolucoes[pedido];
       return [
         pedido,
         g.qtd,
@@ -675,6 +738,8 @@ function sw_resumoPorPedido() {
         Math.round(pctPerdido * 100) / 100,
         status,
         _sw_classificarMotivo(g.tipos),
+        dev ? (dev.text_reason || dev.reason || '') : '',
+        dev ? _sw_labelResponsavel(dev.shipping_fee_responsibility) : '',
         Array.from(g.tipos).join(', '),
         g.primeiraData,
         g.ultimaData,
@@ -689,7 +754,7 @@ function sw_resumoPorPedido() {
   } else {
     abaResumo = ss.insertSheet(SW_ABA_RESUMO_PEDIDO);
   }
-  abaResumo.appendRow(['Pedido', 'Qtd Transações', 'Saldo Final', 'Receita Bruta', 'Total Descontado', '% Perdido', 'Status', 'Motivo', 'Tipos Envolvidos', 'Primeira Data', 'Última Data']);
+  abaResumo.appendRow(['Pedido', 'Qtd Transações', 'Saldo Final', 'Receita Bruta', 'Total Descontado', '% Perdido', 'Status', 'Motivo', 'Motivo da Devolução', 'Responsável', 'Tipos Envolvidos', 'Primeira Data', 'Última Data']);
   abaResumo.setFrozenRows(1);
   if (linhas.length) {
     abaResumo.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
@@ -697,8 +762,10 @@ function sw_resumoPorPedido() {
 
   const totalPedidosMultiplos = linhas.length;
   const prejuizoTotal = linhas.filter(l => l[2] <= 0).length;
+  const devolucoesEncontradas = Object.keys(devolucoes).length;
   const msg = totalPedidosMultiplos + ' pedido(s) com mais de uma transação encontrados (' +
-    prejuizoTotal + ' com saldo final <= 0). Aba "' + SW_ABA_RESUMO_PEDIDO + '" atualizada.';
+    prejuizoTotal + ' com saldo final <= 0)  |  ' + devolucoesEncontradas + '/' + pedidosDevolucao.size +
+    ' devoluções com motivo identificado. Aba "' + SW_ABA_RESUMO_PEDIDO + '" atualizada.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* sem UI */ }
 }
@@ -718,15 +785,15 @@ function sw_testarReturnsAPI() {
     return;
   }
 
-  // Colunas: A Pedido | ... | H Motivo | ... | J Primeira Data | K Última Data
-  const dados = abaResumo.getRange(2, 1, abaResumo.getLastRow() - 1, 11).getValues();
+  // Colunas: A Pedido | ... | H Motivo | I Motivo Devolução | J Responsável | K Tipos | L Primeira Data | M Última Data
+  const dados = abaResumo.getRange(2, 1, abaResumo.getLastRow() - 1, 13).getValues();
   const linhaDevolucao = dados.find(r => String(r[7] || '').includes('DEVOLUÇÃO'));
   if (!linhaDevolucao) {
     Logger.log('Nenhum pedido classificado como DEVOLUÇÃO encontrado na aba "Resumo por Pedido".');
     return;
   }
   const orderSn = String(linhaDevolucao[0]);
-  const dataRef = new Date(linhaDevolucao[9]); // Primeira Data da transação de ajuste
+  const dataRef = new Date(linhaDevolucao[11]); // Primeira Data da transação de ajuste
   Logger.log('Procurando devolução do pedido: ' + orderSn + ' (data de referência: ' + dataRef + ')');
 
   // O parâmetro order_sn não filtrou nada na chamada anterior — a API
