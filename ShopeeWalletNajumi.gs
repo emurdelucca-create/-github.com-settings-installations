@@ -718,24 +718,72 @@ function sw_testarReturnsAPI() {
     return;
   }
 
-  const dados = abaResumo.getRange(2, 1, abaResumo.getLastRow() - 1, 8).getValues();
+  // Colunas: A Pedido | ... | H Motivo | ... | J Primeira Data | K Última Data
+  const dados = abaResumo.getRange(2, 1, abaResumo.getLastRow() - 1, 11).getValues();
   const linhaDevolucao = dados.find(r => String(r[7] || '').includes('DEVOLUÇÃO'));
   if (!linhaDevolucao) {
     Logger.log('Nenhum pedido classificado como DEVOLUÇÃO encontrado na aba "Resumo por Pedido".');
     return;
   }
   const orderSn = String(linhaDevolucao[0]);
-  Logger.log('Testando API de devoluções para o pedido: ' + orderSn);
+  const dataRef = new Date(linhaDevolucao[9]); // Primeira Data da transação de ajuste
+  Logger.log('Procurando devolução do pedido: ' + orderSn + ' (data de referência: ' + dataRef + ')');
 
-  try {
-    const r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
-      order_sn:  orderSn,
-      page_size: 20,
-      page_no:   1,
+  // O parâmetro order_sn não filtrou nada na chamada anterior — a API
+  // devolveu devoluções antigas não relacionadas. Busca por janela de
+  // tempo ao redor da data conhecida e filtra localmente pelo order_sn.
+  const refSeg = Math.floor(dataRef.getTime() / 1000);
+  const de  = refSeg - 30 * 24 * 3600;
+  const ate = refSeg + 30 * 24 * 3600;
+
+  let encontrado = null;
+  const shippingRespVistos = new Set();
+  let totalVistos = 0;
+  let pageNo = 1;
+
+  while (true) {
+    let r;
+    try {
+      r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
+        create_time_from: de,
+        create_time_to:   ate,
+        page_size:        50,
+        page_no:          pageNo,
+      });
+    } catch (e) {
+      Logger.log('ERRO get_return_list (página ' + pageNo + '): ' + e.message);
+      break;
+    }
+    const lista = r.return || [];
+    lista.forEach(item => {
+      totalVistos++;
+      if (item.shipping_fee_responsibility) shippingRespVistos.add(item.shipping_fee_responsibility);
+      if (item.order_sn === orderSn) encontrado = item;
     });
-    Logger.log('=== RESPOSTA CRUA get_return_list ===');
-    Logger.log(JSON.stringify(r, null, 2));
-  } catch (e) {
-    Logger.log('ERRO get_return_list: ' + e.message);
+    if (!r.more) break;
+    pageNo++;
+    Utilities.sleep(200);
+  }
+
+  Logger.log('Devoluções vistas na janela de 60 dias: ' + totalVistos);
+  Logger.log('Valores distintos de shipping_fee_responsibility vistos: ' + JSON.stringify(Array.from(shippingRespVistos)));
+
+  if (encontrado) {
+    Logger.log('=== DEVOLUÇÃO ENCONTRADA PARA ' + orderSn + ' ===');
+    Logger.log(JSON.stringify({
+      reason: encontrado.reason,
+      text_reason: encontrado.text_reason,
+      return_sn: encontrado.return_sn,
+      refund_amount: encontrado.refund_amount,
+      status: encontrado.status,
+      shipping_fee_responsibility: encontrado.shipping_fee_responsibility,
+      seller_compensation_status: encontrado.seller_compensation_status,
+      seller_proof_status: encontrado.seller_proof_status,
+      negotiation_status: encontrado.negotiation_status,
+      negotiation: encontrado.negotiation,
+      return_refund_type: encontrado.return_refund_type,
+    }, null, 2));
+  } else {
+    Logger.log('Pedido ' + orderSn + ' NÃO encontrado na janela de 60 dias ao redor de ' + dataRef + '. Pode precisar de uma janela maior.');
   }
 }
