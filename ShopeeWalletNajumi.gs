@@ -31,6 +31,7 @@ function onOpen() {
     .addItem('🧪 Testar API da carteira (log)', 'sw_testarWalletAPI')
     .addItem('🔄 Sincronizar carteira agora',   'sw_sincronizarCarteira')
     .addItem('🔢 Conferir total de transações (90d)', 'sw_contarTransacoesAPI')
+    .addItem('📊 Analisar tipos de transação (log)', 'sw_analisarTipos')
     .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
     .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
     .addToUi();
@@ -545,4 +546,50 @@ function _sw_removerTriggers() {
   const triggers = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'sw_sincronizarCarteira');
   triggers.forEach(t => ScriptApp.deleteTrigger(t));
   return triggers.length;
+}
+
+// ============================================================
+// ANÁLISE — agrupa a aba "Transações" por Tipo (coluna C), mostrando
+// quantidade, soma de valor, entradas vs saídas e um exemplo de
+// descrição por tipo. Só leitura, não altera nada.
+// ============================================================
+function sw_analisarTipos() {
+  const aba = _sw_abaTransacoes();
+  const last = aba.getLastRow();
+  if (last < 2) {
+    Logger.log('Aba "Transações" está vazia.');
+    return;
+  }
+
+  // Colunas: A Data | B Pedido | C Tipo | D Descrição | E Fluxo | F Valor
+  const dados = aba.getRange(2, 1, last - 1, 6).getValues();
+  const grupos = {}; // tipo -> { qtd, entradas, saidas, somaValor, exemploDescricao }
+
+  dados.forEach(r => {
+    const tipo   = String(r[2] || '(vazio)');
+    const desc   = String(r[3] || '');
+    const fluxo  = String(r[4] || '');
+    const valor  = Number(r[5]) || 0;
+
+    if (!grupos[tipo]) {
+      grupos[tipo] = { qtd: 0, entradas: 0, saidas: 0, somaValor: 0, exemploDescricao: desc };
+    }
+    const g = grupos[tipo];
+    g.qtd++;
+    g.somaValor += valor;
+    if (fluxo === 'Entrada') g.entradas++;
+    if (fluxo === 'Saída')   g.saidas++;
+  });
+
+  const linhas = Object.entries(grupos)
+    .sort((a, b) => b[1].qtd - a[1].qtd)
+    .map(([tipo, g]) =>
+      tipo + '  |  qtd: ' + g.qtd +
+      '  |  entradas: ' + g.entradas + ' / saídas: ' + g.saidas +
+      '  |  soma valor: ' + g.somaValor.toFixed(2) +
+      '  |  ex: "' + g.exemploDescricao.slice(0, 60) + '"'
+    );
+
+  Logger.log('=== TIPOS DE TRANSAÇÃO (' + dados.length + ' linhas analisadas) ===');
+  Logger.log(linhas.join('\n'));
 }
