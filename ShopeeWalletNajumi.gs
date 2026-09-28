@@ -308,7 +308,8 @@ function sw_testarWalletAPI() {
 // ============================================================
 const SW_ABA_TRANSACOES      = 'Transações';
 const SW_PROP_ULTIMO_SYNC    = 'SW_NAJUMI_ULTIMO_SYNC_TS';
-const SW_JANELA_SEGUNDOS     = 15 * 24 * 3600; // limite seguro por chamada
+const SW_JANELA_SEGUNDOS     = 7 * 24 * 3600; // ponto de partida; se a API recusar por
+                                                // período grande, _sw_buscarJanela subdivide
 const SW_PERIODO_INICIAL_DIAS = 90;            // 1ª sincronização (sem histórico salvo)
 const SW_MARGEM_SEGURANCA_S  = 300;            // reprocessa 5 min pra trás, dedup cobre o resto
 
@@ -330,6 +331,28 @@ function _sw_idsExistentes(aba) {
   return new Set(vals.map(r => String(r[0])));
 }
 
+// Busca uma janela [inicio, fim). Se a API recusar por período grande
+// demais, divide a janela ao meio e tenta cada metade recursivamente —
+// assim não depende de saber de antemão qual é o limite exato da API.
+// Pagina uma janela [inicio, fim) por completo, aplicando onTransacao a
+// cada item. Lança o erro adiante se a API recusar o período (deixa quem
+// chama decidir se reduz a janela e tenta de novo).
+function _sw_buscarJanelaPaginada(inicio, fim, onTransacao) {
+  let pageNo = 1;
+  while (true) {
+    const r = _shopeeNajumiGet('/api/v2/payment/get_wallet_transaction_list', {
+      create_time_from: inicio,
+      create_time_to:   fim,
+      page_size:        100,
+      page_no:          pageNo,
+    });
+    (r.transaction_list || []).forEach(onTransacao);
+    if (!r.more) return;
+    pageNo++;
+    Utilities.sleep(250);
+  }
+}
+
 function sw_sincronizarCarteira() {
   const props = PropertiesService.getScriptProperties();
   const agora = Math.floor(Date.now() / 1000);
@@ -343,52 +366,51 @@ function sw_sincronizarCarteira() {
   const linhasNovas = [];
   let maxCreateTime = desde;
 
+  const onTransacao = t => {
+    const id = String(t.transaction_id);
+    if (t.create_time > maxCreateTime) maxCreateTime = t.create_time;
+    if (existentes.has(id)) return;
+    existentes.add(id);
+    linhasNovas.push([
+      new Date(t.create_time * 1000),
+      t.order_sn || '',
+      t.transaction_type || '',
+      (t.description || '').trim(),
+      t.money_flow === 'MONEY_IN' ? 'Entrada' : 'Saída',
+      t.amount || 0,
+      t.status || '',
+      t.current_balance || '',
+      t.buyer_name || '',
+      id,
+    ]);
+  };
+
+  // Largura da janela é um estado que persiste entre iterações: só
+  // diminui quando a API recusa por período grande demais, nunca volta
+  // a crescer sozinha — assim não redescobre o limite do zero a cada
+  // semana processada.
+  let largura = SW_JANELA_SEGUNDOS;
   let janelaInicio = desde;
   while (janelaInicio < agora) {
-    const janelaFim = Math.min(janelaInicio + SW_JANELA_SEGUNDOS, agora);
-    let pageNo = 1;
-
-    while (true) {
-      let r;
+    let janelaFim = Math.min(janelaInicio + largura, agora);
+    let concluida = false;
+    while (!concluida) {
       try {
-        r = _shopeeNajumiGet('/api/v2/payment/get_wallet_transaction_list', {
-          create_time_from: janelaInicio,
-          create_time_to:   janelaFim,
-          page_size:        100,
-          page_no:          pageNo,
-        });
+        _sw_buscarJanelaPaginada(janelaInicio, janelaFim, onTransacao);
+        concluida = true;
       } catch (e) {
-        Logger.log('Erro na janela ' + janelaInicio + '-' + janelaFim + ' página ' + pageNo + ': ' + e.message);
-        break;
+        if (/time period too large/i.test(e.message) && janelaFim - janelaInicio > 3600) {
+          largura   = Math.floor(largura / 2);
+          janelaFim = Math.min(janelaInicio + largura, agora);
+          Logger.log('Período grande demais, reduzindo janela para ' + Math.round(largura / 3600) + 'h.');
+        } else {
+          Logger.log('Erro na janela ' + janelaInicio + '-' + janelaFim + ': ' + e.message);
+          concluida = true; // erro irrecuperável — não trava aqui, segue para a próxima janela
+        }
       }
-
-      const lista = r.transaction_list || [];
-      lista.forEach(t => {
-        const id = String(t.transaction_id);
-        if (t.create_time > maxCreateTime) maxCreateTime = t.create_time;
-        if (existentes.has(id)) return;
-        existentes.add(id);
-        linhasNovas.push([
-          new Date(t.create_time * 1000),
-          t.order_sn || '',
-          t.transaction_type || '',
-          (t.description || '').trim(),
-          t.money_flow === 'MONEY_IN' ? 'Entrada' : 'Saída',
-          t.amount || 0,
-          t.status || '',
-          t.current_balance || '',
-          t.buyer_name || '',
-          id,
-        ]);
-      });
-
-      if (!r.more) break;
-      pageNo++;
-      Utilities.sleep(250);
     }
-
     janelaInicio = janelaFim;
-    Utilities.sleep(250);
+    Utilities.sleep(200);
   }
 
   if (linhasNovas.length) {
