@@ -2,16 +2,51 @@
 // SHOPEE WALLET — Loja Najumi (najumimotopecas)
 // Mapeia transações da carteira Shopee (descontos, receitas) por pedido
 //
-// Reaproveita _shopeeSign() e _shopeePartnerKey() de ShopeeAuth.gs
-// (mesmo app Open Platform, mesmo SHOPEE_PARTNER_KEY — só a loja muda).
+// Projeto Apps Script standalone, separado do projeto Shopee Humble
+// (ShopeeAuth.gs/ShopeeReprecificacao.gs) — projetos diferentes não
+// compartilham código nem Propriedades do Script, então este arquivo
+// é autossuficiente.
 //
-// Tokens desta loja ficam em propriedades PRÓPRIAS, separadas da loja
-// Humble, para não colidir:
+// Propriedades do Script necessárias (Configurações ⚙ → Propriedades):
+//   SHOPEE_PARTNER_KEY  — Live API Partner Key do app Open Platform
+//                         (a mesma chave usada na loja Humble)
+//
+// Tokens desta loja são gerenciados automaticamente pelo código:
 //   SW_NAJUMI_ACCESS_TOKEN   SW_NAJUMI_REFRESH_TOKEN
 //   SW_NAJUMI_SHOP_ID        SW_NAJUMI_TOKEN_EXPIRES
 // ============================================================
 
-const SW_NAJUMI_BASE = 'https://partner.shopeemobile.com';
+const SW_NAJUMI_BASE       = 'https://partner.shopeemobile.com';
+const SHOPEE_PARTNER_ID    = 2037491;
+
+// ── MENU ─────────────────────────────────────────────────────
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('💰 Carteira Shopee Najumi')
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔑 Autorizar Shopee Najumi')
+      .addItem('1️⃣  Gerar link de autorização', 'gerarLinkAutorizacaoShopeeNajumi')
+      .addItem('2️⃣  Salvar token (colar URL)',   'mostrarDialogSalvarTokenNajumi')
+      .addItem('🔍 Verificar status do token',   'verificarStatusTokenNajumi'))
+    .addSeparator()
+    .addItem('🧪 Testar API da carteira (log)', 'sw_testarWalletAPI')
+    .addItem('🔄 Sincronizar carteira agora',   'sw_sincronizarCarteira')
+    .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
+    .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
+    .addToUi();
+}
+
+// ── Helpers de assinatura HMAC (mesmos usados no projeto Humble) ──
+function _shopeeSign(message, partnerKey) {
+  return Utilities.computeHmacSha256Signature(message, partnerKey)
+    .map(b => ('0' + (b & 0xFF).toString(16)).slice(-2))
+    .join('');
+}
+
+function _shopeePartnerKey() {
+  const k = PropertiesService.getScriptProperties().getProperty('SHOPEE_PARTNER_KEY');
+  if (!k) throw new Error('SHOPEE_PARTNER_KEY não configurada nas propriedades do script.');
+  return k;
+}
 
 // ── PASSO 1: gerar link de autorização ──────────────────────
 function gerarLinkAutorizacaoShopeeNajumi() {
