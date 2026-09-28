@@ -732,36 +732,45 @@ function sw_testarReturnsAPI() {
   // O parâmetro order_sn não filtrou nada na chamada anterior — a API
   // devolveu devoluções antigas não relacionadas. Busca por janela de
   // tempo ao redor da data conhecida e filtra localmente pelo order_sn.
+  // A API recusa períodos > 15 dias por chamada, então varre em
+  // múltiplas janelas de 15 dias cobrindo +/-30 dias da data de referência.
+  const RET_JANELA_SEGUNDOS = 15 * 24 * 3600;
   const refSeg = Math.floor(dataRef.getTime() / 1000);
-  const de  = refSeg - 30 * 24 * 3600;
-  const ate = refSeg + 30 * 24 * 3600;
+  const buscaDe  = refSeg - 30 * 24 * 3600;
+  const buscaAte = refSeg + 30 * 24 * 3600;
 
   let encontrado = null;
   const shippingRespVistos = new Set();
   let totalVistos = 0;
-  let pageNo = 1;
 
-  while (true) {
-    let r;
-    try {
-      r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
-        create_time_from: de,
-        create_time_to:   ate,
-        page_size:        50,
-        page_no:          pageNo,
+  let janelaInicio = buscaDe;
+  while (janelaInicio < buscaAte && !encontrado) {
+    const janelaFim = Math.min(janelaInicio + RET_JANELA_SEGUNDOS, buscaAte);
+    let pageNo = 1;
+    while (true) {
+      let r;
+      try {
+        r = _shopeeNajumiGet('/api/v2/returns/get_return_list', {
+          create_time_from: janelaInicio,
+          create_time_to:   janelaFim,
+          page_size:        50,
+          page_no:          pageNo,
+        });
+      } catch (e) {
+        Logger.log('ERRO get_return_list (janela ' + janelaInicio + '-' + janelaFim + ' página ' + pageNo + '): ' + e.message);
+        break;
+      }
+      const lista = r.return || [];
+      lista.forEach(item => {
+        totalVistos++;
+        if (item.shipping_fee_responsibility) shippingRespVistos.add(item.shipping_fee_responsibility);
+        if (item.order_sn === orderSn) encontrado = item;
       });
-    } catch (e) {
-      Logger.log('ERRO get_return_list (página ' + pageNo + '): ' + e.message);
-      break;
+      if (!r.more) break;
+      pageNo++;
+      Utilities.sleep(200);
     }
-    const lista = r.return || [];
-    lista.forEach(item => {
-      totalVistos++;
-      if (item.shipping_fee_responsibility) shippingRespVistos.add(item.shipping_fee_responsibility);
-      if (item.order_sn === orderSn) encontrado = item;
-    });
-    if (!r.more) break;
-    pageNo++;
+    janelaInicio = janelaFim;
     Utilities.sleep(200);
   }
 
