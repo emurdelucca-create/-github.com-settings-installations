@@ -32,6 +32,7 @@ function onOpen() {
     .addItem('🔄 Sincronizar carteira agora',   'sw_sincronizarCarteira')
     .addItem('🔢 Conferir total de transações (90d)', 'sw_contarTransacoesAPI')
     .addItem('📊 Analisar tipos de transação (log)', 'sw_analisarTipos')
+    .addItem('🔁 Gerar resumo por pedido (múltiplas transações)', 'sw_resumoPorPedido')
     .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
     .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
     .addToUi();
@@ -592,4 +593,86 @@ function sw_analisarTipos() {
 
   Logger.log('=== TIPOS DE TRANSAÇÃO (' + dados.length + ' linhas analisadas) ===');
   Logger.log(linhas.join('\n'));
+}
+
+// ============================================================
+// RESUMO POR PEDIDO — agrupa a aba "Transações" por Pedido (order_sn)
+// e cria/atualiza a aba "Resumo por Pedido" só com os pedidos que
+// tiveram MAIS DE UMA transação (ex: recebeu a venda e depois teve um
+// desconto/estorno por devolução) — mostra o saldo final de cada um.
+// ============================================================
+const SW_ABA_RESUMO_PEDIDO = 'Resumo por Pedido';
+
+function sw_resumoPorPedido() {
+  const abaOrigem = _sw_abaTransacoes();
+  const last = abaOrigem.getLastRow();
+  if (last < 2) {
+    SpreadsheetApp.getUi().alert('Aba "Transações" está vazia. Sincronize primeiro.');
+    return;
+  }
+
+  // Colunas: A Data | B Pedido | C Tipo | D Descrição | E Fluxo | F Valor
+  const dados = abaOrigem.getRange(2, 1, last - 1, 6).getValues();
+  const porPedido = {}; // order_sn -> { qtd, saldo, positivo, negativo, tipos:Set, primeiraData, ultimaData }
+
+  dados.forEach(r => {
+    const data   = r[0];
+    const pedido = String(r[1] || '').trim();
+    const tipo   = String(r[2] || '(vazio)');
+    const valor  = Number(r[5]) || 0;
+    if (!pedido) return; // ignora transações sem pedido (saque, recarga de ads, etc.)
+
+    if (!porPedido[pedido]) {
+      porPedido[pedido] = { qtd: 0, saldo: 0, positivo: 0, negativo: 0, tipos: new Set(), primeiraData: data, ultimaData: data };
+    }
+    const g = porPedido[pedido];
+    g.qtd++;
+    g.saldo += valor;
+    if (valor > 0) g.positivo += valor; else g.negativo += valor;
+    g.tipos.add(tipo);
+    if (data < g.primeiraData) g.primeiraData = data;
+    if (data > g.ultimaData)   g.ultimaData   = data;
+  });
+
+  // Só pedidos com mais de uma transação — é o padrão que indica
+  // devolução/estorno/ajuste depois da receita original.
+  const linhas = Object.entries(porPedido)
+    .filter(([, g]) => g.qtd > 1)
+    .map(([pedido, g]) => {
+      const pctPerdido = g.positivo > 0 ? (-g.negativo / g.positivo * 100) : 0;
+      const status = g.saldo <= 0 ? '🔴 PREJUÍZO TOTAL' : (g.negativo < 0 ? '🟡 PARCIAL' : '🟢 OK');
+      return [
+        pedido,
+        g.qtd,
+        Math.round(g.saldo * 100) / 100,
+        Math.round(g.positivo * 100) / 100,
+        Math.round(g.negativo * 100) / 100,
+        Math.round(pctPerdido * 100) / 100,
+        status,
+        Array.from(g.tipos).join(', '),
+        g.primeiraData,
+        g.ultimaData,
+      ];
+    })
+    .sort((a, b) => a[2] - b[2]); // saldo final ascendente — piores casos primeiro
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let abaResumo = ss.getSheetByName(SW_ABA_RESUMO_PEDIDO);
+  if (abaResumo) {
+    abaResumo.clearContents();
+  } else {
+    abaResumo = ss.insertSheet(SW_ABA_RESUMO_PEDIDO);
+  }
+  abaResumo.appendRow(['Pedido', 'Qtd Transações', 'Saldo Final', 'Receita Bruta', 'Total Descontado', '% Perdido', 'Status', 'Tipos Envolvidos', 'Primeira Data', 'Última Data']);
+  abaResumo.setFrozenRows(1);
+  if (linhas.length) {
+    abaResumo.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  }
+
+  const totalPedidosMultiplos = linhas.length;
+  const prejuizoTotal = linhas.filter(l => l[2] <= 0).length;
+  const msg = totalPedidosMultiplos + ' pedido(s) com mais de uma transação encontrados (' +
+    prejuizoTotal + ' com saldo final <= 0). Aba "' + SW_ABA_RESUMO_PEDIDO + '" atualizada.';
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* sem UI */ }
 }
