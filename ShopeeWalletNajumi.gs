@@ -17,7 +17,7 @@
 // ============================================================
 
 const SW_NAJUMI_BASE       = 'https://partner.shopeemobile.com';
-const SHOPEE_PARTNER_ID    = 2037491;
+const SHOPEE_PARTNER_ID    = 2038327;
 
 // ── MENU ─────────────────────────────────────────────────────
 function onOpen() {
