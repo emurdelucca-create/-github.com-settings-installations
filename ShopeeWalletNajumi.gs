@@ -34,6 +34,7 @@ function onOpen() {
     .addItem('📊 Analisar tipos de transação (log)', 'sw_analisarTipos')
     .addItem('🔁 Gerar resumo por pedido (múltiplas transações)', 'sw_resumoPorPedido')
     .addItem('🧪 Testar API de devoluções (log)', 'sw_testarReturnsAPI')
+    .addItem('🧪 Testar detalhe financeiro do pedido (log)', 'sw_testarDetalheFinanceiro')
     .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
     .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
     .addToUi();
@@ -861,5 +862,46 @@ function sw_testarReturnsAPI() {
     }, null, 2));
   } else {
     Logger.log('Pedido ' + orderSn + ' NÃO encontrado na janela de 60 dias ao redor de ' + dataRef + '. Pode precisar de uma janela maior.');
+  }
+}
+
+// ============================================================
+// DIAGNÓSTICO — testa dois endpoints candidatos para o detalhamento
+// financeiro completo do pedido (taxa de envio reversa, frete pago
+// pelo comprador, desconto de frete da Shopee, comissão líquida etc,
+// vistos no tooltip "Ajuste no pedido" do painel Shopee):
+//   get_return_detail  — detalhe de UMA devolução (usa return_sn)
+//   get_escrow_detail  — detalhamento financeiro do pedido (order_sn)
+// Só loga as respostas cruas — não grava nada ainda.
+// ============================================================
+function sw_testarDetalheFinanceiro() {
+  const orderSn = '260819RNTU2FP5'; // pedido de exemplo trazido pelo usuário
+  const dataRef = new Date(2026, 7, 24); // 24/08/2026, já sabemos que a devolução está por aqui
+
+  // Passo 1: acha o return_sn buscando pela janela de tempo, igual sw_testarReturnsAPI.
+  const mapa = _sw_buscarDevolucoesPorOrderSn(new Set([orderSn]), dataRef, dataRef);
+  const dev = mapa[orderSn];
+  if (!dev) {
+    Logger.log('Não encontrei a devolução do pedido ' + orderSn + ' na janela ao redor de ' + dataRef);
+    return;
+  }
+  Logger.log('return_sn encontrado: ' + dev.return_sn);
+
+  // Passo 2: detalhe da devolução.
+  try {
+    const rDet = _shopeeNajumiGet('/api/v2/returns/get_return_detail', { return_sn: dev.return_sn });
+    Logger.log('=== RESPOSTA CRUA get_return_detail ===');
+    Logger.log(JSON.stringify(rDet, null, 2));
+  } catch (e) {
+    Logger.log('ERRO get_return_detail: ' + e.message);
+  }
+
+  // Passo 3: detalhamento financeiro (escrow) do pedido.
+  try {
+    const rEsc = _shopeeNajumiGet('/api/v2/payment/get_escrow_detail', { order_sn: orderSn });
+    Logger.log('=== RESPOSTA CRUA get_escrow_detail ===');
+    Logger.log(JSON.stringify(rEsc, null, 2));
+  } catch (e) {
+    Logger.log('ERRO get_escrow_detail: ' + e.message);
   }
 }
