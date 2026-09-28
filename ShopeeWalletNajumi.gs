@@ -353,18 +353,34 @@ function _sw_buscarJanelaPaginada(inicio, fim, onTransacao) {
   }
 }
 
+const SW_PROP_CURSOR      = 'SW_NAJUMI_CURSOR_SYNC';   // ponto onde uma sincro em andamento parou
+const SW_PROP_LARGURA     = 'SW_NAJUMI_LARGURA_JANELA'; // largura de janela descoberta, reaproveitada
+const SW_LIMITE_MS        = 5 * 60 * 1000; // para antes do limite de 6 min do Apps Script
+
+// Sincroniza em lotes: para antes do limite de execução do Apps Script e,
+// se ainda não terminou, agenda um trigger de continuação (~10 s) que
+// chama esta mesma função de novo, retomando de onde parou — sem
+// precisar que o usuário clique de novo.
 function sw_sincronizarCarteira() {
-  const props = PropertiesService.getScriptProperties();
-  const agora = Math.floor(Date.now() / 1000);
-  let desde = parseInt(props.getProperty(SW_PROP_ULTIMO_SYNC) || '0');
-  desde = desde
-    ? desde - SW_MARGEM_SEGURANCA_S
-    : agora - SW_PERIODO_INICIAL_DIAS * 24 * 3600;
+  const props    = PropertiesService.getScriptProperties();
+  const agora    = Math.floor(Date.now() / 1000);
+  const inicioMs = Date.now();
+
+  const cursorSalvo = props.getProperty(SW_PROP_CURSOR);
+  let janelaInicio;
+  if (cursorSalvo) {
+    janelaInicio = parseInt(cursorSalvo);
+  } else {
+    const ultimoSync = parseInt(props.getProperty(SW_PROP_ULTIMO_SYNC) || '0');
+    janelaInicio = ultimoSync
+      ? ultimoSync - SW_MARGEM_SEGURANCA_S
+      : agora - SW_PERIODO_INICIAL_DIAS * 24 * 3600;
+  }
+  let maxCreateTime = janelaInicio;
 
   const aba        = _sw_abaTransacoes();
   const existentes = _sw_idsExistentes(aba);
   const linhasNovas = [];
-  let maxCreateTime = desde;
 
   const onTransacao = t => {
     const id = String(t.transaction_id);
@@ -385,13 +401,15 @@ function sw_sincronizarCarteira() {
     ]);
   };
 
-  // Largura da janela é um estado que persiste entre iterações: só
-  // diminui quando a API recusa por período grande demais, nunca volta
-  // a crescer sozinha — assim não redescobre o limite do zero a cada
-  // semana processada.
-  let largura = SW_JANELA_SEGUNDOS;
-  let janelaInicio = desde;
+  // Largura da janela persiste nas Propriedades entre execuções (e entre
+  // continuações do mesmo lote): só diminui quando a API recusa por
+  // período grande demais, nunca redescobre o limite do zero.
+  let largura = parseInt(props.getProperty(SW_PROP_LARGURA) || '0') || SW_JANELA_SEGUNDOS;
+  let pausouPorTempo = false;
+
   while (janelaInicio < agora) {
+    if (Date.now() - inicioMs > SW_LIMITE_MS) { pausouPorTempo = true; break; }
+
     let janelaFim = Math.min(janelaInicio + largura, agora);
     let concluida = false;
     while (!concluida) {
@@ -408,6 +426,7 @@ function sw_sincronizarCarteira() {
           concluida = true; // erro irrecuperável — não trava aqui, segue para a próxima janela
         }
       }
+      if (Date.now() - inicioMs > SW_LIMITE_MS) { pausouPorTempo = true; concluida = true; }
     }
     janelaInicio = janelaFim;
     Utilities.sleep(200);
@@ -417,12 +436,34 @@ function sw_sincronizarCarteira() {
     linhasNovas.sort((a, b) => a[0] - b[0]);
     aba.getRange(aba.getLastRow() + 1, 1, linhasNovas.length, linhasNovas[0].length).setValues(linhasNovas);
   }
+  props.setProperty(SW_PROP_LARGURA, String(largura));
+
+  if (pausouPorTempo && janelaInicio < agora) {
+    props.setProperty(SW_PROP_CURSOR, String(janelaInicio));
+    _sw_agendarContinuacao();
+    const msg = linhasNovas.length + ' transação(ões) lançada(s) neste lote — sincronização vai continuar sozinha em ~10s (parou em ' + new Date(janelaInicio * 1000).toLocaleString('pt-BR') + ').';
+    Logger.log(msg);
+    try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* trigger, sem UI */ }
+    return msg;
+  }
+
+  // Terminou de verdade: consolida o ponto de retomada da próxima sincronização.
+  props.deleteProperty(SW_PROP_CURSOR);
   props.setProperty(SW_PROP_ULTIMO_SYNC, String(maxCreateTime));
 
-  const msg = linhasNovas.length + ' transação(ões) nova(s) lançada(s) na aba "' + SW_ABA_TRANSACOES + '".';
+  const msg = linhasNovas.length + ' transação(ões) nova(s) lançada(s) na aba "' + SW_ABA_TRANSACOES + '". Sincronização concluída.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* rodando via trigger, sem UI */ }
   return msg;
+}
+
+// Agenda uma execução única de continuação em ~10s (trigger temporário,
+// removido pelo Apps Script sozinho depois de disparar).
+function _sw_agendarContinuacao() {
+  ScriptApp.newTrigger('sw_sincronizarCarteira')
+    .timeBased()
+    .after(10 * 1000)
+    .create();
 }
 
 // ── Trigger automático (roda a sincronização sozinha) ───────
