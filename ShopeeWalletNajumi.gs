@@ -603,6 +603,30 @@ function sw_analisarTipos() {
 // ============================================================
 const SW_ABA_RESUMO_PEDIDO = 'Resumo por Pedido';
 
+// Tipos que indicam a VENDA FOI DESFEITA (devolução/reembolso) — a
+// receita original não é lucro real nesse caso.
+const SW_TIPOS_DEVOLUCAO = new Set([
+  'ADJUSTMENT_FOR_RR_AFTER_ESCROW_VERIFIED',
+  'ESCROW_VERIFIED_MINUS',
+  'RETURN_COMPENSATION_SERVICE_ADD',
+]);
+// Tipos que são taxa/ajuste sobre uma venda que de fato aconteceu
+// (imposto, taxa de programa, correção administrativa) — não são
+// devolução, só reduzem/ajustam o valor líquido recebido.
+const SW_TIPOS_TAXA_AJUSTE = new Set([
+  'ADJUSTMENT_CENTER_DEDUCT',
+  'FBS_FEE_CHARGE_MINUS',
+  'ADJUSTMENT_CENTER_ADD',
+  'SELLER_COMPENSATE_ADD',
+]);
+
+function _sw_classificarMotivo(tipos) {
+  const outros = Array.from(tipos).filter(t => t !== 'ESCROW_VERIFIED_ADD');
+  if (outros.some(t => SW_TIPOS_DEVOLUCAO.has(t)))   return '↩️ DEVOLUÇÃO (venda desfeita)';
+  if (outros.some(t => SW_TIPOS_TAXA_AJUSTE.has(t))) return '💸 TAXA/AJUSTE (venda válida)';
+  return '❓ OUTRO';
+}
+
 function sw_resumoPorPedido() {
   const abaOrigem = _sw_abaTransacoes();
   const last = abaOrigem.getLastRow();
@@ -649,6 +673,7 @@ function sw_resumoPorPedido() {
         Math.round(g.negativo * 100) / 100,
         Math.round(pctPerdido * 100) / 100,
         status,
+        _sw_classificarMotivo(g.tipos),
         Array.from(g.tipos).join(', '),
         g.primeiraData,
         g.ultimaData,
@@ -663,7 +688,7 @@ function sw_resumoPorPedido() {
   } else {
     abaResumo = ss.insertSheet(SW_ABA_RESUMO_PEDIDO);
   }
-  abaResumo.appendRow(['Pedido', 'Qtd Transações', 'Saldo Final', 'Receita Bruta', 'Total Descontado', '% Perdido', 'Status', 'Tipos Envolvidos', 'Primeira Data', 'Última Data']);
+  abaResumo.appendRow(['Pedido', 'Qtd Transações', 'Saldo Final', 'Receita Bruta', 'Total Descontado', '% Perdido', 'Status', 'Motivo', 'Tipos Envolvidos', 'Primeira Data', 'Última Data']);
   abaResumo.setFrozenRows(1);
   if (linhas.length) {
     abaResumo.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
