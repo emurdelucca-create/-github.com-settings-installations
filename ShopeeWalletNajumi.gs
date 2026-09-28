@@ -30,6 +30,7 @@ function onOpen() {
     .addSeparator()
     .addItem('🧪 Testar API da carteira (log)', 'sw_testarWalletAPI')
     .addItem('🔄 Sincronizar carteira agora',   'sw_sincronizarCarteira')
+    .addItem('🔢 Conferir total de transações (90d)', 'sw_contarTransacoesAPI')
     .addItem('⏱️ Ativar sincronização automática', 'sw_ativarTriggerAutomatico')
     .addItem('⏹️ Desativar sincronização automática', 'sw_desativarTriggerAutomatico')
     .addToUi();
@@ -291,27 +292,15 @@ function sw_testarWalletAPI() {
 }
 
 // ============================================================
-// AINDA NÃO IMPLEMENTADO
-// A sincronização real (paginação, campos, gravação na planilha) só
-// pode ser escrita com segurança depois de ver a resposta REAL da API
-// nesta conta/versão — os nomes de campo mudam entre versões da Shopee
-// Open Platform e não vou arriscar código baseado em suposição.
-//
-// Rode "🧪 Testar API da carteira (log)" no menu, copie o Registro de
-// execução e mande — a partir disso essas 3 funções são implementadas
-// de uma vez: sincronização, criação da planilha e trigger automático.
+// CONSTANTES E HELPERS COMPARTILHADOS (contagem + sincronização)
 // ============================================================
-// ============================================================
-// SINCRONIZAÇÃO — grava transações novas da carteira na aba
-// "Transações", sem duplicar (chave: transaction_id) e sem
-// reprocessar o histórico inteiro a cada vez (retoma de onde parou).
-// ============================================================
-const SW_ABA_TRANSACOES      = 'Transações';
-const SW_PROP_ULTIMO_SYNC    = 'SW_NAJUMI_ULTIMO_SYNC_TS';
-const SW_JANELA_SEGUNDOS     = 7 * 24 * 3600; // ponto de partida; se a API recusar por
-                                                // período grande, _sw_buscarJanela subdivide
-const SW_PERIODO_INICIAL_DIAS = 90;            // 1ª sincronização (sem histórico salvo)
-const SW_MARGEM_SEGURANCA_S  = 300;            // reprocessa 5 min pra trás, dedup cobre o resto
+const SW_ABA_TRANSACOES       = 'Transações';
+const SW_PROP_ULTIMO_SYNC     = 'SW_NAJUMI_ULTIMO_SYNC_TS';
+const SW_JANELA_SEGUNDOS      = 7 * 24 * 3600; // ponto de partida; se a API recusar por
+                                                 // período grande, a largura é reduzida
+const SW_PERIODO_INICIAL_DIAS = 90;             // 1ª sincronização (sem histórico salvo)
+const SW_MARGEM_SEGURANCA_S   = 300;            // reprocessa 5 min pra trás, dedup cobre o resto
+const SW_LIMITE_MS            = 5 * 60 * 1000;  // para antes do limite de 6 min do Apps Script
 
 function _sw_abaTransacoes() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -331,9 +320,6 @@ function _sw_idsExistentes(aba) {
   return new Set(vals.map(r => String(r[0])));
 }
 
-// Busca uma janela [inicio, fim). Se a API recusar por período grande
-// demais, divide a janela ao meio e tenta cada metade recursivamente —
-// assim não depende de saber de antemão qual é o limite exato da API.
 // Pagina uma janela [inicio, fim) por completo, aplicando onTransacao a
 // cada item. Lança o erro adiante se a API recusar o período (deixa quem
 // chama decidir se reduz a janela e tenta de novo).
@@ -353,9 +339,83 @@ function _sw_buscarJanelaPaginada(inicio, fim, onTransacao) {
   }
 }
 
-const SW_PROP_CURSOR      = 'SW_NAJUMI_CURSOR_SYNC';   // ponto onde uma sincro em andamento parou
-const SW_PROP_LARGURA     = 'SW_NAJUMI_LARGURA_JANELA'; // largura de janela descoberta, reaproveitada
-const SW_LIMITE_MS        = 5 * 60 * 1000; // para antes do limite de 6 min do Apps Script
+// ============================================================
+// CONTAGEM — pagina a API só somando (sem gravar linhas, sem dedup) e
+// compara com o total já lançado na planilha, para conferência.
+// A API não expõe um total_count resumido, então isso ainda precisa
+// paginar tudo — mas é mais leve que a sincronização real (sem escrita
+// na planilha a cada item), e usa o mesmo esquema de lote +
+// auto-continuação para não estourar os 6 min do Apps Script.
+// ============================================================
+const SW_PROP_CONT_CURSOR  = 'SW_NAJUMI_CONT_CURSOR';
+const SW_PROP_CONT_TOTAL   = 'SW_NAJUMI_CONT_TOTAL';
+const SW_PROP_CONT_LARGURA = 'SW_NAJUMI_CONT_LARGURA';
+
+function sw_contarTransacoesAPI() {
+  const props    = PropertiesService.getScriptProperties();
+  const agora    = Math.floor(Date.now() / 1000);
+  const inicioMs = Date.now();
+
+  const cursorSalvo = props.getProperty(SW_PROP_CONT_CURSOR);
+  let janelaInicio = cursorSalvo
+    ? parseInt(cursorSalvo)
+    : agora - SW_PERIODO_INICIAL_DIAS * 24 * 3600;
+  let total = parseInt(props.getProperty(SW_PROP_CONT_TOTAL) || '0');
+  let largura = parseInt(props.getProperty(SW_PROP_CONT_LARGURA) || '0') || SW_JANELA_SEGUNDOS;
+
+  let pausouPorTempo = false;
+  while (janelaInicio < agora) {
+    if (Date.now() - inicioMs > SW_LIMITE_MS) { pausouPorTempo = true; break; }
+
+    let janelaFim = Math.min(janelaInicio + largura, agora);
+    let concluida = false;
+    while (!concluida) {
+      try {
+        _sw_buscarJanelaPaginada(janelaInicio, janelaFim, () => { total++; });
+        concluida = true;
+      } catch (e) {
+        if (/time period too large/i.test(e.message) && janelaFim - janelaInicio > 3600) {
+          largura   = Math.floor(largura / 2);
+          janelaFim = Math.min(janelaInicio + largura, agora);
+        } else {
+          Logger.log('Erro na janela ' + janelaInicio + '-' + janelaFim + ': ' + e.message);
+          concluida = true;
+        }
+      }
+      if (Date.now() - inicioMs > SW_LIMITE_MS) { pausouPorTempo = true; concluida = true; }
+    }
+    janelaInicio = janelaFim;
+    Utilities.sleep(200);
+  }
+
+  props.setProperty(SW_PROP_CONT_LARGURA, String(largura));
+  props.setProperty(SW_PROP_CONT_TOTAL,   String(total));
+
+  if (pausouPorTempo && janelaInicio < agora) {
+    props.setProperty(SW_PROP_CONT_CURSOR, String(janelaInicio));
+    ScriptApp.newTrigger('sw_contarTransacoesAPI').timeBased().after(10 * 1000).create();
+    Logger.log('Contagem parcial: ' + total + ' até agora — continuando sozinha em ~10s.');
+    return;
+  }
+
+  props.deleteProperty(SW_PROP_CONT_CURSOR);
+  props.deleteProperty(SW_PROP_CONT_TOTAL);
+  props.deleteProperty(SW_PROP_CONT_LARGURA);
+
+  const naPlanilha = _sw_abaTransacoes().getLastRow() - 1; // -1 = descarta cabeçalho
+  const msg = 'Total na API (90 dias): ' + total + '  |  Total na planilha: ' + naPlanilha +
+    (total === naPlanilha ? '  ✅ BATE' : '  ⚠ DIFERENTE');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* rodando via trigger, sem UI */ }
+}
+
+// ============================================================
+// SINCRONIZAÇÃO — grava transações novas da carteira na aba
+// "Transações", sem duplicar (chave: transaction_id) e sem
+// reprocessar o histórico inteiro a cada vez (retoma de onde parou).
+// ============================================================
+const SW_PROP_CURSOR  = 'SW_NAJUMI_CURSOR_SYNC';    // ponto onde uma sincro em andamento parou
+const SW_PROP_LARGURA = 'SW_NAJUMI_LARGURA_JANELA'; // largura de janela descoberta, reaproveitada
 
 // Sincroniza em lotes: para antes do limite de execução do Apps Script e,
 // se ainda não terminou, agenda um trigger de continuação (~10 s) que
