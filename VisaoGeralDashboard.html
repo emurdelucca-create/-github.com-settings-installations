@@ -627,15 +627,12 @@ function renderizarInsuficiente() {
     tbl.innerHTML = html;
   }
 
-  // Botão de copiar: formato TSV (tab entre colunas, quebra de linha entre
-  // linhas) — colar direto no Excel/Sheets já separa em células sozinho.
+  // Botão de copiar: só os SKUs, um por linha — cola direto no Excel/Sheets
+  // com cada SKU já numa célula própria.
   document.getElementById('insuf-copy').onclick = function() {
     var btn = document.getElementById('insuf-copy');
-    var linhas = ['SKU\tQtd Insuficiente\tQtd Com Localização'];
-    info.itens.forEach(function(it) {
-      linhas.push(it.sku + '\t' + it.qtdInsuficiente + '\t' + it.qtdComLocalizacao);
-    });
-    navigator.clipboard.writeText(linhas.join('\n')).then(function() {
+    var texto = info.itens.map(function(it) { return it.sku; }).join('\n');
+    navigator.clipboard.writeText(texto).then(function() {
       var orig = btn.textContent;
       btn.textContent = '✅ Copiado!';
       setTimeout(function() { btn.textContent = orig; }, 1200);
