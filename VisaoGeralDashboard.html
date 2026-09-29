@@ -63,7 +63,17 @@ html, body {
   letter-spacing: 0.5px;
 }
 #header-right { display: flex; align-items: center; gap: 10px; }
-#timestamp { color: var(--muted); font-size: 12px; }
+#timestamps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+#timestamp-dados { color: var(--muted); }
+#timestamp-visto { color: var(--dim); }
 
 .hbtn {
   background: none;
@@ -400,7 +410,8 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   #header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
   #header h1 { font-size: 13px; }
   #header-right { gap: 6px; }
-  #timestamp { display: none; } /* cabe pouco espaço; hora já aparece nas abas */
+  #timestamps { display: none; } /* cabe pouco espaço; hora já aparece nas abas */
+  #btn-atualizar-planilha { padding: 3px 8px; font-size: 11px; }
 
   #macro-tabs, #sub-tabs {
     overflow-x: auto;
@@ -452,7 +463,11 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   <div id="header">
     <h1>📦 VISÃO GERAL SEPARAÇÃO</h1>
     <div id="header-right">
-      <span id="timestamp"></span>
+      <span id="timestamps">
+        <span id="timestamp-dados"></span>
+        <span id="timestamp-visto"></span>
+      </span>
+      <button class="hbtn" id="btn-atualizar-planilha" onclick="atualizarPlanilha()">🌐 Atualizar Planilha</button>
       <button class="hbtn" id="btn-refresh" onclick="carregarDados()">🔄 Atualizar</button>
       <button class="hbtn" id="btn-fs" onclick="toggleFullscreen()">⛶ Tela cheia</button>
     </div>
@@ -604,7 +619,9 @@ document.getElementById('skus-body').addEventListener('mouseout', function(e) {
 
 function carregarDados() {
   var btn = document.getElementById('btn-refresh');
+  var btnPlan = document.getElementById('btn-atualizar-planilha');
   btn.disabled = true;
+  btnPlan.disabled = true;
   btn.textContent = '⏳ Aguarde...';
   clearInterval(cdTimer);
 
@@ -615,15 +632,56 @@ function carregarDados() {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('app').style.display = 'grid';
       btn.disabled = false;
+      btnPlan.disabled = false;
       btn.textContent = '🔄 Atualizar';
       iniciarContagem();
     })
     .withFailureHandler(function(e) {
       document.getElementById('loading-msg').textContent = '❌ Erro: ' + e.message;
       btn.disabled = false;
+      btnPlan.disabled = false;
       btn.textContent = '🔄 Atualizar';
     })
     .vg_getDados();
+}
+
+// Botão "🌐 Atualizar Planilha" — dispara a busca de verdade no BaseLinker
+// (vg_atualizarEExibir no servidor), diferente do "🔄 Atualizar" que só
+// relê o que já está na planilha. Pode demorar bem mais (chamadas de API
+// paginadas em vários status), por isso o aviso "pode demorar" no botão.
+function atualizarPlanilha() {
+  var btn = document.getElementById('btn-atualizar-planilha');
+  var btnRef = document.getElementById('btn-refresh');
+  btn.disabled = true;
+  btnRef.disabled = true;
+  clearInterval(cdTimer);
+  btn.textContent = '⏳ Buscando no BaseLinker... (pode demorar)';
+
+  google.script.run
+    .withSuccessHandler(function(d) {
+      dadosGlobais = d;
+      renderizarTudo();
+      btn.disabled = false;
+      btnRef.disabled = false;
+      btn.textContent = '🌐 Atualizar Planilha';
+      iniciarContagem();
+    })
+    .withFailureHandler(function(e) {
+      alert('❌ Erro ao atualizar a planilha: ' + e.message);
+      btn.disabled = false;
+      btnRef.disabled = false;
+      btn.textContent = '🌐 Atualizar Planilha';
+    })
+    .vg_atualizarEExibir();
+}
+
+// Data/hora local do navegador — usada só pra "Última visualização"
+// (quando ESTA tela buscou dados pela última vez, que pode ser diferente
+// de quando a planilha foi realmente atualizada no servidor).
+function agoraFormatado() {
+  var d = new Date();
+  function p(n) { return String(n).padStart(2, '0'); }
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 
 function iniciarContagem() {
@@ -661,7 +719,8 @@ function setStatusFiltro(nome) {
 
 function renderizarTudo() {
   var d = dadosGlobais;
-  document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
+  document.getElementById('timestamp-dados').textContent = d.timestamp ? '📊 Dados: ' + d.timestamp : '';
+  document.getElementById('timestamp-visto').textContent = '👁 Visto: ' + agoraFormatado();
   renderizarSecao();
   renderizarInsuficiente();
 }

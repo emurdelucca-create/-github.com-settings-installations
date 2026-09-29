@@ -325,6 +325,19 @@ function vg_getDados() {
   return dados;
 }
 
+// Chamada pelo botão "Atualizar Planilha" no HTML — dispara a busca real
+// no BaseLinker (a mesma coisa que o gatilho automático de 5 em 5 min
+// faz) e já devolve os dados recalculados na mesma chamada, pra não
+// precisar de um segundo round-trip.
+// silencioso=true é obrigatório aqui: SpreadsheetApp.getUi() não funciona
+// quando a função é chamada via google.script.run a partir do Web App
+// (não existe diálogo de planilha nesse contexto).
+function vg_atualizarEExibir() {
+  vg_atualizar(true);
+  vg_atualizarEmbalagem();
+  return vg_getDados();
+}
+
 // ── Menu ──────────────────────────────────────────────────────
 function onOpen() {
   SpreadsheetApp.getUi()
