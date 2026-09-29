@@ -44,7 +44,10 @@ async function scrapeInsuficientes() {
     return linhas.map(row => {
       const skuEl = row.querySelector('.product-info-text');
       const skuMatch = skuEl && skuEl.textContent.match(/SKU:\s*(.+)/);
-      const sku = skuMatch ? skuMatch[1].trim() : '';
+      // Produtos com variação vêm como "SKU: 25018-S | Atributos: Cor: Preto"
+      // no mesmo texto — como nenhum SKU tem espaço, cortar no primeiro
+      // espaço já isola o código real, descartando os atributos.
+      const sku = skuMatch ? skuMatch[1].trim().split(' ')[0] : '';
       const qtyEl = row.querySelector('.pick_pack_product_total_quantity');
       const qty = qtyEl ? (parseInt(qtyEl.textContent.trim(), 10) || 0) : 0;
       const locEl = row.querySelector('.locations_container .lbl_location');
