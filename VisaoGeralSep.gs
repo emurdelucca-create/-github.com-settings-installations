@@ -142,6 +142,18 @@ function _vg_montarSecao(pedidosMap, temEstoque, tz, isComEstoque) {
 }
 
 // Lê a aba raw já preenchida e retorna JSON para o dashboard HTML
+// O Google Sheets auto-converte strings "yyyy-MM-dd" gravadas numa
+// célula em objetos Date de verdade, mesmo a coluna não tendo sido
+// formatada como data explicitamente. String(dataObj) produziria algo
+// tipo "Tue Sep 01 2026 00:00:00 GMT-0300 (...)", que o parser de data
+// (ds.split('-')) não entende, gerando NaN e caindo no epoch (exibido
+// como 31/12/1969 com fuso negativo). Por isso a leitura é defensiva:
+// se vier um Date de verdade, reformata para "yyyy-MM-dd" explicitamente.
+function _vg_toDateStr(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  return String(v || '');
+}
+
 function vg_getDados() {
   const ss   = SpreadsheetApp.getActiveSpreadsheet();
   const tz   = ss.getSpreadsheetTimeZone();
@@ -161,7 +173,7 @@ function vg_getDados() {
         if (!orderId || !sku) return;
         const oid = String(orderId);
         if (!pedidosMap.has(oid)) {
-          pedidosMap.set(oid, { status: String(status), data: String(data), itens: [] });
+          pedidosMap.set(oid, { status: String(status), data: _vg_toDateStr(data, tz), itens: [] });
         }
         pedidosMap.get(oid).itens.push({ sku: String(sku), qty: Number(qty) || 0 });
       });
@@ -582,6 +594,10 @@ function _vg_escreverRaw(ss, linhasRaw, agora) {
   aba.getRange(1, 1).setValue('Atualizado em: ' + agora);
   aba.getRange(2, 1, 1, 5).setValues([['Status', 'Data', 'OrderID', 'SKU', 'Qtd']]);
   if (linhasRaw.length) {
+    // Formata a coluna B (Data) como texto puro ANTES de escrever, para
+    // que o Sheets não auto-converta a string "yyyy-MM-dd" num objeto
+    // Date (ver _vg_toDateStr para o efeito colateral disso na leitura).
+    aba.getRange(3, 2, linhasRaw.length, 1).setNumberFormat('@');
     aba.getRange(3, 1, linhasRaw.length, 5).setValues(linhasRaw);
   }
 }
