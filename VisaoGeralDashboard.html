@@ -216,6 +216,10 @@ tr.today td { background: rgba(63,185,80,0.06); }
 tr.today .td-date { color: #58d68d; font-weight: 700; }
 tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
+tr.total-row td { border-top: 2px solid var(--border); border-bottom: none; padding-top: 10px; }
+tr.total-row .td-date { color: var(--text); font-weight: 700; letter-spacing: 0.5px; font-size: 12px; }
+tr.total-row .td-num  { color: var(--accent); font-size: 15px; }
+
 .empty-msg { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
 
 /* ── Status ──────────────────────────────────────── */
@@ -787,15 +791,24 @@ function renderizarSecao() {
   if (!secao.datas.length) {
     dtHtml = '<tr><td class="empty-msg" colspan="3">Nenhum pedido nesta categoria.</td></tr>';
   }
+  var totalPed = 0;
   secao.datas.forEach(function(row) {
     var isH = row.data === hoje;
     var pct = maxPed > 0 ? (row.pedidos / maxPed * 100).toFixed(1) : 0;
+    totalPed += row.pedidos;
     dtHtml += '<tr class="' + (isH ? 'today' : '') + '">'
       + '<td class="td-date">' + row.data + (isH ? ' ◀' : '') + '</td>'
       + '<td class="td-bar"><div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div></td>'
       + '<td class="td-num">' + fmt(row.pedidos) + '</td>'
       + '</tr>';
   });
+  if (secao.datas.length) {
+    dtHtml += '<tr class="total-row">'
+      + '<td class="td-date">TOTAL</td>'
+      + '<td></td>'
+      + '<td class="td-num">' + fmt(totalPed) + '</td>'
+      + '</tr>';
+  }
   document.getElementById('tbl-datas').innerHTML = dtHtml;
 
   // ── Status (clicável) + linha "Geral" ──
