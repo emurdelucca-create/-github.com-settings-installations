@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    width: 340px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    margin: 0;
+    padding: 14px;
+  }
+  h1 { font-size: 14px; margin: 0 0 4px; color: #388bfd; }
+  .sub { font-size: 11px; color: #8b949e; margin-bottom: 10px; }
+  label { display: block; font-size: 11px; color: #8b949e; margin: 10px 0 3px; }
+  input {
+    width: 100%;
+    background: #161b22;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  input:focus { outline: none; border-color: #388bfd; }
+  button {
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #salvar { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+  #obter { background: #388bfd; color: #fff; }
+  #obter:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-top: 10px; font-size: 11px; min-height: 28px; color: #8b949e; line-height: 1.4; }
+  #status.ok  { color: #3fb950; }
+  #status.err { color: #f85149; }
+</style>
+</head>
+<body>
+  <h1>⚠️ Estoque Insuficiente</h1>
+  <div class="sub">BaseLinker → Visão Geral Separação</div>
+
+  <label for="webAppUrl">URL do Web App (Apps Script)</label>
+  <input id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec">
+
+  <label for="token">Token</label>
+  <input id="token" type="password" placeholder="Gere em 📊 Visão Geral → Gerar token da extensão">
+
+  <button id="salvar">💾 Salvar configuração</button>
+  <button id="obter">🔍 Obter Dados</button>
+
+  <div id="status">Abra o painel "Coleta de pedidos" do BaseLinker, deixe todos os pedidos filtrados ("Todos") e clique em Obter Dados.</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

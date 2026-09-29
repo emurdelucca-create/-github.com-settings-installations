@@ -15,6 +15,7 @@ const VG_BL_ABA_EST = 'estoque';
 const VG_BL_COL_SKU = 1, VG_BL_COL_PAD = 4, VG_BL_COL_ARM = 5, VG_BL_COL_CHG = 6;
 
 const VG_ABA_RAW = '_vg_raw_'; // aba oculta: Status | Data | OrderID | SKU | Qtd
+const VG_ABA_ESTOQUE_INSUF = '_vg_estoque_insuf_'; // aba oculta: SKU | QtdInsuficiente | QtdComLocalizacao
 
 const VG_STATUS_ALVO = [
   'NF Emitida',
@@ -51,6 +52,36 @@ function doGet() {
   return HtmlService.createHtmlOutputFromFile('VisaoGeralDashboard')
     .setTitle('Visão Geral — Separação')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Recebe capturas da extensão "Estoque Insuficiente" (POST em text/plain
+// pra evitar preflight CORS). Corpo esperado:
+//   { token: "...", itens: [{ sku, qtdInsuficiente, qtdComLocalizacao }] }
+// Cada captura SUBSTITUI os dados anteriores (snapshot do estado atual do
+// painel de coleta no momento do clique em "Obter Dados").
+function doPost(e) {
+  const responder = obj => ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const tokenEsperado = PropertiesService.getScriptProperties().getProperty('VG_EXT_TOKEN');
+    if (!tokenEsperado || body.token !== tokenEsperado) {
+      return responder({ ok: false, error: 'Token inválido.' });
+    }
+
+    const itens = Array.isArray(body.itens) ? body.itens : [];
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const tz    = ss.getSpreadsheetTimeZone();
+    const agora = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+
+    _vg_escreverEstoqueInsuficiente(ss, itens, agora);
+    SpreadsheetApp.flush();
+
+    return responder({ ok: true, skus: itens.length });
+  } catch (err) {
+    return responder({ ok: false, error: err.message });
+  }
 }
 
 // Lê o mapa de SKU -> saldo total (Padrão+Armazenamento+Chegou) da
@@ -192,6 +223,25 @@ function vg_getDados() {
     }
   }
 
+  // Aba Estoque Insuficiente (alimentada pela extensão de captura)
+  const abaInsuf = ss.getSheetByName(VG_ABA_ESTOQUE_INSUF);
+  dados.estoqueInsuficiente = { timestamp: '', itens: [] };
+  if (abaInsuf) {
+    const tsInsuf = String(abaInsuf.getRange('A1').getValue());
+    dados.estoqueInsuficiente.timestamp = tsInsuf.replace(/.*atualização:\s*/i, '').trim();
+    const lastInsuf = abaInsuf.getLastRow();
+    if (lastInsuf >= 3) {
+      dados.estoqueInsuficiente.itens = abaInsuf.getRange(3, 1, lastInsuf - 2, 3).getValues()
+        .filter(([sku]) => sku)
+        .map(([sku, qtdInsuficiente, qtdComLocalizacao]) => ({
+          sku: String(sku),
+          qtdInsuficiente: Number(qtdInsuficiente) || 0,
+          qtdComLocalizacao: Number(qtdComLocalizacao) || 0,
+        }))
+        .sort((a, b) => b.qtdInsuficiente - a.qtdInsuficiente);
+    }
+  }
+
   // Aba Embalagem
   const abaEmb = ss.getSheetByName('Embalagem');
   if (abaEmb) {
@@ -222,7 +272,26 @@ function onOpen() {
     .addItem('🗑 Remover atualização automática', 'vg_removerGatilho')
     .addSeparator()
     .addItem('👥 Criar/resetar aba de Funcionários', 'vg_criarAbaFuncionarios')
+    .addSeparator()
+    .addItem('🔑 Gerar token da extensão (Estoque Insuficiente)', 'vg_gerarTokenExtensao')
     .addToUi();
+}
+
+// Gera (ou reexibe) o token compartilhado que a extensão de captura de
+// Estoque Insuficiente usa para autenticar no doPost. Copie o valor
+// exibido e cole no popup da extensão, em "Configurar Token".
+function vg_gerarTokenExtensao() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('VG_EXT_TOKEN');
+  if (!token) {
+    token = Utilities.getUuid();
+    props.setProperty('VG_EXT_TOKEN', token);
+  }
+  SpreadsheetApp.getUi().alert(
+    '🔑 Token da extensão\n\n' + token +
+    '\n\nCole esse valor no popup da extensão "Estoque Insuficiente BaseLinker" ' +
+    '(campo Token), em cada dispositivo. O mesmo token vale para todos os dispositivos.'
+  );
 }
 
 // ── Chamada à API BaseLinker ──────────────────────────────────
@@ -585,6 +654,28 @@ function vg_atualizar(silencioso) {
   } catch (e) {
     if (ui) ui.alert('❌ Erro: ' + e.message);
     else ss.toast('❌ Erro na atualização automática: ' + e.message, '📊 Visão Geral', 30);
+  }
+}
+
+// ── Escrever aba oculta de Estoque Insuficiente (captura via extensão) ──
+// Cada chamada SUBSTITUI o conteúdo anterior (snapshot do momento da captura).
+function _vg_escreverEstoqueInsuficiente(ss, itens, agora) {
+  let aba = ss.getSheetByName(VG_ABA_ESTOQUE_INSUF);
+  if (!aba) {
+    aba = ss.insertSheet(VG_ABA_ESTOQUE_INSUF);
+    aba.hideSheet();
+  }
+  aba.clearContents();
+  aba.clearFormats();
+  aba.getRange(1, 1).setValue('Atualizado em: ' + agora);
+  aba.getRange(2, 1, 1, 3).setValues([['SKU', 'QtdInsuficiente', 'QtdComLocalizacao']]);
+  if (itens.length) {
+    const linhas = itens.map(it => [
+      String(it.sku || '').trim(),
+      Number(it.qtdInsuficiente) || 0,
+      Number(it.qtdComLocalizacao) || 0,
+    ]).filter(([sku]) => sku);
+    if (linhas.length) aba.getRange(3, 1, linhas.length, 3).setValues(linhas);
   }
 }
 

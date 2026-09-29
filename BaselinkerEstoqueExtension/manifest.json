@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Estoque Insuficiente BaseLinker",
+  "version": "1.0",
+  "description": "Captura os SKUs com estoque insuficiente no painel de Coleta de Pedidos do BaseLinker e envia para o dashboard Visão Geral Separação.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Estoque Insuficiente BaseLinker"
+  },
+  "permissions": ["scripting", "activeTab", "storage"],
+  "host_permissions": [
+    "https://panel-u.baselinker.com/*",
+    "https://script.google.com/*"
+  ]
+}

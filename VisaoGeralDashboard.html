@@ -124,6 +124,21 @@ html, body {
   padding: 10px 14px;
   overflow: hidden;
 }
+#main-insuf-panel { grid-column: 1 / -1; height: 100%; }
+.tbl th {
+  padding: 7px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--hdr);
+  position: sticky;
+  top: 0;
+}
+.tbl th.num, .tbl td.td-num { text-align: right; }
 
 /* ── Painéis genéricos ───────────────────────────── */
 .panel {
@@ -361,6 +376,7 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
   <div id="macro-tabs">
     <button class="macro-tab active" id="mtab-sep" onclick="setMacroTab('separacao')">📦 Separação</button>
+    <button class="macro-tab" id="mtab-insuf" onclick="setMacroTab('insuficiente')">⚠️ Estoque Insuficiente</button>
     <button class="macro-tab" id="mtab-emb" disabled title="Em breve">📊 Embalagem</button>
   </div>
 
@@ -371,24 +387,34 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
   <div id="main">
 
-    <!-- Coluna 1: Datas -->
-    <div class="panel">
-      <div class="panel-title">Pedidos por Data</div>
-      <div class="panel-body">
-        <table class="tbl" id="tbl-datas"></table>
+    <div id="main-sep-cols" style="display:contents;">
+      <!-- Coluna 1: Datas -->
+      <div class="panel">
+        <div class="panel-title">Pedidos por Data</div>
+        <div class="panel-body">
+          <table class="tbl" id="tbl-datas"></table>
+        </div>
+      </div>
+
+      <!-- Coluna 2: Status -->
+      <div class="panel">
+        <div class="panel-title" id="status-title">Status Atual</div>
+        <div class="panel-body" id="status-list"></div>
+      </div>
+
+      <!-- Coluna 3: SKUs -->
+      <div class="panel">
+        <div class="panel-title" id="skus-title">SKUs por Data</div>
+        <div id="skus-body" class="panel-body"></div>
       </div>
     </div>
 
-    <!-- Coluna 2: Status -->
-    <div class="panel">
-      <div class="panel-title" id="status-title">Status Atual</div>
-      <div class="panel-body" id="status-list"></div>
-    </div>
-
-    <!-- Coluna 3: SKUs -->
-    <div class="panel">
-      <div class="panel-title" id="skus-title">SKUs por Data</div>
-      <div id="skus-body" class="panel-body"></div>
+    <!-- Estoque Insuficiente: painel único, alimentado pela extensão -->
+    <div id="main-insuf-panel" class="panel" style="display:none;">
+      <div class="panel-title">⚠️ Estoque Insuficiente <span id="insuf-ts" style="float:right;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);"></span></div>
+      <div class="panel-body">
+        <table class="tbl" id="tbl-insuf" style="width:100%;"></table>
+      </div>
     </div>
 
   </div>
@@ -404,7 +430,7 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 var cdSecs = 60;
 var cdTimer;
 var dadosGlobais = null;
-var state = { tab: 'comEstoque', statusFiltro: 'Geral' };
+var state = { macroTab: 'separacao', tab: 'comEstoque', statusFiltro: 'Geral' };
 
 function fmt(n) { return n.toLocaleString('pt-BR'); }
 
@@ -523,7 +549,13 @@ function iniciarContagem() {
 }
 
 function setMacroTab(tab) {
-  // Só existe "separacao" implementado por enquanto — "embalagem" fica desabilitado.
+  state.macroTab = tab;
+  document.getElementById('mtab-sep').className   = 'macro-tab' + (tab === 'separacao'    ? ' active' : '');
+  document.getElementById('mtab-insuf').className = 'macro-tab' + (tab === 'insuficiente' ? ' active' : '');
+  document.getElementById('sub-tabs').style.display        = tab === 'separacao' ? 'flex' : 'none';
+  document.getElementById('main-sep-cols').style.display    = tab === 'separacao'    ? 'contents' : 'none';
+  document.getElementById('main-insuf-panel').style.display = tab === 'insuficiente' ? 'flex'     : 'none';
+  if (tab === 'insuficiente') renderizarInsuficiente();
 }
 
 function setSubTab(tab) {
@@ -543,6 +575,29 @@ function renderizarTudo() {
   var d = dadosGlobais;
   document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
   renderizarSecao();
+  renderizarInsuficiente();
+}
+
+// ── Macro-aba "Estoque Insuficiente" — alimentada pela extensão ──
+function renderizarInsuficiente() {
+  var d = dadosGlobais;
+  var info = (d && d.estoqueInsuficiente) || { timestamp: '', itens: [] };
+  document.getElementById('insuf-ts').textContent = info.timestamp ? '📡 Captura: ' + info.timestamp : '';
+
+  var tbl = document.getElementById('tbl-insuf');
+  if (!info.itens.length) {
+    tbl.innerHTML = '<tr><td class="empty-msg">Nenhuma captura ainda. Use o botão "Obter Dados" da extensão no painel de coleta do BaseLinker.</td></tr>';
+    return;
+  }
+  var html = '<tr><th>SKU</th><th class="num">Qtd Insuficiente</th><th class="num">Qtd Com Localização</th></tr>';
+  info.itens.forEach(function(it) {
+    html += '<tr>'
+      + '<td class="td-date">' + escHtml(it.sku) + '</td>'
+      + '<td class="td-num" style="color:var(--red)">' + fmt(it.qtdInsuficiente) + '</td>'
+      + '<td class="td-num" style="color:var(--green)">' + fmt(it.qtdComLocalizacao) + '</td>'
+      + '</tr>';
+  });
+  tbl.innerHTML = html;
 }
 
 function renderizarSecao() {
