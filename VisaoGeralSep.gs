@@ -25,6 +25,7 @@ const VG_STATUS_ALVO = [
   '[SEP] ML Agência',
   '[SEP] Shopee Direta',
   '[SEP] Shopee Xpress',
+  '[SEP] TikTok',
 ];
 
 // Paleta dark dashboard
