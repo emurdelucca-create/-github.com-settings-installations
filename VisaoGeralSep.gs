@@ -200,7 +200,7 @@ function vg_getDados() {
   const abaRaw = ss.getSheetByName(VG_ABA_RAW);
   if (abaRaw) {
     const ts = String(abaRaw.getRange('A1').getValue());
-    dados.timestamp = ts.replace(/.*atualização:\s*/i, '').trim();
+    dados.timestamp = ts.replace(/^Atualizado em:\s*/i, '').trim();
 
     const last = abaRaw.getLastRow();
     if (last >= 3) {
@@ -228,7 +228,7 @@ function vg_getDados() {
   dados.estoqueInsuficiente = { timestamp: '', itens: [] };
   if (abaInsuf) {
     const tsInsuf = String(abaInsuf.getRange('A1').getValue());
-    dados.estoqueInsuficiente.timestamp = tsInsuf.replace(/.*atualização:\s*/i, '').trim();
+    dados.estoqueInsuficiente.timestamp = tsInsuf.replace(/^Atualizado em:\s*/i, '').trim();
     const lastInsuf = abaInsuf.getLastRow();
     if (lastInsuf >= 3) {
       dados.estoqueInsuficiente.itens = abaInsuf.getRange(3, 1, lastInsuf - 2, 3).getValues()
@@ -272,14 +272,18 @@ function onOpen() {
     .addItem('🗑 Remover atualização automática', 'vg_removerGatilho')
     .addSeparator()
     .addItem('👥 Criar/resetar aba de Funcionários', 'vg_criarAbaFuncionarios')
-    .addSeparator()
-    .addItem('🔑 Gerar token da extensão (Estoque Insuficiente)', 'vg_gerarTokenExtensao')
     .addToUi();
 }
 
 // Gera (ou reexibe) o token compartilhado que a extensão de captura de
-// Estoque Insuficiente usa para autenticar no doPost. Copie o valor
-// exibido e cole no popup da extensão, em "Configurar Token".
+// Estoque Insuficiente usa para autenticar no doPost.
+// Propositalmente SEM item de menu na planilha: qualquer pessoa com acesso
+// de edição à planilha conseguiria ver o token através de um menu, mas o
+// acesso à planilha e o acesso ao token/extensão são coisas independentes
+// (quem usa a extensão no depósito não precisa nem deve ter acesso à
+// planilha). Para gerar/ver o token, rode esta função direto pelo editor:
+// Extensões → Apps Script → selecione "vg_gerarTokenExtensao" → ▶ Executar
+// → Ver → Registros de execução (Logger.log mostra o token).
 function vg_gerarTokenExtensao() {
   const props = PropertiesService.getScriptProperties();
   let token = props.getProperty('VG_EXT_TOKEN');
@@ -287,11 +291,8 @@ function vg_gerarTokenExtensao() {
     token = Utilities.getUuid();
     props.setProperty('VG_EXT_TOKEN', token);
   }
-  SpreadsheetApp.getUi().alert(
-    '🔑 Token da extensão\n\n' + token +
-    '\n\nCole esse valor no popup da extensão "Estoque Insuficiente BaseLinker" ' +
-    '(campo Token), em cada dispositivo. O mesmo token vale para todos os dispositivos.'
-  );
+  Logger.log('Token da extensão (copie e cole no popup, campo Token): ' + token);
+  return token;
 }
 
 // ── Chamada à API BaseLinker ──────────────────────────────────

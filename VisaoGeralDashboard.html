@@ -36,6 +36,15 @@ html, body {
   display: grid;
   grid-template-rows: 50px 38px 36px 1fr 32px;
 }
+/* Linha fixa por elemento — sem isso, esconder um item (ex: #sub-tabs
+   quando a macro-aba não é Separação) faz o grid auto-posicionar os
+   itens seguintes nas linhas vagas, empurrando #main pra uma faixa de
+   36px e #footer pra ocupar o 1fr, "sumindo" com o conteúdo. */
+#header     { grid-row: 1; }
+#macro-tabs { grid-row: 2; }
+#sub-tabs   { grid-row: 3; }
+#main       { grid-row: 4; }
+#footer     { grid-row: 5; }
 
 /* ── Header ─────────────────────────────────────── */
 #header {
