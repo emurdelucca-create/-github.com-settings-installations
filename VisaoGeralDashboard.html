@@ -134,6 +134,17 @@ html, body {
   overflow: hidden;
 }
 #main-insuf-panel { grid-column: 1 / -1; height: 100%; }
+#insuf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 13px;
+  border-bottom: 1px solid var(--border);
+  background: #10151f;
+  flex-shrink: 0;
+}
+#insuf-count { font-size: 12px; color: var(--muted); }
+#insuf-copy { padding: 4px 12px; }
 .tbl th {
   padding: 7px 12px;
   font-size: 10px;
@@ -421,6 +432,10 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
     <!-- Estoque Insuficiente: painel único, alimentado pela extensão -->
     <div id="main-insuf-panel" class="panel" style="display:none;">
       <div class="panel-title">⚠️ Estoque Insuficiente <span id="insuf-ts" style="float:right;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);"></span></div>
+      <div id="insuf-toolbar">
+        <span id="insuf-count"></span>
+        <button class="hbtn" id="insuf-copy">📋 Copiar todos os SKUs</button>
+      </div>
       <div class="panel-body">
         <table class="tbl" id="tbl-insuf" style="width:100%;"></table>
       </div>
@@ -588,25 +603,44 @@ function renderizarTudo() {
 }
 
 // ── Macro-aba "Estoque Insuficiente" — alimentada pela extensão ──
+// dadosGlobais.estoqueInsuficiente.itens já vem filtrado pelo servidor:
+// só SKUs com qtdInsuficiente > 0 aparecem aqui.
 function renderizarInsuficiente() {
   var d = dadosGlobais;
   var info = (d && d.estoqueInsuficiente) || { timestamp: '', itens: [] };
   document.getElementById('insuf-ts').textContent = info.timestamp ? '📡 Captura: ' + info.timestamp : '';
+  document.getElementById('insuf-count').textContent =
+    info.itens.length + ' SKU' + (info.itens.length !== 1 ? 's' : '') + ' com estoque insuficiente';
 
   var tbl = document.getElementById('tbl-insuf');
   if (!info.itens.length) {
-    tbl.innerHTML = '<tr><td class="empty-msg">Nenhuma captura ainda. Use o botão "Obter Dados" da extensão no painel de coleta do BaseLinker.</td></tr>';
-    return;
+    tbl.innerHTML = '<tr><td class="empty-msg">Nenhum SKU com estoque insuficiente na última captura.</td></tr>';
+  } else {
+    var html = '<tr><th>SKU</th><th class="num">Qtd Insuficiente</th><th class="num">Qtd Com Localização</th></tr>';
+    info.itens.forEach(function(it) {
+      html += '<tr>'
+        + '<td class="td-date">' + escHtml(it.sku) + '</td>'
+        + '<td class="td-num" style="color:var(--red)">' + fmt(it.qtdInsuficiente) + '</td>'
+        + '<td class="td-num" style="color:var(--green)">' + fmt(it.qtdComLocalizacao) + '</td>'
+        + '</tr>';
+    });
+    tbl.innerHTML = html;
   }
-  var html = '<tr><th>SKU</th><th class="num">Qtd Insuficiente</th><th class="num">Qtd Com Localização</th></tr>';
-  info.itens.forEach(function(it) {
-    html += '<tr>'
-      + '<td class="td-date">' + escHtml(it.sku) + '</td>'
-      + '<td class="td-num" style="color:var(--red)">' + fmt(it.qtdInsuficiente) + '</td>'
-      + '<td class="td-num" style="color:var(--green)">' + fmt(it.qtdComLocalizacao) + '</td>'
-      + '</tr>';
-  });
-  tbl.innerHTML = html;
+
+  // Botão de copiar: formato TSV (tab entre colunas, quebra de linha entre
+  // linhas) — colar direto no Excel/Sheets já separa em células sozinho.
+  document.getElementById('insuf-copy').onclick = function() {
+    var btn = document.getElementById('insuf-copy');
+    var linhas = ['SKU\tQtd Insuficiente\tQtd Com Localização'];
+    info.itens.forEach(function(it) {
+      linhas.push(it.sku + '\t' + it.qtdInsuficiente + '\t' + it.qtdComLocalizacao);
+    });
+    navigator.clipboard.writeText(linhas.join('\n')).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = '✅ Copiado!';
+      setTimeout(function() { btn.textContent = orig; }, 1200);
+    });
+  };
 }
 
 function renderizarSecao() {

@@ -238,6 +238,9 @@ function vg_getDados() {
           qtdInsuficiente: Number(qtdInsuficiente) || 0,
           qtdComLocalizacao: Number(qtdComLocalizacao) || 0,
         }))
+        // Só mostra SKUs com estoque insuficiente de fato — um SKU que só
+        // apareceu no painel com localização definida não entra aqui.
+        .filter(item => item.qtdInsuficiente > 0)
         .sort((a, b) => b.qtdInsuficiente - a.qtdInsuficiente);
     }
   }
