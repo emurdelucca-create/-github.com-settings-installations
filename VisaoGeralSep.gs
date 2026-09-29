@@ -17,6 +17,12 @@ const VG_BL_COL_SKU = 1, VG_BL_COL_PAD = 4, VG_BL_COL_ARM = 5, VG_BL_COL_CHG = 6
 const VG_ABA_RAW = '_vg_raw_'; // aba oculta: Status | Data | OrderID | SKU | Qtd
 const VG_ABA_ESTOQUE_INSUF = '_vg_estoque_insuf_'; // aba oculta: SKU | QtdInsuficiente | QtdComLocalizacao
 
+// Chave de acesso à página de administração do token da extensão
+// (?admin=<chave> na URL do Web App — ver doGet). Só quem tiver essa URL
+// completa consegue ver/gerar o token; quem só usa a extensão nunca
+// precisa (nem deve) conhecer essa chave.
+const VG_ADMIN_KEY = 'XW1M14E39sLuYAJQMiUDPKN5';
+
 const VG_STATUS_ALVO = [
   'NF Emitida',
   'Erro NF',
@@ -48,9 +54,63 @@ const VG_T = {
 };
 
 // ── Web App ───────────────────────────────────────────────────
-function doGet() {
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.admin && params.admin === VG_ADMIN_KEY) {
+    return _vg_paginaAdminToken();
+  }
   return HtmlService.createHtmlOutputFromFile('VisaoGeralDashboard')
     .setTitle('Visão Geral — Separação')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Página simples (HTML puro, sem depender da planilha nem do editor do
+// Apps Script) que mostra o token da extensão, gerando um se ainda não
+// existir. Só acessível via ?admin=<VG_ADMIN_KEY> na URL do Web App.
+function _vg_paginaAdminToken() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('VG_EXT_TOKEN');
+  if (!token) {
+    token = Utilities.getUuid();
+    props.setProperty('VG_EXT_TOKEN', token);
+  }
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { box-sizing: border-box; }
+  body { background:#0d1117; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:16px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:24px; max-width:420px; width:100%; }
+  h1 { font-size:15px; color:#388bfd; margin:0 0 6px; }
+  p { font-size:12px; color:#8b949e; margin:0 0 16px; line-height:1.5; }
+  .token-box { display:flex; gap:8px; }
+  input { flex:1; background:#0d1117; border:1px solid #30363d; color:#e6edf3; border-radius:6px; padding:8px 10px; font-size:13px; font-family:'Courier New',monospace; }
+  button { background:#388bfd; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+  button:hover { opacity:0.85; }
+  #msg { font-size:11px; color:#3fb950; margin-top:8px; min-height:14px; }
+</style></head>
+<body>
+  <div class="card">
+    <h1>🔑 Token da extensão</h1>
+    <p>Cole esse valor no popup da extensão "Estoque Insuficiente BaseLinker", no campo Token, em cada dispositivo. Mesmo token para todos.</p>
+    <div class="token-box">
+      <input id="tk" readonly value="${token}">
+      <button onclick="copiar()">Copiar</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+  <script>
+    function copiar() {
+      var el = document.getElementById('tk');
+      el.select();
+      navigator.clipboard.writeText(el.value).then(function() {
+        document.getElementById('msg').textContent = '✅ Copiado!';
+      });
+    }
+  </script>
+</body></html>`;
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('Token da extensão')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
