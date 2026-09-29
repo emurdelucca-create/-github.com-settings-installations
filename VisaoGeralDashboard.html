@@ -244,9 +244,62 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   font-size: 12px;
 }
 .sku-row:nth-child(even) { background: #0f1520; }
-.sku-row:hover { background: var(--hdr); }
+.sku-row:hover { background: var(--hdr); cursor: default; }
 .sku-code { flex: 1; font-family: 'Courier New', monospace; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sku-qty  { color: var(--green); font-weight: 700; font-size: 12px; min-width: 24px; text-align: right; }
+
+/* ── Popup de IDs de pedido (hover num SKU) ─────── */
+#sku-popup {
+  display: none;
+  position: fixed;
+  z-index: 300;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 9px;
+  width: 190px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+}
+#sku-popup-hdr {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sku-popup-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  margin-bottom: 7px;
+}
+.sku-popup-id {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  padding: 4px 7px;
+  border-bottom: 1px solid #161f2e;
+  color: var(--text);
+}
+.sku-popup-id:last-child { border-bottom: none; }
+.sku-popup-id:nth-child(even) { background: #0f1520; }
+#sku-popup-copy {
+  width: 100%;
+  padding: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+#sku-popup-copy:hover { opacity: 0.85; }
 
 /* ── Footer ─────────────────────────────────────── */
 #footer {
@@ -369,6 +422,70 @@ function escAttr(s) {
 document.getElementById('status-list').addEventListener('click', function(e) {
   var row = e.target.closest('.st-row');
   if (row) setStatusFiltro(row.getAttribute('data-status'));
+});
+
+// ── Popup de IDs de pedido (hover num SKU) ──────────────────────
+// data-order-ids já vem pronto do servidor (lista de order_id que
+// geraram aquela soma de quantidade, já filtrada pelo status atual).
+var skuPopupEl = null;
+
+function criarSkuPopup() {
+  if (skuPopupEl) return skuPopupEl;
+  skuPopupEl = document.createElement('div');
+  skuPopupEl.id = 'sku-popup';
+  skuPopupEl.innerHTML = '<div id="sku-popup-hdr"></div><div id="sku-popup-list"></div><button id="sku-popup-copy">📋 Copiar todos</button>';
+  document.body.appendChild(skuPopupEl);
+  // Mouse pode entrar no popup (pra clicar em copiar) sem ele sumir —
+  // só esconde de fato quando sai do popup também.
+  skuPopupEl.addEventListener('mouseleave', function() { skuPopupEl.style.display = 'none'; });
+  return skuPopupEl;
+}
+
+function mostrarSkuPopup(row) {
+  var sku = row.getAttribute('data-sku') || '';
+  var ids = (row.getAttribute('data-order-ids') || '').split(',').filter(Boolean);
+  if (!ids.length) return;
+
+  var popup = criarSkuPopup();
+  document.getElementById('sku-popup-hdr').textContent = sku + ' — ' + ids.length + ' pedido' + (ids.length !== 1 ? 's' : '');
+  document.getElementById('sku-popup-list').innerHTML = ids.map(function(id) {
+    return '<div class="sku-popup-id">' + escHtml(id) + '</div>';
+  }).join('');
+  document.getElementById('sku-popup-copy').onclick = function() {
+    var btn = document.getElementById('sku-popup-copy');
+    navigator.clipboard.writeText(ids.join('\n')).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = '✅ Copiado!';
+      setTimeout(function() { btn.textContent = orig; }, 1200);
+    });
+  };
+
+  popup.style.display = 'block';
+  var rect = row.getBoundingClientRect();
+  var pw = popup.offsetWidth, ph = popup.offsetHeight;
+  var left = rect.right + 8;
+  var top  = rect.top;
+  if (left + pw > window.innerWidth)  left = rect.left - pw - 8;
+  if (top + ph > window.innerHeight)  top  = window.innerHeight - ph - 8;
+  if (top < 4) top = 4;
+  popup.style.left = left + 'px';
+  popup.style.top  = top + 'px';
+}
+
+document.getElementById('skus-body').addEventListener('mouseover', function(e) {
+  var row = e.target.closest('.sku-row');
+  if (row) mostrarSkuPopup(row);
+});
+document.getElementById('skus-body').addEventListener('mouseout', function(e) {
+  var row = e.target.closest('.sku-row');
+  if (!row) return;
+  // Dá uma folga curta: se o mouse foi para o próprio popup, não esconde
+  // (o listener de mouseleave do popup cuida de escondê-lo depois).
+  setTimeout(function() {
+    if (skuPopupEl && !skuPopupEl.matches(':hover') && !row.matches(':hover')) {
+      skuPopupEl.style.display = 'none';
+    }
+  }, 80);
 });
 
 function carregarDados() {
@@ -495,7 +612,9 @@ function renderizarSecao() {
     col.className = 'sku-col';
     var isH  = bloco.data === hoje;
     var rows = bloco.itens.map(function(item) {
-      return '<div class="sku-row"><span class="sku-code">' + escHtml(item.sku) + '</span><span class="sku-qty">' + item.qty + '</span></div>';
+      var ids = item.orderIds || [];
+      return '<div class="sku-row" data-sku="' + escAttr(item.sku) + '" data-order-ids="' + escAttr(ids.join(',')) + '">'
+        + '<span class="sku-code">' + escHtml(item.sku) + '</span><span class="sku-qty">' + item.qty + '</span></div>';
     }).join('');
     col.innerHTML = '<div class="sku-date' + (isH ? ' hoje' : '') + '">'
       + bloco.data + (isH ? ' ◀' : '')

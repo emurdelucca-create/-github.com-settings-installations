@@ -90,7 +90,9 @@ function _vg_fmtDataYMD(ds, tz) {
 function _vg_montarSecao(pedidosMap, temEstoque, tz, isComEstoque) {
   const datasSet         = {}; // data(yyyy-MM-dd) -> Set(orderId)
   const statusOldestDate = {}; // nome -> data(yyyy-MM-dd) mais antiga
-  const skusPorStatus    = { Geral: {} }; // chave -> data -> { sku: qty }
+  // chave -> data -> sku -> { qty, orderIds: Set } — orderIds alimenta o
+  // popup "ver pedidos" ao passar o mouse no SKU, no HTML.
+  const skusPorStatus = { Geral: {} };
   VG_STATUS_ALVO.forEach(n => { skusPorStatus[n] = {}; });
 
   pedidosMap.forEach((pedido, orderId) => {
@@ -112,8 +114,11 @@ function _vg_montarSecao(pedidosMap, temEstoque, tz, isComEstoque) {
     ['Geral', status].forEach(chave => {
       if (!skusPorStatus[chave]) skusPorStatus[chave] = {};
       if (!skusPorStatus[chave][data]) skusPorStatus[chave][data] = {};
+      const porSku = skusPorStatus[chave][data];
       itensRelevantes.forEach(it => {
-        skusPorStatus[chave][data][it.sku] = (skusPorStatus[chave][data][it.sku] || 0) + it.qty;
+        if (!porSku[it.sku]) porSku[it.sku] = { qty: 0, orderIds: new Set() };
+        porSku[it.sku].qty += it.qty;
+        porSku[it.sku].orderIds.add(orderId);
       });
     });
   });
@@ -134,7 +139,7 @@ function _vg_montarSecao(pedidosMap, temEstoque, tz, isComEstoque) {
     skusFormatado[chave] = Object.keys(porData).sort().map(ds => ({
       data: _vg_fmtDataYMD(ds, tz),
       itens: Object.entries(porData[ds])
-        .map(([sku, qty]) => ({ sku, qty }))
+        .map(([sku, info]) => ({ sku, qty: info.qty, orderIds: Array.from(info.orderIds).sort() }))
         .sort((a, b) => b.qty - a.qty),
     }));
   });
