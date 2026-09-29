@@ -34,7 +34,7 @@ html, body {
 #app {
   height: 100vh;
   display: grid;
-  grid-template-rows: 50px 1fr 32px;
+  grid-template-rows: 50px 38px 36px 1fr 32px;
 }
 
 /* ── Header ─────────────────────────────────────── */
@@ -69,10 +69,57 @@ html, body {
 .hbtn:hover { border-color: var(--accent); color: var(--accent); }
 .hbtn:disabled { opacity: 0.4; cursor: default; }
 
-/* ── Main: 4 colunas ────────────────────────────── */
+/* ── Macro tabs ──────────────────────────────────── */
+#macro-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--hdr);
+  border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+}
+.macro-tab {
+  padding: 9px 22px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  transition: all 0.15s;
+  letter-spacing: 0.3px;
+}
+.macro-tab:hover:not(:disabled) { color: var(--text); }
+.macro-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.macro-tab:disabled { opacity: 0.35; cursor: default; }
+
+/* ── Sub tabs ────────────────────────────────────── */
+#sub-tabs {
+  display: flex;
+  gap: 0;
+  background: #0f141d;
+  border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+}
+.sub-tab {
+  padding: 6px 18px 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.sub-tab:hover { color: var(--text); }
+.sub-tab.active.com  { color: var(--green); border-bottom-color: var(--green); }
+.sub-tab.active.sem  { color: var(--red);   border-bottom-color: var(--red); }
+
+/* ── Main: 3 colunas ─────────────────────────────── */
 #main {
   display: grid;
-  grid-template-columns: 270px 230px 1fr 190px;
+  grid-template-columns: 270px 250px 1fr;
   gap: 10px;
   padding: 10px 14px;
   overflow: hidden;
@@ -121,6 +168,8 @@ tr.today td { background: rgba(63,185,80,0.06); }
 tr.today .td-date { color: #58d68d; font-weight: 700; }
 tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
+.empty-msg { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+
 /* ── Status ──────────────────────────────────────── */
 .st-row {
   display: flex;
@@ -128,8 +177,12 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   padding: 9px 12px;
   border-bottom: 1px solid #1a2035;
   gap: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
 }
 .st-row:hover { background: var(--hdr); }
+.st-row.selected { background: rgba(56,139,253,0.14); border-left: 3px solid var(--accent); padding-left: 9px; }
+.st-row.geral { border-bottom: 2px solid var(--border); }
 .st-nome {
   flex: 1;
   font-size: 14px;
@@ -148,10 +201,10 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 .st-data.amb { color: var(--amber); }
 .st-data.dim { color: var(--dim); }
 
-/* ── SKUs — grid que se adapta ───────────────────── */
+/* ── SKUs — grid que se adapta, cada coluna rola sozinha ─── */
 #skus-body {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   align-content: start;
   overflow-y: auto;
   gap: 0;
@@ -162,6 +215,7 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   flex-direction: column;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+  max-height: 320px;
 }
 
 .sku-date {
@@ -174,6 +228,12 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
   flex-shrink: 0;
 }
 .sku-date.hoje { color: #58d68d; }
+
+.sku-rows {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
 
 .sku-row {
   display: flex;
@@ -223,44 +283,6 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 @keyframes rot { to { transform: rotate(360deg); } }
 #loading p { color: var(--muted); font-size: 13px; }
 
-/* ── Funcionários ────────────────────────────────── */
-.func-row {
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-bottom: 1px solid #1a2035;
-  gap: 6px;
-}
-.func-row:hover { background: var(--hdr); }
-.func-nome {
-  flex: 1;
-  font-size: 12px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.func-hoje {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--green);
-  min-width: 26px;
-  text-align: right;
-  line-height: 1;
-}
-.func-mes {
-  font-size: 11px;
-  color: var(--muted);
-  min-width: 34px;
-  text-align: right;
-}
-.func-empty {
-  padding: 14px 10px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
-}
-
 ::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -284,6 +306,16 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
     </div>
   </div>
 
+  <div id="macro-tabs">
+    <button class="macro-tab active" id="mtab-sep" onclick="setMacroTab('separacao')">📦 Separação</button>
+    <button class="macro-tab" id="mtab-emb" disabled title="Em breve">📊 Embalagem</button>
+  </div>
+
+  <div id="sub-tabs">
+    <button class="sub-tab active com" id="stab-com" onclick="setSubTab('comEstoque')">📦 Com Estoque</button>
+    <button class="sub-tab sem" id="stab-sem" onclick="setSubTab('semEstoque')">📉 Sem Estoque</button>
+  </div>
+
   <div id="main">
 
     <!-- Coluna 1: Datas -->
@@ -296,20 +328,14 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 
     <!-- Coluna 2: Status -->
     <div class="panel">
-      <div class="panel-title">Status Atual</div>
+      <div class="panel-title" id="status-title">Status Atual</div>
       <div class="panel-body" id="status-list"></div>
     </div>
 
     <!-- Coluna 3: SKUs -->
     <div class="panel">
-      <div class="panel-title" id="skus-title">SKUs Mais Enviados</div>
+      <div class="panel-title" id="skus-title">SKUs por Data</div>
       <div id="skus-body" class="panel-body"></div>
-    </div>
-
-    <!-- Coluna 4: Embaladores -->
-    <div class="panel">
-      <div class="panel-title">Embaladores — Hoje / Mês</div>
-      <div class="panel-body" id="func-list"></div>
     </div>
 
   </div>
@@ -324,8 +350,26 @@ tr.today .td-num  { color: #58d68d; font-size: 15px; }
 <script>
 var cdSecs = 60;
 var cdTimer;
+var dadosGlobais = null;
+var state = { tab: 'comEstoque', statusFiltro: 'Geral' };
 
 function fmt(n) { return n.toLocaleString('pt-BR'); }
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escAttr(s) {
+  return escHtml(s).replace(/"/g, '&quot;');
+}
+
+// Listener delegado: um clique em qualquer .st-row dispara o filtro pelo
+// status guardado em data-status (evita montar onclick inline com o nome
+// do status embutido na string HTML).
+document.getElementById('status-list').addEventListener('click', function(e) {
+  var row = e.target.closest('.st-row');
+  if (row) setStatusFiltro(row.getAttribute('data-status'));
+});
 
 function carregarDados() {
   var btn = document.getElementById('btn-refresh');
@@ -335,7 +379,8 @@ function carregarDados() {
 
   google.script.run
     .withSuccessHandler(function(d) {
-      renderizar(d);
+      dadosGlobais = d;
+      renderizarTudo();
       document.getElementById('loading').style.display = 'none';
       document.getElementById('app').style.display = 'grid';
       btn.disabled = false;
@@ -360,17 +405,54 @@ function iniciarContagem() {
   }, 1000);
 }
 
-function renderizar(d) {
-  var hoje = d.hoje;
+function setMacroTab(tab) {
+  // Só existe "separacao" implementado por enquanto — "embalagem" fica desabilitado.
+}
 
+function setSubTab(tab) {
+  state.tab = tab;
+  state.statusFiltro = 'Geral';
+  document.getElementById('stab-com').className = 'sub-tab com' + (tab === 'comEstoque' ? ' active' : '');
+  document.getElementById('stab-sem').className = 'sub-tab sem' + (tab === 'semEstoque' ? ' active' : '');
+  renderizarSecao();
+}
+
+function setStatusFiltro(nome) {
+  state.statusFiltro = nome;
+  renderizarSecao();
+}
+
+function renderizarTudo() {
+  var d = dadosGlobais;
   document.getElementById('timestamp').textContent = d.timestamp ? '⏱ ' + d.timestamp : '';
+  renderizarSecao();
+}
+
+function renderizarSecao() {
+  var d = dadosGlobais;
+  if (!d) return;
+  var hoje = d.hoje;
+  var secao = d[state.tab];
+
+  if (!secao) {
+    document.getElementById('tbl-datas').innerHTML = '';
+    document.getElementById('status-list').innerHTML = '<div class="empty-msg">Sem dados. Atualize a planilha.</div>';
+    document.getElementById('skus-body').innerHTML = '';
+    return;
+  }
+
+  var isSem = state.tab === 'semEstoque';
+  document.getElementById('status-title').textContent = isSem ? 'Status Atual — Sem Estoque' : 'Status Atual — Com Estoque';
 
   // ── Datas: mais antiga no topo, mais nova embaixo ──
   var maxPed = 0;
-  d.datas.forEach(function(r) { if (r.pedidos > maxPed) maxPed = r.pedidos; });
+  secao.datas.forEach(function(r) { if (r.pedidos > maxPed) maxPed = r.pedidos; });
 
   var dtHtml = '';
-  d.datas.forEach(function(row) {
+  if (!secao.datas.length) {
+    dtHtml = '<tr><td class="empty-msg" colspan="3">Nenhum pedido nesta categoria.</td></tr>';
+  }
+  secao.datas.forEach(function(row) {
     var isH = row.data === hoje;
     var pct = maxPed > 0 ? (row.pedidos / maxPed * 100).toFixed(1) : 0;
     dtHtml += '<tr class="' + (isH ? 'today' : '') + '">'
@@ -381,52 +463,45 @@ function renderizar(d) {
   });
   document.getElementById('tbl-datas').innerHTML = dtHtml;
 
-  // ── Status ──
-  var stHtml = '';
-  d.status.forEach(function(s) {
+  // ── Status (clicável) + linha "Geral" ──
+  // data-status + listener delegado (ver mais abaixo), em vez de onclick
+  // inline, para não ter que escapar aspas do nome do status na string HTML.
+  var stHtml = '<div class="st-row geral' + (state.statusFiltro === 'Geral' ? ' selected' : '') + '" data-status="Geral">'
+    + '<span class="st-nome">📋 Geral (todos os status)</span>'
+    + '</div>';
+  secao.status.forEach(function(s) {
     var isErro = s.nome.toLowerCase().indexOf('erro') >= 0;
     var cls = !s.dataAntiga ? 'dim' : (s.dataAntiga === hoje ? 'ok' : 'amb');
-    stHtml += '<div class="st-row">'
-      + '<span class="st-nome' + (isErro ? ' erro' : '') + '">' + (isErro ? '⚠ ' : '') + s.nome + '</span>'
+    var sel = state.statusFiltro === s.nome ? ' selected' : '';
+    stHtml += '<div class="st-row' + sel + '" data-status="' + escAttr(s.nome) + '">'
+      + '<span class="st-nome' + (isErro ? ' erro' : '') + '">' + (isErro ? '⚠ ' : '') + escHtml(s.nome) + '</span>'
       + '<span class="st-data ' + cls + '">' + (s.dataAntiga || '—') + '</span>'
       + '</div>';
   });
   document.getElementById('status-list').innerHTML = stHtml;
 
-  // ── SKUs: todas as datas, mais antiga → mais nova ──
+  // ── SKUs: filtrado pelo status selecionado (ou Geral) ──
+  var blocos = (secao.skusPorStatus && secao.skusPorStatus[state.statusFiltro]) || [];
   var skusBody = document.getElementById('skus-body');
   document.getElementById('skus-title').textContent =
-    'SKUs Mais Enviados — ' + d.skus.length + ' data' + (d.skus.length !== 1 ? 's' : '');
+    'SKUs por Data — ' + state.statusFiltro + ' (' + blocos.length + ' data' + (blocos.length !== 1 ? 's' : '') + ')';
 
   skusBody.innerHTML = '';
-  d.skus.forEach(function(bloco) {
+  if (!blocos.length) {
+    skusBody.innerHTML = '<div class="empty-msg">Nenhum SKU nesta categoria/status.</div>';
+  }
+  blocos.forEach(function(bloco) {
     var col = document.createElement('div');
     col.className = 'sku-col';
     var isH  = bloco.data === hoje;
     var rows = bloco.itens.map(function(item) {
-      return '<div class="sku-row"><span class="sku-code">' + item.sku + '</span><span class="sku-qty">' + item.qty + '</span></div>';
+      return '<div class="sku-row"><span class="sku-code">' + escHtml(item.sku) + '</span><span class="sku-qty">' + item.qty + '</span></div>';
     }).join('');
     col.innerHTML = '<div class="sku-date' + (isH ? ' hoje' : '') + '">'
       + bloco.data + (isH ? ' ◀' : '')
-      + '</div>' + rows;
+      + '</div><div class="sku-rows">' + rows + '</div>';
     skusBody.appendChild(col);
   });
-
-  // ── Funcionários ──
-  var funcList = document.getElementById('func-list');
-  if (d.funcionarios && d.funcionarios.length) {
-    var fHtml = '';
-    d.funcionarios.forEach(function(f) {
-      fHtml += '<div class="func-row">'
-        + '<span class="func-nome">' + f.nome + '</span>'
-        + '<span class="func-hoje">' + f.hoje + '</span>'
-        + '<span class="func-mes">/' + f.mes + '</span>'
-        + '</div>';
-    });
-    funcList.innerHTML = fHtml;
-  } else {
-    funcList.innerHTML = '<div class="func-empty">Sem dados ainda.<br>Execute vg_atualizarEmbalagem().</div>';
-  }
 }
 
 function toggleFullscreen() {
