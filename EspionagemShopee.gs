@@ -109,21 +109,31 @@ function _esp_mapaVendasPorItem(tz) {
   const jan = _esp_janelasData(tz);
   const mapa = {}; // item_id -> [{qty, createTime}]
 
-  let cursor = '';
-  let mais = true;
+  // get_order_list só aceita até 15 dias de intervalo por chamada —
+  // quebra a janela de 30 dias em pedaços de no máximo 14 dias (folga
+  // de 1 dia pra não esbarrar em arredondamento de segundo).
+  const MAX_DIAS_POR_CHAMADA = 14;
+  const SEG_POR_DIA = 24 * 60 * 60;
   const orderSns = [];
-  while (mais) {
-    const r = _espShopeeGet('/api/v2/order/get_order_list', {
-      time_range_field: 'create_time',
-      time_from: jan.ini30,
-      time_to: jan.fimOntemSec,
-      page_size: 100,
-      cursor: cursor,
-    });
-    (r.order_list || []).forEach(o => orderSns.push(o.order_sn));
-    mais = !!r.more;
-    cursor = r.next_cursor || '';
-    if (!cursor) break;
+
+  for (let inicioChunk = jan.ini30; inicioChunk <= jan.fimOntemSec; inicioChunk += MAX_DIAS_POR_CHAMADA * SEG_POR_DIA) {
+    const fimChunk = Math.min(inicioChunk + MAX_DIAS_POR_CHAMADA * SEG_POR_DIA - 1, jan.fimOntemSec);
+
+    let cursor = '';
+    let mais = true;
+    while (mais) {
+      const r = _espShopeeGet('/api/v2/order/get_order_list', {
+        time_range_field: 'create_time',
+        time_from: inicioChunk,
+        time_to: fimChunk,
+        page_size: 100,
+        cursor: cursor,
+      });
+      (r.order_list || []).forEach(o => orderSns.push(o.order_sn));
+      mais = !!r.more;
+      cursor = r.next_cursor || '';
+      if (!cursor) break;
+    }
   }
 
   // get_order_detail aceita até 50 order_sn por chamada.
