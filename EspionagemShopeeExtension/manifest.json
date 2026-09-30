@@ -7,6 +7,9 @@
     "default_popup": "popup.html",
     "default_title": "Espionagem Shopee"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
   "permissions": ["scripting", "storage", "tabs"],
   "host_permissions": [
     "https://shopee.com.br/*",
