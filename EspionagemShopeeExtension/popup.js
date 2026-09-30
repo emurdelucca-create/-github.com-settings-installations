@@ -78,9 +78,14 @@ function esperarAbaCarregar(tabId) {
 }
 
 async function capturarItem(item) {
-  const tab = await chrome.tabs.create({ url: item.link, active: false });
+  // Aba em PRIMEIRO plano (active:true) — a Shopee parece tratar aba em
+  // segundo plano como suspeita (mesmo erro de bloqueio anti-bot do
+  // servidor apareceu numa aba invisível). Rouba o foco por um instante,
+  // mas evita o bloqueio.
+  const tab = await chrome.tabs.create({ url: item.link, active: true });
   try {
     await esperarAbaCarregar(tab.id);
+    await new Promise(res => setTimeout(res, 1500)); // dá tempo do JS da página rodar de verdade
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: capturarProdutoShopee,
