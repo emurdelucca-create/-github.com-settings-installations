@@ -783,7 +783,7 @@ function renderizarEmbalagem() {
   var emb = (d && d.embalagem) || { hoje: 0, picoData: '', picoQtd: 0, mes: '' };
   var funcionarios = (d && d.funcionarios) || [];
 
-  document.getElementById('emb-ts').textContent = d && d.timestamp ? '📡 ' + d.timestamp : '';
+  document.getElementById('emb-ts').textContent = emb.timestamp ? '📡 ' + emb.timestamp : '';
   document.getElementById('emb-hoje').textContent = fmt(emb.hoje);
   document.getElementById('emb-pico-qtd').textContent = fmt(emb.picoQtd);
   document.getElementById('emb-pico-data').textContent = emb.picoData || '—';

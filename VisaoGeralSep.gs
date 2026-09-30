@@ -308,7 +308,9 @@ function vg_getDados() {
   // Aba Embalagem
   const abaEmb = ss.getSheetByName('Embalagem');
   if (abaEmb) {
+    const tsEmb = String(abaEmb.getRange('A1').getValue());
     dados.embalagem = {
+      timestamp: tsEmb.replace(/^Atualizado em:\s*/i, '').trim(),
       hoje:      Number(abaEmb.getRange('A2').getValue()) || 0,
       picoData:  abaEmb.getRange('A3').getDisplayValue() || '',
       picoQtd:   Number(abaEmb.getRange('A4').getValue()) || 0,
@@ -513,7 +515,44 @@ function vg_criarAbaFuncionarios() {
 // "quando detectamos" e "quando foi embalado" coincidem na prática).
 // Um pedido já gravado nunca é reprocessado nem pode sumir das métricas.
 const VG_ABA_EMB_LEDGER = '_vg_emb_ledger_'; // OrderID | Funcionario | Data (dd/MM/yyyy)
-const VG_EMB_JANELA_DIAS = 45; // cobre qualquer atraso realista de tramitação
+
+// Âncora FIXA (não rolante) de onde a varredura de embalagem passa a
+// contar — nunca dias antes disso. Guardada em Script Properties, criada
+// uma única vez (na primeira execução após esse fix) como "hoje 00:00".
+// Sem isso, toda vez que o recurso reiniciasse contaria semanas de
+// pedidos antigos de uma vez, carimbando tudo com "hoje" — foi exatamente
+// o bug relatado (575 hoje / 2.642 pico / 12.221 no mês, tudo inflado).
+function _vg_getEmbInicioSec(props, tz) {
+  let v = props.getProperty('VG_EMB_LEDGER_INICIO');
+  if (!v) {
+    const agora = new Date();
+    const meiaNoite = new Date(Utilities.formatDate(agora, tz, "yyyy-MM-dd'T'00:00:00"));
+    v = String(Math.floor(meiaNoite.getTime() / 1000));
+    props.setProperty('VG_EMB_LEDGER_INICIO', v);
+  }
+  return Number(v);
+}
+
+// Zera o ledger e a aba Embalagem UMA ÚNICA VEZ (controlado por uma flag
+// em Script Properties) — limpa os dados poluídos pela primeira execução
+// (que varreu 45 dias de uma vez) e reancora VG_EMB_LEDGER_INICIO em
+// "agora", pra passar a contar só daqui pra frente.
+function _vg_resetLedgerEmbalagemSeNecessario(ss, props, tz) {
+  if (props.getProperty('VG_EMB_LEDGER_RESET_V2')) return;
+
+  const aba = ss.getSheetByName(VG_ABA_EMB_LEDGER);
+  if (aba) {
+    aba.clearContents();
+    aba.getRange(1, 1, 1, 3).setValues([['OrderID', 'Funcionario', 'Data']]);
+  }
+  const abaEmb = ss.getSheetByName('Embalagem');
+  if (abaEmb) abaEmb.clearContents();
+
+  const agora = new Date();
+  const meiaNoite = new Date(Utilities.formatDate(agora, tz, "yyyy-MM-dd'T'00:00:00"));
+  props.setProperty('VG_EMB_LEDGER_INICIO', String(Math.floor(meiaNoite.getTime() / 1000)));
+  props.setProperty('VG_EMB_LEDGER_RESET_V2', '1');
+}
 
 function _vg_getLedgerOrderIds(ss) {
   const set = new Set();
@@ -547,12 +586,12 @@ function _vg_toDateStrDMY(v, tz) {
 }
 
 function vg_atualizarEmbalagem() {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const tz  = ss.getSpreadsheetTimeZone();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const tz    = ss.getSpreadsheetTimeZone();
+  const props = PropertiesService.getScriptProperties();
 
-  const dataMin = new Date();
-  dataMin.setDate(dataMin.getDate() - VG_EMB_JANELA_DIAS);
-  const dateConfirmedFromSec = Math.floor(dataMin.getTime() / 1000);
+  _vg_resetLedgerEmbalagemSeNecessario(ss, props, tz);
+  const dateConfirmedFromSec = _vg_getEmbInicioSec(props, tz);
 
   const validEmps      = _vg_getValidEmployees(ss);
   const idsExistentes  = _vg_getLedgerOrderIds(ss);
