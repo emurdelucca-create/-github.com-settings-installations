@@ -33,6 +33,8 @@ function onOpen() {
     .addItem('📥 1) Sincronizar pedidos (histórico — rode primeiro)', 'esp_sincronizarPedidos')
     .addItem('🔄 2) Atualizar "Meu anúncio" (usa o ledger, rápido)', 'esp_atualizarMeusAnuncios')
     .addSeparator()
+    .addItem('🔑 Gerar token da extensão (concorrente)', 'esp_gerarTokenExtensao')
+    .addSeparator()
     .addItem('🧪 Testar API — meu anúncio (log)', 'esp_testarMeuAnuncio')
     .addToUi();
 }
@@ -623,4 +625,175 @@ function esp_testarPedidos() {
     response_optional_fields: 'item_list,total_amount,order_status',
   });
   Logger.log(JSON.stringify(detalhe, null, 2).substring(0, 3000));
+}
+
+// ============================================================
+// LADO DO CONCORRENTE — Web App pra extensão de navegador
+//
+// doGet(?token=...)  → devolve a lista de concorrentes cadastrados
+//                      (linha, shopId, itemId, link) pra extensão saber
+//                      o que capturar
+// doPost             → recebe as capturas da extensão (preço +
+//                      vendido acumulado de cada concorrente) e grava
+//                      num ledger diário (snapshot por dia, nunca
+//                      sobrescreve dias anteriores)
+//
+// Como a Shopee só mostra o TOTAL vendido acumulado (não por período),
+// "vendas por período" do concorrente é estimada pela DIFERENÇA entre o
+// total de hoje e o total de X dias atrás — por isso precisa de um
+// histórico diário indo pra trás; no início (poucos dias de captura),
+// os períodos mais longos (15-30, 0-30) ainda vão aparecer incompletos.
+// ============================================================
+const ESP_ABA_CONC_LEDGER = '_esp_conc_ledger_'; // ItemID | Data(dd/MM/yyyy) | VendidoAcumulado | PrecoBruto | PrecoFinal
+
+function esp_gerarTokenExtensao() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('ESP_EXT_TOKEN');
+  if (!token) {
+    token = Utilities.getUuid();
+    props.setProperty('ESP_EXT_TOKEN', token);
+  }
+  SpreadsheetApp.getUi().alert(
+    '🔑 Token da extensão\n\n' + token +
+    '\n\nCole no popup da extensão "Espionagem Shopee", campo Token.'
+  );
+}
+
+function _esp_watchlistConcorrentes() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName('Espionagem');
+  if (!aba) return [];
+  const lastRow = aba.getLastRow();
+  if (lastRow < ESP_PRIMEIRA_LINHA_DADOS) return [];
+
+  const links = aba.getRange(ESP_PRIMEIRA_LINHA_DADOS, ESP_COL.LINK, lastRow - ESP_PRIMEIRA_LINHA_DADOS + 1, 1).getValues();
+  const lista = [];
+  links.forEach(([link], i) => {
+    const parsed = _esp_parseLink(link);
+    if (parsed) lista.push({ linha: ESP_PRIMEIRA_LINHA_DADOS + i, shopId: parsed.shopId, itemId: parsed.itemId, link: String(link) });
+  });
+  return lista;
+}
+
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  const tokenEsperado = PropertiesService.getScriptProperties().getProperty('ESP_EXT_TOKEN');
+  if (!tokenEsperado || params.token !== tokenEsperado) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Token inválido.' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, itens: _esp_watchlistConcorrentes() }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Corpo esperado:
+//   { token, capturas: [{ itemId, shopId, precoBruto, precoFinal, vendidoAcumulado }] }
+function doPost(e) {
+  const responder = obj => ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const tokenEsperado = PropertiesService.getScriptProperties().getProperty('ESP_EXT_TOKEN');
+    if (!tokenEsperado || body.token !== tokenEsperado) return responder({ ok: false, error: 'Token inválido.' });
+
+    const ss  = SpreadsheetApp.getActiveSpreadsheet();
+    const tz  = ss.getSpreadsheetTimeZone();
+    const hojeDisplay = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+    const capturas = Array.isArray(body.capturas) ? body.capturas : [];
+
+    let aba = ss.getSheetByName(ESP_ABA_CONC_LEDGER);
+    if (!aba) {
+      aba = ss.insertSheet(ESP_ABA_CONC_LEDGER);
+      aba.appendRow(['ItemID', 'Data', 'VendidoAcumulado', 'PrecoBruto', 'PrecoFinal']);
+      aba.hideSheet();
+    }
+
+    // Upsert por (ItemID, Data=hoje) — recapturar no mesmo dia atualiza
+    // a linha de hoje em vez de duplicar.
+    const last = aba.getLastRow();
+    const existentesHoje = {}; // itemId -> nº da linha na planilha
+    if (last >= 2) {
+      aba.getRange(2, 1, last - 1, 2).getValues().forEach(([itemId, data], i) => {
+        if (String(data) === hojeDisplay) existentesHoje[String(itemId)] = i + 2;
+      });
+    }
+
+    const linhasNovas = [];
+    capturas.forEach(c => {
+      if (!c.itemId) return;
+      const linhaExistente = existentesHoje[String(c.itemId)];
+      const linha = [c.itemId, hojeDisplay, c.vendidoAcumulado || 0, c.precoBruto || '', c.precoFinal || ''];
+      if (linhaExistente) {
+        aba.getRange(linhaExistente, 1, 1, 5).setValues([linha]);
+      } else {
+        linhasNovas.push(linha);
+      }
+    });
+    if (linhasNovas.length) {
+      aba.getRange(aba.getLastRow() + 1, 1, linhasNovas.length, 5).setValues(linhasNovas);
+    }
+
+    esp_atualizarConcorrentes();
+    return responder({ ok: true, capturados: capturas.length });
+  } catch (err) {
+    return responder({ ok: false, error: err.message });
+  }
+}
+
+// Preenche as colunas H:N (Anúncio Concorrente) usando o ledger diário:
+// preço = snapshot mais recente; vendas 0-7/0-15/15-30/0-30 = diferença
+// entre o vendido acumulado de hoje e o de X dias atrás.
+function esp_atualizarConcorrentes() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const tz  = ss.getSpreadsheetTimeZone();
+  const aba = ss.getSheetByName('Espionagem');
+  const abaLedger = ss.getSheetByName(ESP_ABA_CONC_LEDGER);
+  if (!aba || !abaLedger) return;
+
+  // itemId -> [{data:'dd/MM/yyyy', vendido, bruto, final}], mais recente por último
+  const historico = {};
+  const last = abaLedger.getLastRow();
+  if (last >= 2) {
+    abaLedger.getRange(2, 1, last - 1, 5).getValues().forEach(([itemId, data, vendido, bruto, final]) => {
+      if (!itemId) return;
+      const key = String(itemId);
+      if (!historico[key]) historico[key] = [];
+      historico[key].push({ data: String(data), vendido: Number(vendido) || 0, bruto: Number(bruto) || null, final: Number(final) || null });
+    });
+  }
+
+  function paraSegundos(dataDMY) {
+    const [d, m, y] = dataDMY.split('/').map(Number);
+    return Math.floor(new Date(y, m - 1, d).getTime() / 1000);
+  }
+
+  // Acumulado vendido no snapshot de data mais próxima (igual ou anterior)
+  // a `alvoSec` — cobre o caso de falha de captura em algum dia específico.
+  function acumuladoAte(pontos, alvoSec) {
+    let melhor = null;
+    pontos.forEach(p => {
+      const sec = paraSegundos(p.data);
+      if (sec <= alvoSec && (melhor === null || sec > melhor.sec)) melhor = { sec, vendido: p.vendido };
+    });
+    return melhor ? melhor.vendido : null;
+  }
+
+  const jan = _esp_janelasData(tz);
+  const watchlist = _esp_watchlistConcorrentes();
+
+  watchlist.forEach(({ linha, itemId }) => {
+    const pontos = historico[String(itemId)];
+    if (!pontos || !pontos.length) return;
+
+    const maisRecente = pontos.reduce((a, b) => (paraSegundos(a.data) > paraSegundos(b.data) ? a : b));
+    const vendidoHoje = maisRecente.vendido;
+
+    const v7  = acumuladoAte(pontos, jan.ini7 - 1)  !== null ? vendidoHoje - acumuladoAte(pontos, jan.ini7 - 1)  : '';
+    const v15 = acumuladoAte(pontos, jan.ini15 - 1) !== null ? vendidoHoje - acumuladoAte(pontos, jan.ini15 - 1) : '';
+    const v30 = acumuladoAte(pontos, jan.ini30 - 1) !== null ? vendidoHoje - acumuladoAte(pontos, jan.ini30 - 1) : '';
+    const v15_30 = (v30 !== '' && v15 !== '') ? v30 - v15 : '';
+
+    aba.getRange(linha, ESP_COL.CONC_BRUTO, 1, 6).setValues([[maisRecente.bruto, maisRecente.final, v7, v15, v15_30, v30]]);
+  });
+
+  SpreadsheetApp.flush();
 }

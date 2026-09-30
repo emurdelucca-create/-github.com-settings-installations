@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Espionagem Shopee",
+  "version": "1.0",
+  "description": "Captura preço e vendas acumuladas dos anúncios concorrentes cadastrados na planilha Espionagem Shopee.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Espionagem Shopee"
+  },
+  "permissions": ["scripting", "storage", "tabs"],
+  "host_permissions": [
+    "https://shopee.com.br/*",
+    "https://script.google.com/*"
+  ]
+}
