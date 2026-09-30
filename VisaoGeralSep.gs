@@ -501,136 +501,141 @@ function vg_criarAbaFuncionarios() {
   );
 }
 
-// ── Embalagem: conta todos os pedidos que PASSARAM por embalagem ──
-// - Status [EXP]: date_in_status é a data de embalagem (prova direta)
-// - Outros status pós-embalagem (Enviado, Entregue, etc.):
-//   admin_comments com funcionário válido = prova de que foi embalado;
-//   date_in_status = proxy da data (coleta Shopee no mesmo dia)
-// - Status [SEP] são ignorados (ainda não foram embalados)
+// ── Embalagem: ledger permanente de pedidos embalados ─────────────
+// Reescrito porque a versão anterior recontava tudo do zero a cada
+// execução, consultando o BaseLinker por status ATUAL — quando um
+// pedido "sumia" do BaseLinker (arquivado/fora da janela de retenção),
+// ele desaparecia das contagens pra sempre, mesmo tendo sido embalado
+// de verdade. Agora: sinal único (admin_comments bate com um
+// funcionário da aba "Funcionários", em QUALQUER status), e assim que
+// um pedido é visto uma vez, é gravado permanentemente na aba oculta
+// _vg_emb_ledger_ com a data de HOJE (a execução roda a cada 5 min, então
+// "quando detectamos" e "quando foi embalado" coincidem na prática).
+// Um pedido já gravado nunca é reprocessado nem pode sumir das métricas.
+const VG_ABA_EMB_LEDGER = '_vg_emb_ledger_'; // OrderID | Funcionario | Data (dd/MM/yyyy)
+const VG_EMB_JANELA_DIAS = 45; // cobre qualquer atraso realista de tramitação
+
+function _vg_getLedgerOrderIds(ss) {
+  const set = new Set();
+  const aba = ss.getSheetByName(VG_ABA_EMB_LEDGER);
+  if (!aba) return set;
+  const last = aba.getLastRow();
+  if (last < 2) return set;
+  aba.getRange(2, 1, last - 1, 1).getValues().forEach(([id]) => { if (id) set.add(String(id)); });
+  return set;
+}
+
+function _vg_appendLedger(ss, novasLinhas) {
+  if (!novasLinhas.length) return;
+  let aba = ss.getSheetByName(VG_ABA_EMB_LEDGER);
+  if (!aba) {
+    aba = ss.insertSheet(VG_ABA_EMB_LEDGER);
+    aba.hideSheet();
+    aba.getRange(1, 1, 1, 3).setValues([['OrderID', 'Funcionario', 'Data']]);
+  }
+  const startRow = aba.getLastRow() + 1;
+  // Texto puro nas duas colunas — evita o Sheets auto-converter e quebrar
+  // a leitura depois (mesmo problema já visto em _vg_escreverRaw).
+  aba.getRange(startRow, 1, novasLinhas.length, 1).setNumberFormat('@');
+  aba.getRange(startRow, 3, novasLinhas.length, 1).setNumberFormat('@');
+  aba.getRange(startRow, 1, novasLinhas.length, 3).setValues(novasLinhas);
+}
+
+function _vg_toDateStrDMY(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, 'dd/MM/yyyy');
+  return String(v || '').trim();
+}
+
 function vg_atualizarEmbalagem() {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const tz    = ss.getSpreadsheetTimeZone();
-  const hoje  = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  const mes   = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
-  const props = PropertiesService.getScriptProperties();
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const tz  = ss.getSpreadsheetTimeZone();
 
-  // Início do mês como Unix timestamp para filtro date_confirmed_from
-  const [anoN, mesN] = mes.split('-').map(Number);
-  const inicioMesSec = Math.floor(new Date(anoN, mesN - 1, 1).getTime() / 1000);
+  const dataMin = new Date();
+  dataMin.setDate(dataMin.getDate() - VG_EMB_JANELA_DIAS);
+  const dateConfirmedFromSec = Math.floor(dataMin.getTime() / 1000);
 
-  // Classificar todos os status da conta
+  const validEmps      = _vg_getValidEmployees(ss);
+  const idsExistentes  = _vg_getLedgerOrderIds(ss);
+  const hojeDisplay     = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+  const novasLinhas    = []; // [OrderID, Funcionario, Data]
+
   const statusResp  = vg_bl('getOrderStatusList', {});
   const todosStatus = statusResp.statuses || [];
-  const expStatuses  = todosStatus.filter(s => s.name.startsWith('[EXP]'));
-  const postStatuses = todosStatus.filter(s =>
-    !s.name.startsWith('[EXP]') && !s.name.startsWith('[SEP]')
-  );
 
-  // ── Aba Embalagem ──────────────────────────────────────────────
-  let aba = ss.getSheetByName('Embalagem');
-  if (!aba) aba = ss.insertSheet('Embalagem');
-
-  // Detectar virada de dia → salvar contagem anterior no histórico
-  const h1Val      = aba.getRange('H1').getValue();
-  const storedDate = h1Val instanceof Date
-    ? Utilities.formatDate(h1Val, tz, 'yyyy-MM-dd')
-    : String(h1Val || '');
-  const hLastRow = aba.getLastRow();
-
-  if (storedDate && storedDate !== hoje) {
-    const prevCount = hLastRow >= 2
-      ? aba.getRange(2, 8, hLastRow - 1, 1).getValues().filter(([id]) => id).length
-      : 0;
-    const prevMes  = storedDate.slice(0, 7);
-    const prevData = JSON.parse(props.getProperty('VG_EMB_MONTH_' + prevMes) || '{}');
-    prevData[storedDate] = prevCount;
-    props.setProperty('VG_EMB_MONTH_' + prevMes, JSON.stringify(prevData));
-  }
-
-  // ── Contagem por todos os status relevantes ────────────────────
-  const validEmps  = _vg_getValidEmployees(ss);
-  const contadosIds = new Set(); // evita dupla contagem entre status
-  const hojeIds    = new Set();  // IDs do dia atual
-  const funcHoje   = {};
-  const funcMes    = {};
-
-  function processarPedido(pedido, exigirFunc) {
-    const oid = String(pedido.order_id);
-    if (contadosIds.has(oid)) return;
-    const ts = pedido.date_in_status;
-    if (!ts) return;
-    const ds = Utilities.formatDate(new Date(ts * 1000), tz, 'yyyy-MM-dd');
-    if (!ds.startsWith(mes)) return;
-
-    const rawFunc = String(pedido.admin_comments || '').trim();
-    const func    = validEmps
-      ? (validEmps.get(rawFunc.toLowerCase()) || null)
-      : (rawFunc || null);
-
-    if (exigirFunc && !func) return;
-
-    contadosIds.add(oid);
-    if (ds === hoje) hojeIds.add(oid);
-
-    if (func) {
-      funcMes[func]  = (funcMes[func]  || 0) + 1;
-      if (ds === hoje) funcHoje[func] = (funcHoje[func] || 0) + 1;
-    }
-  }
-
-  // [EXP]: date_in_status = data de embalagem; funcionário não obrigatório
-  for (const { id } of expStatuses) {
-    let idFrom = 0;
-    while (true) {
-      const r     = vg_bl('getOrders', { status_id: id, id_from: idFrom });
-      const batch = r.orders || [];
-      if (!batch.length) break;
-      batch.forEach(p => processarPedido(p, false));
-      if (batch.length < 100) break;
-      idFrom = batch[batch.length - 1].order_id;
-    }
-  }
-
-  // Pós-embalagem (Enviado, Entregue, etc.): exige admin_comments como prova
-  // date_confirmed_from limita aos pedidos confirmados este mês (performance)
-  for (const { id } of postStatuses) {
+  todosStatus.forEach(({ id }) => {
     let idFrom = 0;
     while (true) {
       const r     = vg_bl('getOrders', {
         status_id: id,
         id_from: idFrom,
-        date_confirmed_from: inicioMesSec,
+        date_confirmed_from: dateConfirmedFromSec,
       });
       const batch = r.orders || [];
       if (!batch.length) break;
-      batch.forEach(p => processarPedido(p, true));
+      batch.forEach(pedido => {
+        const oid = String(pedido.order_id);
+        if (idsExistentes.has(oid)) return; // já registrado — nunca reprocessa
+
+        const rawFunc = String(pedido.admin_comments || '').trim();
+        const func    = validEmps
+          ? (validEmps.get(rawFunc.toLowerCase()) || null)
+          : (rawFunc || null);
+        if (!func) return;
+
+        idsExistentes.add(oid); // evita duplicar se aparecer em 2 status na mesma execução
+        novasLinhas.push([oid, func, hojeDisplay]);
+      });
       if (batch.length < 100) break;
       idFrom = batch[batch.length - 1].order_id;
     }
+  });
+
+  _vg_appendLedger(ss, novasLinhas);
+  _vg_recalcularEmbalagemDoLedger(ss, tz);
+}
+
+// Recalcula a aba "Embalagem" (a que o dashboard lê) inteiramente a
+// partir do ledger — nunca a partir de uma nova consulta ao BaseLinker.
+// Isso garante que um pedido que "sumiu" do BaseLinker continua contando
+// pra sempre, porque já está salvo aqui.
+function _vg_recalcularEmbalagemDoLedger(ss, tz) {
+  const hojeDisplay = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+  const mesAtual    = Utilities.formatDate(new Date(), tz, 'MM/yyyy');
+
+  const porDia    = {}; // 'dd/MM/yyyy' -> qtd de pedidos
+  const funcHoje  = {};
+  const funcMes   = {};
+
+  const abaLedger = ss.getSheetByName(VG_ABA_EMB_LEDGER);
+  if (abaLedger) {
+    const last = abaLedger.getLastRow();
+    if (last >= 2) {
+      abaLedger.getRange(2, 1, last - 1, 3).getValues().forEach(([orderId, func, dataVal]) => {
+        if (!orderId) return;
+        const ds = _vg_toDateStrDMY(dataVal, tz);
+        if (!ds) return;
+
+        porDia[ds] = (porDia[ds] || 0) + 1;
+        if (ds.slice(3) === mesAtual) funcMes[func] = (funcMes[func] || 0) + 1;
+        if (ds === hojeDisplay)       funcHoje[func] = (funcHoje[func] || 0) + 1;
+      });
+    }
   }
 
-  // ── Histórico mensal (Script Properties) ─────────────────────
-  const monthKey  = 'VG_EMB_MONTH_' + mes;
-  const monthData = JSON.parse(props.getProperty(monthKey) || '{}');
-  monthData[hoje] = hojeIds.size;
-  props.setProperty(monthKey, JSON.stringify(monthData));
-
-  // ── Métricas ─────────────────────────────────────────────────
   let picoDia = '', picoQtd = 0;
-  for (const [d, q] of Object.entries(monthData)) {
-    if (q > picoQtd) { picoQtd = q; picoDia = d; }
-  }
-  const picoDisplay = picoDia
-    ? Utilities.formatDate(new Date(picoDia + 'T12:00:00'), tz, 'dd/MM/yyyy')
-    : '';
+  Object.keys(porDia).forEach(ds => {
+    if (ds.slice(3) === mesAtual && porDia[ds] > picoQtd) { picoQtd = porDia[ds]; picoDia = ds; }
+  });
+  const hojeQtd    = porDia[hojeDisplay] || 0;
   const mesDisplay = Utilities.formatDate(new Date(), tz, 'MMMM');
 
-  // ── Gravar aba ───────────────────────────────────────────────
+  let aba = ss.getSheetByName('Embalagem');
+  if (!aba) aba = ss.insertSheet('Embalagem');
   aba.clearContents();
   const agora = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
   aba.getRange('A1').setValue('Atualizado em: ' + agora);
-  aba.getRange('A2').setValue(hojeIds.size);
-  aba.getRange('A3').setNumberFormat('@').setValue(picoDisplay);
+  aba.getRange('A2').setValue(hojeQtd);
+  aba.getRange('A3').setNumberFormat('@').setValue(picoDia);
   aba.getRange('A4').setValue(picoQtd);
   aba.getRange('A5').setValue(mesDisplay);
 
@@ -645,21 +650,21 @@ function vg_atualizarEmbalagem() {
     aba.getRange(2, 4, funcRows.length, 3).setValues(funcRows);
   }
 
-  // Histórico A7+
-  const sorted = Object.entries(monthData).sort(([a], [b]) => a.localeCompare(b));
-  if (sorted.length) {
-    const rows = sorted.map(([ds, q]) => {
-      const [y, m, d] = ds.split('-').map(Number);
-      return [new Date(y, m - 1, d), q];
+  // Histórico diário completo (não só o mês corrente) a partir de A7 —
+  // ordenado pela data real, não pela string "dd/MM/yyyy".
+  const historico = Object.keys(porDia).sort((a, b) => {
+    const [da, ma, ya] = a.split('/').map(Number);
+    const [db, mb, yb] = b.split('/').map(Number);
+    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
+  });
+  if (historico.length) {
+    const rows = historico.map(ds => {
+      const [d, m, y] = ds.split('/').map(Number);
+      return [new Date(y, m - 1, d), porDia[ds]];
     });
     aba.getRange(7, 1, rows.length, 2).setValues(rows);
     aba.getRange(7, 1, rows.length, 1).setNumberFormat('dd/mm/yyyy');
   }
-
-  // IDs do dia em coluna H (H1=data, H2+=IDs) — usado para virada de dia
-  aba.getRange('H1').setNumberFormat('@').setValue(hoje);
-  const idRows = [...hojeIds].map(id => [id]);
-  if (idRows.length) aba.getRange(2, 8, idRows.length, 1).setValues(idRows);
 
   SpreadsheetApp.flush();
 }
