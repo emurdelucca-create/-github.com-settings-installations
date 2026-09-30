@@ -146,7 +146,25 @@ html, body {
   padding: 10px 14px;
   overflow: hidden;
 }
-#main-insuf-panel { grid-column: 1 / -1; height: 100%; }
+#main-insuf-panel, #main-emb-panel { grid-column: 1 / -1; height: 100%; }
+
+/* ── Embalagem: cards de KPI ─────────────────────── */
+#emb-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 14px;
+}
+.emb-stat-card {
+  background: var(--hdr);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+}
+.emb-stat-value { font-size: 28px; font-weight: 800; color: var(--accent); line-height: 1.1; }
+.emb-stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.emb-stat-label span { text-transform: none; letter-spacing: 0; display: block; font-size: 10px; color: var(--dim); }
 #insuf-toolbar {
   display: flex;
   align-items: center;
@@ -439,7 +457,9 @@ tr.total-row .td-num  { color: var(--accent); font-size: 15px; }
   #skus-body { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
   .sku-col { max-height: 220px; }
 
-  #main-insuf-panel { grid-column: 1; max-height: none; }
+  #main-insuf-panel, #main-emb-panel { grid-column: 1; max-height: none; }
+  #emb-stats { grid-template-columns: 1fr; gap: 8px; padding: 10px; }
+  .emb-stat-value { font-size: 22px; }
   #insuf-toolbar { flex-wrap: wrap; gap: 8px; }
   .tbl th, .tbl td { padding: 6px 8px; font-size: 12px; }
 
@@ -480,7 +500,7 @@ tr.total-row .td-num  { color: var(--accent); font-size: 15px; }
   <div id="macro-tabs">
     <button class="macro-tab active" id="mtab-sep" onclick="setMacroTab('separacao')">📦 Separação</button>
     <button class="macro-tab" id="mtab-insuf" onclick="setMacroTab('insuficiente')">⚠️ Estoque Insuficiente</button>
-    <button class="macro-tab" id="mtab-emb" disabled title="Em breve">📊 Embalagem</button>
+    <button class="macro-tab" id="mtab-emb" onclick="setMacroTab('embalagem')">📊 Embalagem</button>
   </div>
 
   <div id="sub-tabs">
@@ -521,6 +541,28 @@ tr.total-row .td-num  { color: var(--accent); font-size: 15px; }
       </div>
       <div class="panel-body">
         <table class="tbl" id="tbl-insuf" style="width:100%;"></table>
+      </div>
+    </div>
+
+    <!-- Embalagem: KPIs + ranking de funcionários, do ledger permanente -->
+    <div id="main-emb-panel" class="panel" style="display:none;">
+      <div class="panel-title">📊 Embalagem <span id="emb-ts" style="float:right;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);"></span></div>
+      <div class="panel-body">
+        <div id="emb-stats">
+          <div class="emb-stat-card">
+            <div class="emb-stat-value" id="emb-hoje">—</div>
+            <div class="emb-stat-label">Embalados hoje</div>
+          </div>
+          <div class="emb-stat-card">
+            <div class="emb-stat-value" id="emb-pico-qtd">—</div>
+            <div class="emb-stat-label">Pico do mês <span id="emb-pico-data"></span></div>
+          </div>
+          <div class="emb-stat-card">
+            <div class="emb-stat-value" id="emb-mes-total">—</div>
+            <div class="emb-stat-label" id="emb-mes-label">Total do mês</div>
+          </div>
+        </div>
+        <table class="tbl" id="tbl-emb" style="width:100%;"></table>
       </div>
     </div>
 
@@ -702,10 +744,13 @@ function setMacroTab(tab) {
   state.macroTab = tab;
   document.getElementById('mtab-sep').className   = 'macro-tab' + (tab === 'separacao'    ? ' active' : '');
   document.getElementById('mtab-insuf').className = 'macro-tab' + (tab === 'insuficiente' ? ' active' : '');
+  document.getElementById('mtab-emb').className   = 'macro-tab' + (tab === 'embalagem'    ? ' active' : '');
   document.getElementById('sub-tabs').style.display        = tab === 'separacao' ? 'flex' : 'none';
   document.getElementById('main-sep-cols').style.display    = tab === 'separacao'    ? 'contents' : 'none';
   document.getElementById('main-insuf-panel').style.display = tab === 'insuficiente' ? 'flex'     : 'none';
+  document.getElementById('main-emb-panel').style.display   = tab === 'embalagem'    ? 'flex'     : 'none';
   if (tab === 'insuficiente') renderizarInsuficiente();
+  if (tab === 'embalagem') renderizarEmbalagem();
 }
 
 function setSubTab(tab) {
@@ -727,6 +772,39 @@ function renderizarTudo() {
   document.getElementById('timestamp-visto').textContent = '👁 Visto: ' + agoraFormatado();
   renderizarSecao();
   renderizarInsuficiente();
+  renderizarEmbalagem();
+}
+
+// ── Macro-aba "Embalagem" — KPIs + ranking de funcionários, tudo
+// derivado do ledger permanente no servidor (nunca some, mesmo que um
+// pedido saia do BaseLinker depois de já ter sido contado).
+function renderizarEmbalagem() {
+  var d   = dadosGlobais;
+  var emb = (d && d.embalagem) || { hoje: 0, picoData: '', picoQtd: 0, mes: '' };
+  var funcionarios = (d && d.funcionarios) || [];
+
+  document.getElementById('emb-ts').textContent = d && d.timestamp ? '📡 ' + d.timestamp : '';
+  document.getElementById('emb-hoje').textContent = fmt(emb.hoje);
+  document.getElementById('emb-pico-qtd').textContent = fmt(emb.picoQtd);
+  document.getElementById('emb-pico-data').textContent = emb.picoData || '—';
+  document.getElementById('emb-mes-label').innerHTML = 'Total do mês<span>' + escHtml(emb.mes || '') + '</span>';
+  var totalMes = funcionarios.reduce(function(acc, f) { return acc + (f.mes || 0); }, 0);
+  document.getElementById('emb-mes-total').textContent = fmt(totalMes);
+
+  var tbl = document.getElementById('tbl-emb');
+  if (!funcionarios.length) {
+    tbl.innerHTML = '<tr><td class="empty-msg">Nenhum pedido embalado identificado ainda. O sistema varre os comentários a cada 5 min e vai preenchendo aqui.</td></tr>';
+    return;
+  }
+  var html = '<tr><th>FUNCIONÁRIO</th><th class="num">HOJE</th><th class="num">MÊS</th></tr>';
+  funcionarios.forEach(function(f) {
+    html += '<tr>'
+      + '<td class="td-date">' + escHtml(f.nome) + '</td>'
+      + '<td class="td-num" style="color:var(--green)">' + fmt(f.hoje) + '</td>'
+      + '<td class="td-num" style="color:var(--accent)">' + fmt(f.mes) + '</td>'
+      + '</tr>';
+  });
+  tbl.innerHTML = html;
 }
 
 // ── Macro-aba "Estoque Insuficiente" — alimentada pela extensão ──
