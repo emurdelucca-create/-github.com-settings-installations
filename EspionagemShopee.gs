@@ -29,8 +29,174 @@ function onOpen() {
       .addItem('2️⃣  Salvar token (colar URL)',   'esp_mostrarDialogSalvarToken')
       .addItem('🔍 Verificar status do token',   'esp_verificarStatusToken'))
     .addSeparator()
+    .addItem('📐 Criar/resetar layout da planilha', 'esp_criarLayout')
+    .addItem('🔄 Atualizar "Meu anúncio" (todas as linhas)', 'esp_atualizarMeusAnuncios')
+    .addSeparator()
     .addItem('🧪 Testar API — meu anúncio (log)', 'esp_testarMeuAnuncio')
     .addToUi();
+}
+
+// ── Layout da planilha ───────────────────────────────────────
+// A:G = Meu anúncio | H:N = Anúncio Concorrente | O = Link Anúncio
+const ESP_COL = {
+  MEU_ID: 1, MEU_BRUTO: 2, MEU_FINAL: 3, MEU_7: 4, MEU_15: 5, MEU_15_30: 6, MEU_30: 7,
+  CONC_ID: 8, CONC_BRUTO: 9, CONC_FINAL: 10, CONC_7: 11, CONC_15: 12, CONC_15_30: 13, CONC_30: 14,
+  LINK: 15,
+};
+const ESP_PRIMEIRA_LINHA_DADOS = 4;
+
+function esp_criarLayout() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  let aba = ss.getSheetByName('Espionagem');
+  if (!aba) aba = ss.insertSheet('Espionagem');
+
+  aba.getRange(1, 1, 3, 15).clearContent();
+  aba.getRange('A1:G1').merge().setValue('Meu anúncio').setFontWeight('bold').setHorizontalAlignment('center');
+  aba.getRange('H1:N1').merge().setValue('Anúncio Concorrente').setFontWeight('bold').setHorizontalAlignment('center');
+
+  const headers2 = ['ID produto', 'Preço Bruto', 'Preço Final', 'Qntd Vend.', '', '', '',
+                     'ID produto', 'Preço Bruto', 'Preço Final', 'Qntd Vend.', '', '', '', 'Link Anúncio'];
+  aba.getRange(2, 1, 1, 15).setValues([headers2]).setFontWeight('bold');
+  aba.getRange('D2:G2').merge().setValue('Qntd Vend.').setHorizontalAlignment('center');
+  aba.getRange('K2:N2').merge().setValue('Qntd Vend.').setHorizontalAlignment('center');
+
+  const headers3 = ['', '', '', '0-7', '0-15', '15-30', '0-30',
+                     '', '', '', '0-7', '0-15', '15-30', '0-30', ''];
+  aba.getRange(3, 1, 1, 15).setValues([headers3]).setFontWeight('bold').setHorizontalAlignment('center');
+
+  aba.setFrozenRows(3);
+  for (let c = 1; c <= 15; c++) aba.setColumnWidth(c, c === 15 ? 320 : 100);
+
+  SpreadsheetApp.getUi().alert(
+    '✅ Layout criado na aba "Espionagem".\n\n' +
+    'Preencha a partir da linha 4:\n' +
+    '• Coluna A: ID do produto (item_id) do SEU anúncio\n' +
+    '• Coluna O: link completo do anúncio do concorrente\n' +
+    '(o shop_id e item_id do concorrente são extraídos automaticamente do link)'
+  );
+}
+
+// ── Extrai shop_id e item_id de um link da Shopee ───────────
+// Formato padrão: .../produto-i.{shopid}.{itemid}?...
+function _esp_parseLink(link) {
+  const m = String(link || '').match(/-i\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return { shopId: Number(m[1]), itemId: Number(m[2]) };
+}
+
+// ── Janela de datas: sempre até o FIM DE ONTEM (hoje fica de fora por
+// estar incompleto). 0-7/0-15/0-30 = acumulado; 15-30 = janela própria
+// (dias 15 a 30 atrás, não soma com os outros).
+function _esp_janelasData(tz) {
+  const [ano, mes, dia] = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd').split('-').map(Number);
+  const fimOntem = new Date(ano, mes - 1, dia); // meia-noite de HOJE = fim de ontem (exclusivo)
+  const fimOntemSec = Math.floor(fimOntem.getTime() / 1000) - 1;
+  const diasSec = d => d * 24 * 60 * 60;
+  return {
+    fimOntemSec,
+    ini7:  fimOntemSec - diasSec(7)  + 1,
+    ini15: fimOntemSec - diasSec(15) + 1,
+    ini30: fimOntemSec - diasSec(30) + 1,
+    ini15_30_inicio: fimOntemSec - diasSec(30) + 1,
+    ini15_30_fim:    fimOntemSec - diasSec(15),
+  };
+}
+
+// ── Varre TODOS os pedidos dos últimos 30 dias uma única vez e monta
+// um mapa item_id -> [{ qty, createTime }] — usado pra calcular as 4
+// janelas de qualquer item sem refazer a varredura por linha.
+function _esp_mapaVendasPorItem(tz) {
+  const jan = _esp_janelasData(tz);
+  const mapa = {}; // item_id -> [{qty, createTime}]
+
+  let cursor = '';
+  let mais = true;
+  const orderSns = [];
+  while (mais) {
+    const r = _espShopeeGet('/api/v2/order/get_order_list', {
+      time_range_field: 'create_time',
+      time_from: jan.ini30,
+      time_to: jan.fimOntemSec,
+      page_size: 100,
+      cursor: cursor,
+    });
+    (r.order_list || []).forEach(o => orderSns.push(o.order_sn));
+    mais = !!r.more;
+    cursor = r.next_cursor || '';
+    if (!cursor) break;
+  }
+
+  // get_order_detail aceita até 50 order_sn por chamada.
+  for (let i = 0; i < orderSns.length; i += 50) {
+    const lote = orderSns.slice(i, i + 50);
+    const r = _espShopeeGet('/api/v2/order/get_order_detail', {
+      order_sn_list: lote.join(','),
+      response_optional_fields: 'item_list,order_status',
+    });
+    (r.order_list || []).forEach(pedido => {
+      if (pedido.order_status === 'CANCELLED') return;
+      (pedido.item_list || []).forEach(it => {
+        if (!mapa[it.item_id]) mapa[it.item_id] = [];
+        mapa[it.item_id].push({ qty: it.model_quantity_purchased || 0, createTime: pedido.create_time });
+      });
+    });
+  }
+
+  return { mapa, jan };
+}
+
+function _esp_somarJanela(vendas, inicioSec, fimSec) {
+  return vendas
+    .filter(v => v.createTime >= inicioSec && v.createTime <= fimSec)
+    .reduce((acc, v) => acc + v.qty, 0);
+}
+
+// ── Preço bruto (maior original_price entre variações) e final
+// (menor current_price entre variações), via get_model_list ──
+function _esp_precosItem(itemId) {
+  const r = _espShopeeGet('/api/v2/product/get_model_list', { item_id: itemId });
+  const modelos = r.model || [];
+  if (!modelos.length) return { bruto: null, final: null };
+
+  let bruto = null, final = null;
+  modelos.forEach(m => {
+    (m.price_info || []).forEach(p => {
+      if (bruto === null || p.original_price > bruto) bruto = p.original_price;
+      if (final === null || p.current_price < final)  final = p.current_price;
+    });
+  });
+  return { bruto, final };
+}
+
+// ── Atualiza a coluna "Meu anúncio" (A:G) de todas as linhas ────
+function esp_atualizarMeusAnuncios() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const tz  = ss.getSpreadsheetTimeZone();
+  const aba = ss.getSheetByName('Espionagem');
+  if (!aba) { SpreadsheetApp.getUi().alert('Crie o layout primeiro (menu → 📐 Criar/resetar layout).'); return; }
+
+  const lastRow = aba.getLastRow();
+  if (lastRow < ESP_PRIMEIRA_LINHA_DADOS) return;
+
+  const linhas = aba.getRange(ESP_PRIMEIRA_LINHA_DADOS, ESP_COL.MEU_ID, lastRow - ESP_PRIMEIRA_LINHA_DADOS + 1, 1).getValues();
+  const { mapa, jan } = _esp_mapaVendasPorItem(tz);
+
+  linhas.forEach((row, i) => {
+    const itemId = row[0];
+    if (!itemId) return;
+    const linhaPlanilha = ESP_PRIMEIRA_LINHA_DADOS + i;
+
+    const precos = _esp_precosItem(itemId);
+    const vendas = mapa[itemId] || [];
+    const v7     = _esp_somarJanela(vendas, jan.ini7,  jan.fimOntemSec);
+    const v15    = _esp_somarJanela(vendas, jan.ini15, jan.fimOntemSec);
+    const v15_30 = _esp_somarJanela(vendas, jan.ini15_30_inicio, jan.ini15_30_fim);
+    const v30    = _esp_somarJanela(vendas, jan.ini30, jan.fimOntemSec);
+
+    aba.getRange(linhaPlanilha, ESP_COL.MEU_BRUTO, 1, 6).setValues([[precos.bruto, precos.final, v7, v15, v15_30, v30]]);
+  });
+
+  SpreadsheetApp.flush();
 }
 
 // ── Helpers de assinatura HMAC ──────────────────────────────
@@ -281,4 +447,58 @@ function esp_testarMeuAnuncio() {
   Logger.log('\n=== get_model_list (variações/preços) ===');
   const modelos = _espShopeeGet('/api/v2/product/get_model_list', { item_id: ITEM_ID_TESTE });
   Logger.log(JSON.stringify(modelos, null, 2).substring(0, 3000));
+}
+
+// Busca especificamente por qualquer campo relacionado a "venda/sold" na
+// resposta do get_item_base_info (o log anterior cortou antes de chegar
+// lá). Também lista TODAS as chaves de primeiro nível de cada item, pra
+// não depender de eu adivinhar o nome exato do campo.
+function esp_testarCamposVenda() {
+  const ITEM_ID_TESTE = 41655343417;
+  const base = _espShopeeGet('/api/v2/product/get_item_base_info', { item_id_list: ITEM_ID_TESTE });
+  const item = (base.item_list || [])[0];
+  if (!item) { Logger.log('Nenhum item retornado.'); return; }
+
+  Logger.log('=== Todas as chaves de primeiro nível do item ===');
+  Logger.log(Object.keys(item).join(', '));
+
+  Logger.log('\n=== Campos com "sold" ou "sale" no nome (qualquer nível) ===');
+  const encontrados = [];
+  (function buscar(obj, caminho) {
+    if (obj === null || typeof obj !== 'object') return;
+    Object.keys(obj).forEach(k => {
+      const novoCaminho = caminho + '.' + k;
+      if (/sold|sale/i.test(k)) encontrados.push(novoCaminho + ' = ' + JSON.stringify(obj[k]));
+      buscar(obj[k], novoCaminho);
+    });
+  })(item, 'item');
+  Logger.log(encontrados.length ? encontrados.join('\n') : '(nenhum campo com "sold"/"sale" encontrado)');
+}
+
+// Testa a API de pedidos: get_order_list (últimos 7 dias) + get_order_detail
+// de um pedido, pra confirmar se dá pra somar quantidade vendida por
+// item_id a partir do histórico de pedidos (sem precisar de um campo de
+// "sold" pronto).
+function esp_testarPedidos() {
+  const agora = Math.floor(Date.now() / 1000);
+  const seteDiasAtras = agora - 7 * 24 * 60 * 60;
+
+  Logger.log('=== get_order_list (últimos 7 dias) ===');
+  const lista = _espShopeeGet('/api/v2/order/get_order_list', {
+    time_range_field: 'create_time',
+    time_from: seteDiasAtras,
+    time_to: agora,
+    page_size: 20,
+  });
+  Logger.log(JSON.stringify(lista, null, 2).substring(0, 2000));
+
+  const primeiro = (lista.order_list || [])[0];
+  if (!primeiro) { Logger.log('\nNenhum pedido encontrado nos últimos 7 dias.'); return; }
+
+  Logger.log('\n=== get_order_detail (do primeiro pedido: ' + primeiro.order_sn + ') ===');
+  const detalhe = _espShopeeGet('/api/v2/order/get_order_detail', {
+    order_sn_list: primeiro.order_sn,
+    response_optional_fields: 'item_list,total_amount,order_status',
+  });
+  Logger.log(JSON.stringify(detalhe, null, 2).substring(0, 3000));
 }
