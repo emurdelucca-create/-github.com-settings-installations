@@ -522,23 +522,38 @@ const VG_ABA_EMB_LEDGER = '_vg_emb_ledger_'; // OrderID | Funcionario | Data (dd
 // Sem isso, toda vez que o recurso reiniciasse contaria semanas de
 // pedidos antigos de uma vez, carimbando tudo com "hoje" — foi exatamente
 // o bug relatado (575 hoje / 2.642 pico / 12.221 no mês, tudo inflado).
+// Constrói a meia-noite de HOJE como Date local, com os componentes
+// ano/mês/dia extraídos via Utilities.formatDate (respeita o fuso da
+// planilha) e montados com "new Date(ano, mes-1, dia)" — o MESMO padrão
+// já usado (e comprovadamente correto) em _vg_fmtDataYMD/inicioMesSec.
+// Evita de propósito qualquer round-trip por string ISO tipo
+// "new Date('2026-09-30T00:00:00')": sem fuso explícito, o V8 pode
+// interpretar isso como horário local do AMBIENTE DE EXECUÇÃO (não
+// necessariamente o fuso da planilha), o que gerava uma âncora errada e
+// deixava o filtro date_confirmed_from praticamente sem efeito — foi
+// exatamente o motivo dos números terem piorado (22 mil pedidos "hoje").
+function _vg_meiaNoiteHojeSec(tz) {
+  const [ano, mes, dia] = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd').split('-').map(Number);
+  return Math.floor(new Date(ano, mes - 1, dia).getTime() / 1000);
+}
+
 function _vg_getEmbInicioSec(props, tz) {
   let v = props.getProperty('VG_EMB_LEDGER_INICIO');
   if (!v) {
-    const agora = new Date();
-    const meiaNoite = new Date(Utilities.formatDate(agora, tz, "yyyy-MM-dd'T'00:00:00"));
-    v = String(Math.floor(meiaNoite.getTime() / 1000));
+    v = String(_vg_meiaNoiteHojeSec(tz));
     props.setProperty('VG_EMB_LEDGER_INICIO', v);
   }
   return Number(v);
 }
 
 // Zera o ledger e a aba Embalagem UMA ÚNICA VEZ (controlado por uma flag
-// em Script Properties) — limpa os dados poluídos pela primeira execução
-// (que varreu 45 dias de uma vez) e reancora VG_EMB_LEDGER_INICIO em
-// "agora", pra passar a contar só daqui pra frente.
+// em Script Properties) — limpa os dados poluídos pelas execuções
+// anteriores (que varreram o histórico quase inteiro de uma vez, por
+// causa do bug acima) e reancora VG_EMB_LEDGER_INICIO em "agora", pra
+// passar a contar só daqui pra frente. V3 porque a V2 já rodou com a
+// âncora quebrada — precisa resetar de novo com o cálculo corrigido.
 function _vg_resetLedgerEmbalagemSeNecessario(ss, props, tz) {
-  if (props.getProperty('VG_EMB_LEDGER_RESET_V2')) return;
+  if (props.getProperty('VG_EMB_LEDGER_RESET_V3')) return;
 
   const aba = ss.getSheetByName(VG_ABA_EMB_LEDGER);
   if (aba) {
@@ -548,10 +563,8 @@ function _vg_resetLedgerEmbalagemSeNecessario(ss, props, tz) {
   const abaEmb = ss.getSheetByName('Embalagem');
   if (abaEmb) abaEmb.clearContents();
 
-  const agora = new Date();
-  const meiaNoite = new Date(Utilities.formatDate(agora, tz, "yyyy-MM-dd'T'00:00:00"));
-  props.setProperty('VG_EMB_LEDGER_INICIO', String(Math.floor(meiaNoite.getTime() / 1000)));
-  props.setProperty('VG_EMB_LEDGER_RESET_V2', '1');
+  props.setProperty('VG_EMB_LEDGER_INICIO', String(_vg_meiaNoiteHojeSec(tz)));
+  props.setProperty('VG_EMB_LEDGER_RESET_V3', '1');
 }
 
 function _vg_getLedgerOrderIds(ss) {
