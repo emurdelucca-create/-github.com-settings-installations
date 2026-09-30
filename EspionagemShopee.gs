@@ -30,7 +30,8 @@ function onOpen() {
       .addItem('🔍 Verificar status do token',   'esp_verificarStatusToken'))
     .addSeparator()
     .addItem('📐 Criar/resetar layout da planilha', 'esp_criarLayout')
-    .addItem('🔄 Atualizar "Meu anúncio" (todas as linhas)', 'esp_atualizarMeusAnuncios')
+    .addItem('📥 1) Sincronizar pedidos (histórico — rode primeiro)', 'esp_sincronizarPedidos')
+    .addItem('🔄 2) Atualizar "Meu anúncio" (usa o ledger, rápido)', 'esp_atualizarMeusAnuncios')
     .addSeparator()
     .addItem('🧪 Testar API — meu anúncio (log)', 'esp_testarMeuAnuncio')
     .addToUi();
@@ -102,53 +103,164 @@ function _esp_janelasData(tz) {
   };
 }
 
-// ── Varre TODOS os pedidos dos últimos 30 dias uma única vez e monta
-// um mapa item_id -> [{ qty, createTime }] — usado pra calcular as 4
-// janelas de qualquer item sem refazer a varredura por linha.
-function _esp_mapaVendasPorItem(tz) {
-  const jan = _esp_janelasData(tz);
-  const mapa = {}; // item_id -> [{qty, createTime}]
+// ============================================================
+// LEDGER PERMANENTE DE PEDIDOS — evita reprocessar tudo a cada vez.
+// Varrer 30 dias inteiros de pedido por pedido numa execução só estoura
+// o limite de 6 min do Apps Script em lojas com muita venda. Em vez
+// disso: grava cada pedido processado numa aba oculta (uma vez só, pra
+// sempre), e toda sincronização seguinte só busca pedidos NOVOS desde o
+// último checkpoint — igual ao esquema já usado no ShopeeWalletNajumi.
+// Se não der tempo de terminar um lote, agenda sozinho a continuação
+// (gatilho de ~10s) em vez de pedir pro usuário clicar de novo.
+// ============================================================
+const ESP_ABA_LEDGER_PEDIDOS   = '_esp_pedidos_ledger_'; // OrderSn | ItemID | Qty | CreateTime | Status
+const ESP_PROP_PED_ULTIMO_SYNC = 'ESP_PEDIDOS_ULTIMO_SYNC_TS';
+const ESP_PROP_PED_CURSOR      = 'ESP_PEDIDOS_CURSOR_SYNC';
+const ESP_PROP_PED_LARGURA     = 'ESP_PEDIDOS_LARGURA_JANELA';
+const ESP_PERIODO_INICIAL_DIAS = 31; // cobre a janela 0-30 com folga de 1 dia
+const ESP_JANELA_SEGUNDOS      = 14 * 24 * 3600; // já nasce dentro do limite de 15 dias da API
+const ESP_MARGEM_SEGURANCA_S   = 300;
+const ESP_LIMITE_MS            = 5 * 60 * 1000; // para antes do limite de 6 min do Apps Script
 
-  // get_order_list só aceita até 15 dias de intervalo por chamada —
-  // quebra a janela de 30 dias em pedaços de no máximo 14 dias (folga
-  // de 1 dia pra não esbarrar em arredondamento de segundo).
-  const MAX_DIAS_POR_CHAMADA = 14;
-  const SEG_POR_DIA = 24 * 60 * 60;
-  const orderSns = [];
+function _esp_abaLedgerPedidos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let aba = ss.getSheetByName(ESP_ABA_LEDGER_PEDIDOS);
+  if (!aba) {
+    aba = ss.insertSheet(ESP_ABA_LEDGER_PEDIDOS);
+    aba.appendRow(['OrderSn', 'ItemID', 'Qty', 'CreateTime', 'Status']);
+    aba.hideSheet();
+  }
+  return aba;
+}
 
-  for (let inicioChunk = jan.ini30; inicioChunk <= jan.fimOntemSec; inicioChunk += MAX_DIAS_POR_CHAMADA * SEG_POR_DIA) {
-    const fimChunk = Math.min(inicioChunk + MAX_DIAS_POR_CHAMADA * SEG_POR_DIA - 1, jan.fimOntemSec);
+function _esp_orderSnsExistentes(aba) {
+  const last = aba.getLastRow();
+  if (last < 2) return new Set();
+  const vals = aba.getRange(2, 1, last - 1, 1).getValues();
+  return new Set(vals.map(r => String(r[0])));
+}
 
-    let cursor = '';
-    let mais = true;
-    while (mais) {
-      const r = _espShopeeGet('/api/v2/order/get_order_list', {
-        time_range_field: 'create_time',
-        time_from: inicioChunk,
-        time_to: fimChunk,
-        page_size: 100,
-        cursor: cursor,
-      });
-      (r.order_list || []).forEach(o => orderSns.push(o.order_sn));
-      mais = !!r.more;
-      cursor = r.next_cursor || '';
-      if (!cursor) break;
-    }
+// Pagina uma janela [inicio, fim] por completo (get_order_list), busca o
+// detalhe (item_list) só dos order_sn que ainda não estão no ledger, e
+// devolve as linhas novas prontas pra gravar. NÃO grava direto — quem
+// chama decide o momento de escrever (permite checar o tempo entre
+// lotes de get_order_detail também, não só entre janelas).
+function _esp_processarJanelaPedidos(inicio, fim, orderSnsConhecidos, inicioMs, linhasNovasAcc) {
+  let cursor = '';
+  let mais = true;
+  const novosNestaJanela = [];
+  while (mais) {
+    const r = _espShopeeGet('/api/v2/order/get_order_list', {
+      time_range_field: 'create_time',
+      time_from: inicio,
+      time_to: fim,
+      page_size: 100,
+      cursor: cursor,
+    });
+    (r.order_list || []).forEach(o => {
+      if (!orderSnsConhecidos.has(o.order_sn)) novosNestaJanela.push(o.order_sn);
+    });
+    mais = !!r.more;
+    cursor = r.next_cursor || '';
+    if (!cursor) break;
   }
 
-  // get_order_detail aceita até 50 order_sn por chamada.
-  for (let i = 0; i < orderSns.length; i += 50) {
-    const lote = orderSns.slice(i, i + 50);
+  for (let i = 0; i < novosNestaJanela.length; i += 50) {
+    if (Date.now() - inicioMs > ESP_LIMITE_MS) return false; // pausa no meio do lote também
+    const lote = novosNestaJanela.slice(i, i + 50);
     const r = _espShopeeGet('/api/v2/order/get_order_detail', {
       order_sn_list: lote.join(','),
       response_optional_fields: 'item_list,order_status',
     });
     (r.order_list || []).forEach(pedido => {
-      if (pedido.order_status === 'CANCELLED') return;
-      (pedido.item_list || []).forEach(it => {
-        if (!mapa[it.item_id]) mapa[it.item_id] = [];
-        mapa[it.item_id].push({ qty: it.model_quantity_purchased || 0, createTime: pedido.create_time });
+      orderSnsConhecidos.add(pedido.order_sn);
+      if (!pedido.item_list || !pedido.item_list.length) {
+        linhasNovasAcc.push([pedido.order_sn, '', 0, pedido.create_time, pedido.order_status]);
+        return;
+      }
+      pedido.item_list.forEach(it => {
+        linhasNovasAcc.push([pedido.order_sn, it.item_id, it.model_quantity_purchased || 0, pedido.create_time, pedido.order_status]);
       });
+    });
+  }
+  return true;
+}
+
+// Sincroniza o ledger em lotes (retoma sozinho via gatilho se precisar).
+function esp_sincronizarPedidos() {
+  const props    = PropertiesService.getScriptProperties();
+  const agora    = Math.floor(Date.now() / 1000);
+  const inicioMs = Date.now();
+
+  const cursorSalvo = props.getProperty(ESP_PROP_PED_CURSOR);
+  let janelaInicio;
+  if (cursorSalvo) {
+    janelaInicio = parseInt(cursorSalvo);
+  } else {
+    const ultimoSync = parseInt(props.getProperty(ESP_PROP_PED_ULTIMO_SYNC) || '0');
+    janelaInicio = ultimoSync
+      ? ultimoSync - ESP_MARGEM_SEGURANCA_S
+      : agora - ESP_PERIODO_INICIAL_DIAS * 24 * 3600;
+  }
+  let maxCreateTime = janelaInicio;
+
+  const aba          = _esp_abaLedgerPedidos();
+  const orderSnsConhecidos = _esp_orderSnsExistentes(aba);
+  const linhasNovas   = [];
+
+  let largura = parseInt(props.getProperty(ESP_PROP_PED_LARGURA) || '0') || ESP_JANELA_SEGUNDOS;
+  let pausouPorTempo = false;
+
+  while (janelaInicio < agora) {
+    if (Date.now() - inicioMs > ESP_LIMITE_MS) { pausouPorTempo = true; break; }
+
+    const janelaFim = Math.min(janelaInicio + largura, agora);
+    const concluiu = _esp_processarJanelaPedidos(janelaInicio, janelaFim, orderSnsConhecidos, inicioMs, linhasNovas);
+    if (janelaFim > maxCreateTime) maxCreateTime = janelaFim;
+    if (!concluiu) { pausouPorTempo = true; break; }
+
+    janelaInicio = janelaFim;
+    Utilities.sleep(150);
+  }
+
+  if (linhasNovas.length) {
+    aba.getRange(aba.getLastRow() + 1, 1, linhasNovas.length, 5).setValues(linhasNovas);
+  }
+  props.setProperty(ESP_PROP_PED_LARGURA, String(largura));
+
+  if (pausouPorTempo && janelaInicio < agora) {
+    props.setProperty(ESP_PROP_PED_CURSOR, String(janelaInicio));
+    ScriptApp.newTrigger('esp_sincronizarPedidos').timeBased().after(10 * 1000).create();
+    const msg = linhasNovas.length + ' registro(s) gravado(s) neste lote — continuando sozinho em ~10s (parou em ' +
+      new Date(janelaInicio * 1000).toLocaleString('pt-BR') + ').';
+    Logger.log(msg);
+    try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* trigger, sem UI */ }
+    return msg;
+  }
+
+  props.deleteProperty(ESP_PROP_PED_CURSOR);
+  props.setProperty(ESP_PROP_PED_ULTIMO_SYNC, String(maxCreateTime));
+
+  const msg = linhasNovas.length + ' registro(s) novo(s) gravado(s) no ledger. Sincronização de pedidos concluída.';
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* rodando via trigger, sem UI */ }
+  return msg;
+}
+
+// ── Monta item_id -> [{qty, createTime}] a partir do LEDGER (sem
+// nenhuma chamada à API — rápido, nunca estoura tempo de execução).
+function _esp_mapaVendasPorItem(tz) {
+  const jan = _esp_janelasData(tz);
+  const mapa = {};
+
+  const aba = _esp_abaLedgerPedidos();
+  const last = aba.getLastRow();
+  if (last >= 2) {
+    aba.getRange(2, 1, last - 1, 5).getValues().forEach(([orderSn, itemId, qty, createTime, status]) => {
+      if (!itemId || status === 'CANCELLED') return;
+      if (createTime < jan.ini30) return; // fora da maior janela que usamos
+      if (!mapa[itemId]) mapa[itemId] = [];
+      mapa[itemId].push({ qty: Number(qty) || 0, createTime: Number(createTime) });
     });
   }
 
