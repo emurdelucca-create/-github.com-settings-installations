@@ -34,7 +34,7 @@ var ABAS = ['Precificacao', 'Parametros', 'Tabela_ICMS', 'Faturamento_UF'];
 
 var SEP = ',';          // definido em criarPlanilha() por detectarSeparador()
 var LIN_DADOS = 5;      // primeira linha de dados da aba Precificacao
-var N_LINHAS  = 500;    // quantas linhas de SKU preparar
+var N_LINHAS  = 200;    // linhas de SKU preparadas (suba se precisar)
 
 var FMT_MOEDA = 'R$ #,##0.00';
 var FMT_PCT   = '0.00%';
@@ -221,18 +221,18 @@ function criarPlanilha() {
   var shFat = ss.insertSheet('Faturamento_UF');
   var shPre = ss.insertSheet('Precificacao');
 
-  montarTabelaICMS_estatico(shTab);
-  montarParametros_estatico(shPar);
-  montarFaturamento_estatico(shFat);
-  montarPrecificacao_estatico(shPre);
-
-  criarNamedRanges(ss, shPar, shFat);
-
-  montarTabelaICMS_formulas(shTab);
-  montarFaturamento_formulas(shFat);
-  montarPrecificacao_formulas(shPre);
-
-  formatarTudo(shPar, shTab, shFat, shPre);
+  // Cada etapa roda isolada e dá flush. Se o serviço do Sheets falhar, a
+  // mensagem diz em QUAL etapa caiu, em vez do genérico "falha ao acessar o
+  // documento" — que não ajuda em nada a achar a causa.
+  passo('montar Tabela_ICMS',      function () { montarTabelaICMS_estatico(shTab); });
+  passo('montar Parametros',       function () { montarParametros_estatico(shPar); });
+  passo('montar Faturamento_UF',   function () { montarFaturamento_estatico(shFat); });
+  passo('montar Precificacao',     function () { montarPrecificacao_estatico(shPre); });
+  passo('criar named ranges',      function () { criarNamedRanges(ss, shPar, shFat); });
+  passo('fórmulas Tabela_ICMS',    function () { montarTabelaICMS_formulas(shTab); });
+  passo('fórmulas Faturamento_UF', function () { montarFaturamento_formulas(shFat); });
+  passo('fórmulas Precificacao',   function () { montarPrecificacao_formulas(shPre); });
+  passo('formatação final',        function () { formatarTudo(shPar, shTab, shFat, shPre); });
 
   ss.deleteSheet(guarda);
   SpreadsheetApp.flush();
@@ -248,6 +248,20 @@ function criarPlanilha() {
     '2) Confira o faturamento por UF em Faturamento_UF\n' +
     '3) Preencha uma linha por SKU na aba Precificacao (a partir da linha 5)'
   );
+}
+
+/**
+ * Roda uma etapa, dá flush e, se falhar, reempacota o erro dizendo qual era.
+ * O Sheets costuma devolver só "o serviço Planilhas apresentou falha ao
+ * acessar o documento", sem dizer onde — isto resolve isso.
+ */
+function passo(nome, fn) {
+  try {
+    fn();
+    SpreadsheetApp.flush();
+  } catch (e) {
+    throw new Error('Falhou na etapa "' + nome + '" -> ' + (e && e.message ? e.message : e));
+  }
 }
 
 function contarErros(ss) {
@@ -570,11 +584,15 @@ function montarPrecificacao_estatico(sh) {
     }
   }
 
-  // Cores, formatos e validação vão SÓ na linha 5. O copyTo em
-  // montarPrecificacao_formulas replica tudo para as demais linhas — é o que
-  // mantém a execução leve o bastante para o serviço do Sheets aguentar.
+  // Cor, formato e validação são aplicados à COLUNA INTEIRA. Cada um é uma
+  // única chamada de intervalo, barata independentemente do número de linhas.
+  //
+  // Antes isso ia só na linha 5 e o copyTo replicava. Mas o copyTo normal
+  // duplica a validação CÉLULA A CÉLULA — com 7 colunas de dropdown, duas
+  // delas com 27 UFs, era milhares de objetos de validação numa só operação,
+  // e o serviço do Sheets caía. Agora o copyTo leva apenas as fórmulas.
   COLS.forEach(function (c, i) {
-    var rg = sh.getRange(LIN_DADOS, i + 1);
+    var rg = sh.getRange(LIN_DADOS, i + 1, N_LINHAS, 1);
     rg.setBackground(c[4] === 'in' ? COR_INPUT : (c[4] === 'res' ? COR_RESULT : COR_AUTO));
     if (c[5] === 'money') rg.setNumberFormat(FMT_MOEDA);
     else if (c[5] === 'pct') rg.setNumberFormat(FMT_PCT);
@@ -583,13 +601,13 @@ function montarPrecificacao_estatico(sh) {
   // Dropdowns pelo id lógico, nunca pela letra — inserir coluna não quebra.
   var listaUF = UFS.map(function (u) { return u[0]; });
   var col = mapaColunas();
-  dropCel(sh, col.canal,        CANAIS);
-  dropCel(sh, col.origem,       ['Nacional', 'Importada']);
-  dropCel(sh, col.cmvJaLiquido, ['Sim', 'Não']);
-  dropCel(sh, col.ufEstab,      listaUF);
-  dropCel(sh, col.ufCompra,     listaUF);
-  dropCel(sh, col.monofasico,   ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
-  dropCel(sh, col.ipiTrat,      ['Só custo', 'Débito e Crédito']);
+  dropCol(sh, col.canal,        CANAIS);
+  dropCol(sh, col.origem,       ['Nacional', 'Importada']);
+  dropCol(sh, col.cmvJaLiquido, ['Sim', 'Não']);
+  dropCol(sh, col.ufEstab,      listaUF);
+  dropCol(sh, col.ufCompra,     listaUF);
+  dropCol(sh, col.monofasico,   ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
+  dropCol(sh, col.ipiTrat,      ['Só custo', 'Débito e Crédito']);
 }
 
 function montarPrecificacao_formulas(sh) {
@@ -802,8 +820,18 @@ function montarPrecificacao_formulas(sh) {
   sh.getRange(L, 1, 1, COLS.length).setFormulas([modelo]);
   SpreadsheetApp.flush();
 
-  sh.getRange(L, 1, 1, COLS.length)
-    .copyTo(sh.getRange(L + 1, 1, n - 1, COLS.length));
+  // PASTE_FORMULA: leva só as fórmulas. Cor, formato e validação já foram
+  // aplicados por coluna inteira e não precisam ser duplicados aqui.
+  // Replica em lotes. Um copyTo único sobre todas as linhas é uma operação
+  // grande; em blocos o serviço do Sheets respira entre uma e outra.
+  var LOTE = 50;
+  for (var ini = L + 1; ini <= L + n - 1; ini += LOTE) {
+    var qtd = Math.min(LOTE, L + n - ini);
+    sh.getRange(L, 1, 1, COLS.length)
+      .copyTo(sh.getRange(ini, 1, qtd, COLS.length),
+              SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+    SpreadsheetApp.flush();
+  }
 
   // A linha de exemplo entra DEPOIS do copyTo, senão 'EXEMPLO-001' seria
   // replicado nas 499 linhas seguintes. Só as colunas de entrada recebem
@@ -879,8 +907,8 @@ function dropdown(sh, a1, valores) {
       .requireValueInList(valores, true).setAllowInvalid(false).build());
 }
 
-function dropCel(sh, letra, valores) {
-  sh.getRange(LIN_DADOS, colNum(letra)).setDataValidation(
+function dropCol(sh, letra, valores) {
+  sh.getRange(LIN_DADOS, colNum(letra), N_LINHAS, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInList(valores, true).setAllowInvalid(false).build());
 }
