@@ -101,49 +101,59 @@ var LIN_TOT = LIN_N + 1;
 //  tipo: 'in' = você preenche | 'fx' = fórmula | 'res' = fórmula em destaque
 // ===========================================================================
 var COLS = [
-  ['A',  'SKU',                    '',                   '',                              'in',  'texto'],
-  ['B',  'Comissões Marketplace',  'Canal de Venda',     '',                              'in',  'texto'],
-  ['C',  '',                       'Estrutura Comissão', 'Comissão %',                    'in',  'pct'  ],
-  ['D',  '',                       '',                   'Taxa Fixa R$',                  'in',  'money'],
-  ['E',  '',                       '',                   'Frete Grátis R$',               'in',  'money'],
-  ['F',  '',                       '',                   'Outros Custos R$',              'in',  'money'],
-  ['G',  '',                       '',                   'Total Comissões R$',            'fx',  'money'],
-  ['H',  '',                       'Crédito Imposto',    'Crédito Pis Cofins R$',         'fx',  'money'],
-  ['I',  'Venda',                  '',                   'Preço de venda',                'in',  'money'],
-  ['J',  '',                       '',                   'MC R$',                         'res', 'money'],
-  ['K',  '',                       '',                   'MC %',                          'res', 'pct'  ],
-  ['L',  'Simulador',              '',                   'MC % Objetiva',                 'in',  'pct'  ],
-  ['M',  '',                       '',                   'MC R$',                         'fx',  'money'],
-  ['N',  '',                       '',                   'Valor de Venda',                'res', 'money'],
-  ['O',  'Custos Operacionais',    '',                   'Embalagem',                     'in',  'money'],
-  ['P',  'Compra',                 '',                   'Origem (Nacional ou Importada)','in',  'texto'],
-  ['Q',  '',                       '',                   'CMV já com créditos? (Sim/Não)','in',  'texto'],
-  ['R',  '',                       '',                   'UF meu estabelecimento',        'in',  'texto'],
-  ['S',  '',                       '',                   'UF de compra',                  'in',  'texto'],
-  ['T',  '',                       '',                   'ICMS %',                        'fx',  'pct'  ],
-  ['U',  '',                       '',                   'Monofásico? (ver dropdown)',    'in',  'texto'],
-  ['V',  '',                       '',                   'Pis %',                         'in',  'pct'  ],
-  ['W',  '',                       '',                   'Cofins %',                      'in',  'pct'  ],
-  ['X',  '',                       '',                   'ST %',                          'in',  'pct'  ],
-  ['Y',  '',                       '',                   'IPI %',                         'in',  'pct'  ],
-  ['Z',  '',                       '',                   'IPI só custo ou déb. e créd.?', 'in',  'texto'],
-  ['AA', '',                       '',                   'Custo de compra R$',            'in',  'money'],
-  ['AB', 'Créditos',               '',                   'ICMS',                          'fx',  'money'],
-  ['AC', '',                       '',                   'Pis',                           'fx',  'money'],
-  ['AD', '',                       '',                   'Cofins',                        'fx',  'money'],
-  ['AE', '',                       '',                   'IPI R$',                        'fx',  'money'],
-  ['AF', 'Custo na compra',        '',                   'IPI R$',                        'fx',  'money'],
-  ['AG', '',                       '',                   'ST R$',                         'fx',  'money'],
-  ['AH', '',                       '',                   'CMV líquido',                   'res', 'money'],
-  ['AI', 'Débitos',                'ICMS',               'ICMS próprio R$',               'fx',  'money'],
-  ['AJ', '',                       'Pis',                'Pis R$',                        'fx',  'money'],
-  ['AK', '',                       'Cofins',             'Cofins R$',                     'fx',  'money'],
-  ['AL', '',                       'IPI R$',             'IPI R$',                        'fx',  'money'],
-  ['AM', '',                       'Difal',              'Difal Médio %',                 'fx',  'pct'  ],
-  ['AN', '',                       '',                   'Difal Médio R$',                'fx',  'money'],
-  ['AO', 'Diagnóstico',            '',                   'ICMS total / preço',            'fx',  'pct'  ],
-  ['AP', '',                       '',                   'Crédito ICMS que acumula R$',   'fx',  'money']
+  ['A',  'SKU',                    '',                   '',                              'in',  'texto', 'sku'],
+  ['B',  'Comissões Marketplace',  'Canal de Venda',     '',                              'in',  'texto', 'canal'],
+  ['C',  '',                       'Estrutura Comissão', 'Comissão %',                    'in',  'pct'  , 'comissaoPct'],
+  ['D',  '',                       '',                   'Taxa Fixa R$',                  'in',  'money', 'taxaFixa'],
+  ['E',  '',                       '',                   'Frete Grátis R$',               'in',  'money', 'freteGratis'],
+  ['F',  '',                       '',                   'Outros Custos R$',              'in',  'money', 'outrosCustos'],
+  ['G',  '',                       '',                   'Total Comissões R$',            'fx',  'money', 'totalComissoes'],
+  ['H',  '',                       'Crédito Imposto',    'Crédito Pis Cofins R$',         'fx',  'money', 'credTaxas'],
+  ['I',  'Venda',                  '',                   'Preço de venda',                'in',  'money', 'preco'],
+  ['J',  '',                       '',                   'MC R$',                         'res', 'money', 'mcRS'],
+  ['K',  '',                       '',                   'MC %',                          'res', 'pct'  , 'mcPct'],
+  ['L',  'Simulador de preço',     '',                   'MC % Objetiva',                 'in',  'pct'  , 'mcAlvoPct'],
+  ['M',  '',                       '',                   'MC R$',                         'fx',  'money', 'mcAlvoRSpreco'],
+  ['N',  '',                       '',                   'Valor de Venda',                'res', 'money', 'precoNecessario'],
+  ['O',  'Custo inverso',          '',                   'Custo alvo do fornecedor R$',   'res', 'money', 'custoAlvo'],
+  ['P',  '',                       '',                   'MC R$',                         'res', 'money', 'mcAlvoRScusto'],
+  ['Q',  'Custos Operacionais',    '',                   'Embalagem',                     'in',  'money', 'embalagem'],
+  ['R',  'Compra',                 '',                   'Origem (Nacional ou Importada)','in',  'texto', 'origem'],
+  ['S',  '',                       '',                   'CMV já com créditos? (Sim/Não)','in',  'texto', 'cmvJaLiquido'],
+  ['T',  '',                       '',                   'UF meu estabelecimento',        'in',  'texto', 'ufEstab'],
+  ['U',  '',                       '',                   'UF de compra',                  'in',  'texto', 'ufCompra'],
+  ['V',  '',                       '',                   'ICMS %',                        'fx',  'pct'  , 'icmsCompraPct'],
+  ['W',  '',                       '',                   'Monofásico? (ver dropdown)',    'in',  'texto', 'monofasico'],
+  ['X',  '',                       '',                   'Pis %',                         'in',  'pct'  , 'pisPct'],
+  ['Y',  '',                       '',                   'Cofins %',                      'in',  'pct'  , 'cofinsPct'],
+  ['Z',  '',                       '',                   'ST %',                          'in',  'pct'  , 'stPct'],
+  ['AA', '',                       '',                   'IPI %',                         'in',  'pct'  , 'ipiPct'],
+  ['AB', '',                       '',                   'IPI só custo ou déb. e créd.?', 'in',  'texto', 'ipiTrat'],
+  ['AC', '',                       '',                   'Custo de compra R$',            'in',  'money', 'custoCompra'],
+  ['AD', 'Créditos',               '',                   'ICMS',                          'fx',  'money', 'credICMS'],
+  ['AE', '',                       '',                   'Pis',                           'fx',  'money', 'credPis'],
+  ['AF', '',                       '',                   'Cofins',                        'fx',  'money', 'credCofins'],
+  ['AG', '',                       '',                   'IPI R$',                        'fx',  'money', 'credIPI'],
+  ['AH', 'Custo na compra',        '',                   'IPI R$',                        'fx',  'money', 'custoIPI'],
+  ['AI', '',                       '',                   'ST R$',                         'fx',  'money', 'custoST'],
+  ['AJ', '',                       '',                   'CMV líquido',                   'res', 'money', 'cmvLiquido'],
+  ['AK', 'Débitos',                'ICMS',               'ICMS próprio R$',               'fx',  'money', 'icmsProprio'],
+  ['AL', '',                       'Pis',                'Pis R$',                        'fx',  'money', 'pisRS'],
+  ['AM', '',                       'Cofins',             'Cofins R$',                     'fx',  'money', 'cofinsRS'],
+  ['AN', '',                       'IPI R$',             'IPI R$',                        'fx',  'money', 'ipiSaidaRS'],
+  ['AO', '',                       'Difal',              'Difal Médio %',                 'fx',  'pct'  , 'difalPct'],
+  ['AP', '',                       '',                   'Difal Médio R$',                'fx',  'money', 'difalRS'],
+  ['AQ', 'Diagnóstico',            '',                   'ICMS total / preço',            'fx',  'pct'  , 'icmsTotalPct'],
+  ['AR', '',                       '',                   'Crédito ICMS que acumula R$',   'fx',  'money', 'credICMSAcumula']
 ];
+
+/** Mapa id lógico -> letra da coluna. Usar SEMPRE isto nas fórmulas, nunca a
+ *  letra cravada: assim inserir ou mover colunas não quebra nada. */
+function mapaColunas() {
+  var m = {};
+  COLS.forEach(function (c) { m[c[6]] = c[0]; });
+  return m;
+}
 
 
 // ===========================================================================
@@ -323,7 +333,7 @@ function montarParametros_estatico(sh) {
   sh.getRange('B27').setFormula(F('=DIFAL_MED_IMP'));
 
   sh.getRange('D3').setValue('O QUE CADA COISA FAZ');
-  sh.getRange('D4:D55').setValues([
+  sh.getRange('D4:D70').setValues([
     ['• Tema 69 (linha 16): o ICMS destacado não integra a base de PIS/COFINS.'],
     ['  Decisão definitiva do STF, vale para todo mundo. Deixe "Sim".'],
     [''],
@@ -370,6 +380,21 @@ function montarParametros_estatico(sh) {
     ['  Ou seja: importar direto um item monofásico tira a alíquota zero e'],
     ['  ainda paga MAIS que o regime normal (13,1% contra 9,25%). Confirme'],
     ['  as alíquotas do seu produto no art. 3º da lei antes de usar.'],
+    [''],
+    ['• A planilha tem DOIS simuladores, que respondem perguntas opostas a'],
+    ['  partir da mesma margem objetiva:'],
+    [''],
+    ['    "Simulador de preço" (M, N) ... trava o CUSTO e devolve o PREÇO que'],
+    ['                                   você precisaria cobrar.'],
+    [''],
+    ['    "Custo inverso" (O, P) ........ trava o PREÇO de venda e devolve o'],
+    ['                                   CUSTO que o fornecedor teria de'],
+    ['                                   praticar. A coluna P é essa margem'],
+    ['                                   convertida em reais.'],
+    [''],
+    ['  Use o primeiro para reprecificar o anúncio, o segundo para negociar'],
+    ['  com o fornecedor. Se o custo alvo sair NEGATIVO (fica vermelho), a'],
+    ['  margem é inalcançável naquele preço nem com a mercadoria de graça.'],
     [''],
     ['• LIMITAÇÃO — ST: quando a coluna X tem ST, a planilha trata o ST como'],
     ['  custo e zera o crédito de ICMS da compra, mas segue debitando ICMS e'],
@@ -555,112 +580,224 @@ function montarPrecificacao_estatico(sh) {
     else if (c[5] === 'pct') rg.setNumberFormat(FMT_PCT);
   });
 
+  // Dropdowns pelo id lógico, nunca pela letra — inserir coluna não quebra.
   var listaUF = UFS.map(function (u) { return u[0]; });
-  dropCel(sh, 'B',  CANAIS);
-  dropCel(sh, 'P',  ['Nacional', 'Importada']);
-  dropCel(sh, 'Q',  ['Sim', 'Não']);
-  dropCel(sh, 'R',  listaUF);
-  dropCel(sh, 'S',  listaUF);
-  dropCel(sh, 'U',  ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
-  dropCel(sh, 'Z',  ['Só custo', 'Débito e Crédito']);
+  var col = mapaColunas();
+  dropCel(sh, col.canal,        CANAIS);
+  dropCel(sh, col.origem,       ['Nacional', 'Importada']);
+  dropCel(sh, col.cmvJaLiquido, ['Sim', 'Não']);
+  dropCel(sh, col.ufEstab,      listaUF);
+  dropCel(sh, col.ufCompra,     listaUF);
+  dropCel(sh, col.monofasico,   ['Não', 'Sim - revendedor', 'Sim - fabricante/importador']);
+  dropCel(sh, col.ipiTrat,      ['Só custo', 'Débito e Crédito']);
 }
 
 function montarPrecificacao_formulas(sh) {
   var n = N_LINHAS, L = LIN_DADOS;
   var TAB = 'Tabela_ICMS!$A:$J';
-  // REVENDEDOR aponta para uma célula de Parametros com o texto exato da opção,
-  // para as fórmulas não dependerem de digitação idêntica em 500 linhas.
+  var c = mapaColunas();
 
-  // Blocos e sua atribuição por coluna. Cada função recebe o número da linha.
-  var defs = {
-    // Total de custos do canal: comissão + taxa fixa + frete grátis + outros
-    G:  function (r) { return '=IF($A' + r + '="","",$I' + r + '*$C' + r + '+$D' + r + '+$E' + r + '+$F' + r + ')'; },
-    // Crédito de PIS/COFINS sobre as taxas do canal (zerado se monofásico)
-    // O crédito aqui vem da NF de SERVIÇO que o canal emite contra você, não da
-    // mercadoria. O regime monofásico do produto não alcança esse serviço, então
-    // a coluna U não entra nesta conta.
-    H:  function (r) { return '=IF($A' + r + '="","",$G' + r + '*(ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)'; },
+  // Referência a uma coluna pelo id lógico, com a coluna travada e a linha
+  // solta ($A5): é dessa forma que o copyTo consegue ajustar 5 -> 6 -> 7.
+  function R(id, r) { return '$' + c[id] + r; }
 
-    // Alíquota de ICMS da COMPRA. Mesma UF -> interna; UF diferente ->
-    // interestadual da operação fornecedor→você (4% se a mercadoria for
-    // importada). Pode ser sobrescrita à mão: fornecedor do Simples Nacional
-    // dá crédito menor, escrito nas observações da nota.
-    T:  function (r) { return '=IF($A' + r + '="","",IF($S' + r + '=$R' + r +
-          ',IFERROR(VLOOKUP($R' + r + ',' + TAB + ',6,FALSE),0)' +
-          ',IF($P' + r + '="Importada",ALQ_INTER_IMP' +
-          ',IF(AND(IFERROR(VLOOKUP($S' + r + ',' + TAB + ',3,FALSE),"")="S/SE"' +
-             ',IFERROR(VLOOKUP($R' + r + ',' + TAB + ',3,FALSE),"")="S/SE")' +
-             ',ALQ_INTER_12,ALQ_INTER_7))))'; },
+  var PC  = '(ALQ_PIS+ALQ_COFINS)';
+  var CRT = '(' + PC + '*CRED_TAXAS)';
 
-    // --- Créditos da entrada. Todos zerados quando o CMV digitado já é
-    //     líquido (coluna Q = "Sim"), porque já estão embutidos nele.
-    AB: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",$X' + r + '>0),0,$AA' + r + '*$T' + r + '))'; },
-    AC: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",LEFT($U' + r + ',3)="Sim"),0,' +
-          '($AA' + r + '+$AF' + r + '-IF(EXCLUI_ICMS_CRED="Sim",$AB' + r + ',0))*$V' + r + '))'; },
-    AD: function (r) { return '=IF($A' + r + '="","",IF(OR($Q' + r + '="Sim",LEFT($U' + r + ',3)="Sim"),0,' +
-          '($AA' + r + '+$AF' + r + '-IF(EXCLUI_ICMS_CRED="Sim",$AB' + r + ',0))*$W' + r + '))'; },
-    AE: function (r) { return '=IF($A' + r + '="","",IF($Z' + r + '="Débito e Crédito",$AF' + r + ',0))'; },
+  // Trechos reaproveitados entre a margem (coluna J) e os dois simuladores.
+  function ipiF(r)  { return 'IF(' + R('ipiTrat', r) + '="Débito e Crédito",' + R('ipiPct', r) + ',0)'; }
+  function icmsF(r) { return 'IF(' + R('origem', r) + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC)'; }
+  function difF(r)  { return 'IF(' + R('origem', r) + '="Importada",DIFAL_MED_IMP,DIFAL_MED_NAC)'; }
+  function pcItemF(r) { return 'IF(' + R('monofasico', r) + '=REVENDEDOR,0,' + R('pisPct', r) + '+' + R('cofinsPct', r) + ')'; }
 
-    // --- Custos da entrada que NÃO voltam como crédito
-    AF: function (r) { return '=IF($A' + r + '="","",IF($Q' + r + '="Sim",0,$AA' + r + '*$Y' + r + '))'; },
-    AG: function (r) { return '=IF($A' + r + '="","",IF($Q' + r + '="Sim",0,$AA' + r + '*$X' + r + '))'; },
-    AH: function (r) { return '=IF($A' + r + '="","",$AA' + r + '+$AF' + r + '+$AG' + r +
-          '-MIN($AB' + r + ',IF(CRED_ICMS_APROV="Sim",$AB' + r + ',$AI' + r + '))' +
-          '-$AC' + r + '-$AD' + r + '-$AE' + r + ')'; },
+  // Coeficiente K: a fração do preço que sobra depois de comissão, IPI, ICMS,
+  // DIFAL e PIS/COFINS. Vale para os dois simuladores.
+  function coefK(r) {
+    var ipi = ipiF(r), icms = icmsF(r);
+    return '(1-' + R('comissaoPct', r) + '-' + ipi + '/(1+' + ipi + ')-' + icms + '-' + difF(r) +
+           '-' + pcItemF(r) + '*(1/(1+' + ipi + ')-IF(EXCLUI_ICMS_PC="Sim",' + icms + ',0))' +
+           '+' + R('comissaoPct', r) + '*' + CRT + ')';
+  }
+  // Custos que não variam com o preço.
+  function fixosF(r) {
+    return '(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + '+' +
+           R('embalagem', r) + '+' + R('cmvLiquido', r) +
+           '-(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')*' + CRT + ')';
+  }
 
-    // --- Débitos da saída
-    AI: function (r) { return '=IF($A' + r + '="","",$I' + r + '*IF($P' + r + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC))'; },
-    AJ: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,' +
-          '(($I' + r + '-$AL' + r + ')-IF(EXCLUI_ICMS_PC="Sim",$AI' + r + ',0))*$V' + r + '))'; },
-    AK: function (r) { return '=IF($A' + r + '="","",IF($U' + r + '=REVENDEDOR,0,' +
-          '(($I' + r + '-$AL' + r + ')-IF(EXCLUI_ICMS_PC="Sim",$AI' + r + ',0))*$W' + r + '))'; },
-    // IPI da saída só existe quando você é equiparado a industrial
-    AL: function (r) { return '=IF($A' + r + '="","",IF($Z' + r + '="Débito e Crédito",$I' + r + '*$Y' + r + '/(1+$Y' + r + '),0))'; },
-    AM: function (r) { return '=IF($A' + r + '="","",IF($P' + r + '="Importada",DIFAL_MED_IMP,DIFAL_MED_NAC))'; },
-    AN: function (r) { return '=IF($A' + r + '="","",$I' + r + '*$AM' + r + ')'; },
+  var defs = {};
 
-    // --- Resultado
-    J:  function (r) { return '=IF($A' + r + '="","",$I' + r + '-$G' + r + '-$O' + r + '+$H' + r +
-          '-$AH' + r + '-$AL' + r + '-$AI' + r + '-$AN' + r + '-$AJ' + r + '-$AK' + r + ')'; },
-    K:  function (r) { return '=IF($A' + r + '="","",IFERROR($J' + r + '/($I' + r + '-$AL' + r + '),""))'; },
+  defs.totalComissoes = function (r) {
+    return '=IF(' + R('sku', r) + '="","",' + R('preco', r) + '*' + R('comissaoPct', r) +
+           '+' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')';
+  };
+  // O crédito aqui vem da NF de SERVIÇO que o canal emite contra você, não da
+  // mercadoria. O monofásico do produto não alcança esse serviço, então a
+  // coluna de monofásico não entra nesta conta.
+  defs.credTaxas = function (r) {
+    return '=IF(' + R('sku', r) + '="","",' + R('totalComissoes', r) + '*' + CRT + ')';
+  };
 
-    // --- Simulador: inverte a equação da margem.
-    //     MC = Preço x K - Fixos   =>   Preço = Fixos / (K - alvo/(1+IPI))
-    //     K e Fixos ficam embutidos aqui para não gastar colunas.
-    N:  function (r) {
-          var ipi = 'IF($Z' + r + '="Débito e Crédito",$Y' + r + ',0)';
-          var pcI = 'IF($U' + r + '=REVENDEDOR,0,$V' + r + '+$W' + r + ')';
-          var crT = '((ALQ_PIS+ALQ_COFINS)*CRED_TAXAS)';
-          var icm = 'IF($P' + r + '="Importada",ICMS_PROP_IMP,ICMS_PROP_NAC)';
-          var dif = 'IF($P' + r + '="Importada",DIFAL_MED_IMP,DIFAL_MED_NAC)';
-          var K = '(1-$C' + r + '-' + ipi + '/(1+' + ipi + ')-' + icm + '-' + dif +
-                  '-' + pcI + '*(1/(1+' + ipi + ')-IF(EXCLUI_ICMS_PC="Sim",' + icm + ',0))' +
-                  '+$C' + r + '*' + crT + ')';
-          var FX = '($D' + r + '+$E' + r + '+$F' + r + '+$O' + r + '+$AH' + r +
-                   '-($D' + r + '+$E' + r + '+$F' + r + ')*' + crT + ')';
-          return '=IF($A' + r + '="","",IFERROR(' + FX + '/(' + K + '-$L' + r + '/(1+' + ipi + ')),""))';
-        },
-    M:  function (r) {
-          var ipi = 'IF($Z' + r + '="Débito e Crédito",$Y' + r + ',0)';
-          return '=IF($A' + r + '="","",IFERROR($L' + r + '*$N' + r + '/(1+' + ipi + '),""))';
-        },
+  // Alíquota de ICMS da COMPRA. Mesma UF -> interna; UF diferente ->
+  // interestadual da operação fornecedor→você (4% se a mercadoria for
+  // importada). Pode ser sobrescrita à mão: fornecedor do Simples Nacional dá
+  // crédito menor, escrito nas observações da nota.
+  defs.icmsCompraPct = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('ufCompra', r) + '=' + R('ufEstab', r) +
+      ',IFERROR(VLOOKUP(' + R('ufEstab', r) + ',' + TAB + ',6,FALSE),0)' +
+      ',IF(' + R('origem', r) + '="Importada",ALQ_INTER_IMP' +
+      ',IF(AND(IFERROR(VLOOKUP(' + R('ufCompra', r) + ',' + TAB + ',3,FALSE),"")="S/SE"' +
+         ',IFERROR(VLOOKUP(' + R('ufEstab', r) + ',' + TAB + ',3,FALSE),"")="S/SE")' +
+         ',ALQ_INTER_12,ALQ_INTER_7))))';
+  };
 
-    // --- Diagnóstico
-    AO: function (r) { return '=IF($A' + r + '="","",IFERROR(($AI' + r + '+$AN' + r + ')/$I' + r + ',""))'; },
-    AP: function (r) { return '=IF($A' + r + '="","",IF(CRED_ICMS_APROV="Sim",0,MAX(0,$AB' + r + '-$AI' + r + ')))'; }
+  // --- Créditos da entrada. Zerados quando o CMV digitado já é líquido,
+  //     porque nesse caso eles já estão embutidos no número.
+  defs.credICMS = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(OR(' + R('cmvJaLiquido', r) + '="Sim",' + R('stPct', r) + '>0),0,' +
+           R('custoCompra', r) + '*' + R('icmsCompraPct', r) + '))';
+  };
+  function baseCredPC(r) {
+    return '(' + R('custoCompra', r) + '+' + R('custoIPI', r) +
+           '-IF(EXCLUI_ICMS_CRED="Sim",' + R('credICMS', r) + ',0))';
+  }
+  defs.credPis = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(OR(' + R('cmvJaLiquido', r) + '="Sim",LEFT(' + R('monofasico', r) + ',3)="Sim"),0,' +
+           baseCredPC(r) + '*' + R('pisPct', r) + '))';
+  };
+  defs.credCofins = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(OR(' + R('cmvJaLiquido', r) + '="Sim",LEFT(' + R('monofasico', r) + ',3)="Sim"),0,' +
+           baseCredPC(r) + '*' + R('cofinsPct', r) + '))';
+  };
+  defs.credIPI = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('ipiTrat', r) + '="Débito e Crédito",' + R('custoIPI', r) + ',0))';
+  };
+
+  // --- Custos da entrada que NÃO voltam como crédito
+  defs.custoIPI = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('cmvJaLiquido', r) + '="Sim",0,' +
+           R('custoCompra', r) + '*' + R('ipiPct', r) + '))';
+  };
+  defs.custoST = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('cmvJaLiquido', r) + '="Sim",0,' +
+           R('custoCompra', r) + '*' + R('stPct', r) + '))';
+  };
+  defs.cmvLiquido = function (r) {
+    return '=IF(' + R('sku', r) + '="","",' + R('custoCompra', r) + '+' + R('custoIPI', r) + '+' + R('custoST', r) +
+           '-MIN(' + R('credICMS', r) + ',IF(CRED_ICMS_APROV="Sim",' + R('credICMS', r) + ',' + R('icmsProprio', r) + '))' +
+           '-' + R('credPis', r) + '-' + R('credCofins', r) + '-' + R('credIPI', r) + ')';
+  };
+
+  // --- Débitos da saída
+  defs.icmsProprio = function (r) {
+    return '=IF(' + R('sku', r) + '="","",' + R('preco', r) + '*' + icmsF(r) + ')';
+  };
+  function basePCsaida(r) {
+    return '((' + R('preco', r) + '-' + R('ipiSaidaRS', r) + ')-IF(EXCLUI_ICMS_PC="Sim",' + R('icmsProprio', r) + ',0))';
+  }
+  defs.pisRS = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('monofasico', r) + '=REVENDEDOR,0,' +
+           basePCsaida(r) + '*' + R('pisPct', r) + '))';
+  };
+  defs.cofinsRS = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('monofasico', r) + '=REVENDEDOR,0,' +
+           basePCsaida(r) + '*' + R('cofinsPct', r) + '))';
+  };
+  // IPI da saída só existe quando você é equiparado a industrial
+  defs.ipiSaidaRS = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(' + R('ipiTrat', r) + '="Débito e Crédito",' +
+           R('preco', r) + '*' + R('ipiPct', r) + '/(1+' + R('ipiPct', r) + '),0))';
+  };
+  defs.difalPct = function (r) { return '=IF(' + R('sku', r) + '="","",' + difF(r) + ')'; };
+  defs.difalRS  = function (r) { return '=IF(' + R('sku', r) + '="","",' + R('preco', r) + '*' + R('difalPct', r) + ')'; };
+
+  // --- Resultado
+  defs.mcRS = function (r) {
+    return '=IF(' + R('sku', r) + '="","",' + R('preco', r) + '-' + R('totalComissoes', r) + '-' + R('embalagem', r) +
+           '+' + R('credTaxas', r) + '-' + R('cmvLiquido', r) + '-' + R('ipiSaidaRS', r) + '-' + R('icmsProprio', r) +
+           '-' + R('difalRS', r) + '-' + R('pisRS', r) + '-' + R('cofinsRS', r) + ')';
+  };
+  defs.mcPct = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IFERROR(' + R('mcRS', r) + '/(' + R('preco', r) + '-' + R('ipiSaidaRS', r) + '),""))';
+  };
+
+  // --- Simulador de PREÇO: trava o custo, resolve o preço.
+  //     MC = Preço x K - Fixos   =>   Preço = Fixos / (K - alvo/(1+IPI))
+  defs.precoNecessario = function (r) {
+    var ipi = ipiF(r);
+    return '=IF(' + R('sku', r) + '="","",IFERROR(' + fixosF(r) + '/(' + coefK(r) +
+           '-' + R('mcAlvoPct', r) + '/(1+' + ipi + ')),""))';
+  };
+  defs.mcAlvoRSpreco = function (r) {
+    var ipi = ipiF(r);
+    return '=IF(' + R('sku', r) + '="","",IFERROR(' + R('mcAlvoPct', r) + '*' +
+           R('precoNecessario', r) + '/(1+' + ipi + '),""))';
+  };
+
+  // --- Simulador de CUSTO (o inverso): trava o preço da coluna do preço de
+  //     venda, resolve o custo que o fornecedor teria de praticar.
+  //
+  //     Partindo de  MC = Preço x K - Fixos  e de  MC alvo = alvo x receita:
+  //         CMV líquido alvo = Preço x K - alvo x Preço/(1+IPI) - demais custos
+  //
+  //     Depois desmonta o CMV líquido até o valor da nota. O custo entra em
+  //     cinco lugares ao mesmo tempo (IPI, ST, crédito de ICMS, crédito de
+  //     PIS/COFINS e o próprio CMV), mas em todos de forma linear, então dá
+  //     para isolar sem iteração:
+  //         CMV líquido = Custo x fator          =>   Custo = CMV líquido / fator
+  //
+  //     Quando o crédito de ICMS não é aproveitável e passaria do débito
+  //     próprio, ele trava no débito e deixa de variar com o custo — aí o
+  //     fator muda, e é o que o IF final trata.
+  defs.custoAlvo = function (r) {
+    var ipi = ipiF(r);
+    var y  = 'IF(' + R('cmvJaLiquido', r) + '="Sim",0,' + R('ipiPct', r) + ')';
+    var x  = 'IF(' + R('cmvJaLiquido', r) + '="Sim",0,' + R('stPct', r) + ')';
+    var t  = 'IF(OR(' + R('cmvJaLiquido', r) + '="Sim",' + R('stPct', r) + '>0),0,' + R('icmsCompraPct', r) + ')';
+    var pc = 'IF(OR(' + R('cmvJaLiquido', r) + '="Sim",LEFT(' + R('monofasico', r) + ',3)="Sim"),0,' +
+             R('pisPct', r) + '+' + R('cofinsPct', r) + ')';
+    var e  = 'IF(' + R('ipiTrat', r) + '="Débito e Crédito",y,0)';
+
+    var cmvAlvo = R('preco', r) + '*' + coefK(r) +
+      '-' + R('mcAlvoPct', r) + '*' + R('preco', r) + '/(1+' + ipi + ')' +
+      '-(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + '+' + R('embalagem', r) + ')' +
+      '+(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')*' + CRT;
+
+    return '=IF(' + R('sku', r) + '="","",IFERROR(LET(' +
+      'y,' + y + ',' +
+      'x,' + x + ',' +
+      't,' + t + ',' +
+      'pc,' + pc + ',' +
+      'e,' + e + ',' +
+      'cmv,' + cmvAlvo + ',' +
+      'fsemT,1+y+x-(1+y-IF(EXCLUI_ICMS_CRED="Sim",t,0))*pc-e,' +
+      'fcomT,fsemT-t,' +
+      'solto,cmv/fcomT,' +
+      'IF(OR(CRED_ICMS_APROV="Sim",solto*t<=' + R('icmsProprio', r) + '),solto,' +
+      '(cmv+' + R('icmsProprio', r) + ')/fsemT)' +
+      '),""))';
+  };
+  defs.mcAlvoRScusto = function (r) {
+    var ipi = ipiF(r);
+    return '=IF(' + R('sku', r) + '="","",IFERROR(' + R('mcAlvoPct', r) + '*' +
+           R('preco', r) + '/(1+' + ipi + '),""))';
+  };
+
+  // --- Diagnóstico
+  defs.icmsTotalPct = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IFERROR((' + R('icmsProprio', r) + '+' + R('difalRS', r) + ')/' + R('preco', r) + ',""))';
+  };
+  defs.credICMSAcumula = function (r) {
+    return '=IF(' + R('sku', r) + '="","",IF(CRED_ICMS_APROV="Sim",0,MAX(0,' +
+           R('credICMS', r) + '-' + R('icmsProprio', r) + ')))';
   };
 
   // Escreve as fórmulas UMA vez, na linha 5, e replica com copyTo.
-  //
-  // Gerar as 500 linhas uma a uma custava ~11.000 strings de fórmula numa só
-  // execução, e o serviço do Sheets derrubava o script. O copyTo faz o mesmo
-  // trabalho do lado do servidor e ainda leva junto cor, formato numérico e
-  // validação de dados da linha modelo.
-  //
-  // As referências das fórmulas são do tipo $A5: coluna travada, linha solta.
-  // É exatamente o que o copyTo precisa para ajustar 5 -> 6 -> 7 sozinho.
-  var modelo = COLS.map(function (c) {
-    return defs[c[0]] ? F(defs[c[0]](L)) : '';
+  // Gerar as 500 linhas uma a uma custava ~11.000 strings numa só execução e o
+  // serviço do Sheets derrubava o script. O copyTo faz o mesmo trabalho do lado
+  // do servidor e leva junto cor, formato numérico e validação da linha modelo.
+  var modelo = COLS.map(function (cc) {
+    return defs[cc[6]] ? F(defs[cc[6]](L)) : '';
   });
   sh.getRange(L, 1, 1, COLS.length).setFormulas([modelo]);
   SpreadsheetApp.flush();
@@ -669,27 +806,31 @@ function montarPrecificacao_formulas(sh) {
     .copyTo(sh.getRange(L + 1, 1, n - 1, COLS.length));
 
   // A linha de exemplo entra DEPOIS do copyTo, senão 'EXEMPLO-001' seria
-  // replicado nas 499 linhas seguintes.
-  // Só as colunas de entrada recebem valor; as de fórmula ficam intactas.
-  [['A', 'EXEMPLO-001'], ['B', 'Mercado Livre'], ['C', 0.12], ['D', 0],
-   ['E', 68.95], ['F', 0], ['I', 649.99], ['L', 0.15], ['O', 2.00],
-   ['P', 'Nacional'], ['Q', 'Não'], ['R', 'SP'], ['S', 'SP'], ['U', 'Não'],
-   ['V', 0.0165], ['W', 0.076], ['X', 0], ['Y', 0.15], ['Z', 'Só custo'],
-   ['AA', 283.87]
+  // replicado nas 499 linhas seguintes. Só as colunas de entrada recebem
+  // valor; as de fórmula ficam intactas.
+  [['sku', 'EXEMPLO-001'], ['canal', 'Mercado Livre'], ['comissaoPct', 0.12],
+   ['taxaFixa', 0], ['freteGratis', 68.95], ['outrosCustos', 0],
+   ['preco', 649.99], ['mcAlvoPct', 0.15], ['embalagem', 2.00],
+   ['origem', 'Nacional'], ['cmvJaLiquido', 'Não'], ['ufEstab', 'SP'],
+   ['ufCompra', 'SP'], ['monofasico', 'Não'], ['pisPct', 0.0165],
+   ['cofinsPct', 0.076], ['stPct', 0], ['ipiPct', 0.0975],
+   ['ipiTrat', 'Só custo'], ['custoCompra', 283.87]
   ].forEach(function (v) {
-    sh.getRange(L, colNum(v[0])).setValue(v[1]);
+    sh.getRange(L, colNum(c[v[0]])).setValue(v[1]);
   });
 
-  // Alertas: margem negativa e crédito de ICMS empoçando
-  var regras = [
+  // Alertas: margem negativa, custo alvo impossível e crédito de ICMS empoçando
+  sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0)
       .setBackground(COR_ALERTA)
-      .setRanges([sh.getRange(L, colNum('J'), n, 2)]).build(),
+      .setRanges([sh.getRange(L, colNum(c.mcRS), n, 2)]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0)
+      .setBackground(COR_ALERTA)
+      .setRanges([sh.getRange(L, colNum(c.custoAlvo), n, 1)]).build(),
     SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThan(0)
       .setBackground(COR_ALERTA)
-      .setRanges([sh.getRange(L, colNum('AP'), n, 1)]).build()
-  ];
-  sh.setConditionalFormatRules(regras);
+      .setRanges([sh.getRange(L, colNum(c.credICMSAcumula), n, 1)]).build()
+  ]);
 }
 
 
