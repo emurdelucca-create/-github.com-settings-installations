@@ -367,7 +367,7 @@ function ce_debugBuscarPedido() {
 // TROQUE o número abaixo pelo Nº da NF (coluna D da aba NFs, ex: "00046")
 // e rode ESTA função (ce_debugConciliacaoRun) — ela não pede parâmetro,
 // dá pra clicar em ▶ Executar direto.
-var CE_DEBUG_NF = '00046'; // <-- troque aqui pelo Nº da NF que quer testar
+var CE_DEBUG_NF = '3277'; // <-- troque aqui pelo Nº da NF que quer testar
 
 function ce_debugConciliacaoRun() {
   ce_debugConciliacao(CE_DEBUG_NF);

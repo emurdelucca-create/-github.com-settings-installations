@@ -449,8 +449,9 @@ td.r { text-align: right; }
             <span class="err-label" id="err_f_pedidoBling">Campo obrigatório</span>
           </div>
           <div class="form-field">
-            <span class="form-label" title="ID interno do Bling — copie da URL ao abrir o pedido no Bling. Usado para busca rápida no Re-sync.">ID Bling <span style="color:var(--muted2);font-size:10px">(URL)</span></span>
-            <input class="form-input form-input-w200" id="f_blingId" placeholder="Ex: 26740306720 (opcional)">
+            <span class="form-label" title="ID interno do Bling — copie da URL ao abrir o pedido no Bling. Sem ele, a busca por número pode não achar o pedido (e a conciliação falha).">ID Bling <span class="req">*</span> <span style="color:var(--muted2);font-size:10px">(URL)</span></span>
+            <input class="form-input form-input-w200" id="f_blingId" placeholder="Ex: 26740306720" oninput="limparErr('f_blingId')">
+            <span class="err-label" id="err_f_blingId">Campo obrigatório — copie da URL do pedido no Bling</span>
           </div>
           <div class="form-field">
             <span class="form-label">Fornecedor <span class="req">*</span></span>
@@ -1550,7 +1551,7 @@ function voltarPasso1() {
 
 function avancarPasso3() {
   const erros = [];
-  ['f_pedidoBling','f_fornecedor','f_dataEntrega'].forEach(id => {
+  ['f_pedidoBling','f_blingId','f_fornecedor','f_dataEntrega'].forEach(id => {
     const el = document.getElementById(id);
     if (!el.value.trim()) {
       el.classList.add('err');
