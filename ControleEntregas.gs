@@ -362,6 +362,80 @@ function ce_debugBuscarPedido() {
   }
 }
 
+// ── Diagnóstico: compara os códigos da NF com os do pedido Bling ────
+// Pra ver exatamente por que a conciliação não está casando nenhum item.
+// TROQUE o número abaixo pelo Nº da NF (coluna D da aba NFs, ex: "00046")
+// e rode ESTA função (ce_debugConciliacaoRun) — ela não pede parâmetro,
+// dá pra clicar em ▶ Executar direto.
+var CE_DEBUG_NF = '00046'; // <-- troque aqui pelo Nº da NF que quer testar
+
+function ce_debugConciliacaoRun() {
+  ce_debugConciliacao(CE_DEBUG_NF);
+}
+
+// Mostra o JSON CRU (sem nenhum mapeamento) de um item do pedido de
+// compra no Bling, pra achar o nome certo do campo "código do
+// fornecedor" — o campo "it.codigo" que o código usa hoje está vindo
+// sempre vazio, então provavelmente o nome real é outro.
+function ce_debugCampoCodFornRun() {
+  const aba  = _ce_aba();
+  const last = aba.getLastRow();
+  const raw  = aba.getRange(2, 1, last - 1, CE_NCOLS).getValues();
+  const row  = raw.find(r => String(r[3] || '').trim() === String(CE_DEBUG_NF).trim());
+  if (!row) { Logger.log('NF não encontrada.'); return; }
+  const nf = _ce_rowToObj(row);
+
+  const token = _ce_getToken();
+  const r = UrlFetchApp.fetch(CE_BLING_API + '/pedidos/compras/' + nf.blingId, {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  const det = JSON.parse(r.getContentText() || '{}').data || {};
+  const primeiroItem = (det.itens || [])[0];
+  Logger.log('=== JSON cru do 1º item do pedido ' + nf.pedidoBling + ' ===');
+  Logger.log(JSON.stringify(primeiroItem, null, 2));
+}
+
+// Mostra lado a lado: cProd (código do fornecedor no XML da NF) vs os
+// campos codForn/sku/preco que vieram do pedido de compra no Bling.
+function ce_debugConciliacao(numeroNF) {
+  const aba  = _ce_aba();
+  const last = aba.getLastRow();
+  if (last < 2) { Logger.log('Planilha sem NFs.'); return; }
+
+  const raw = aba.getRange(2, 1, last - 1, CE_NCOLS).getValues();
+  const row = raw.find(r => String(r[3] || '').trim() === String(numeroNF).trim()); // col D = Nº NF
+  if (!row) { Logger.log('NF "' + numeroNF + '" não encontrada (confira a coluna D da aba NFs).'); return; }
+
+  const nf = _ce_rowToObj(row);
+  Logger.log('=== NF ' + nf.nNF + ' — Pedido Bling: "' + nf.pedidoBling + '" — ID Bling: "' + nf.blingId + '" ===');
+  Logger.log('Itens da NF (cProd do XML): ' + JSON.stringify((nf.itens || []).map(it => it.cProd)));
+
+  if (!nf.pedidoBling) {
+    Logger.log('⚠ Essa NF não tem "Pedido Bling" preenchido — sem pedido vinculado, não tem como conciliar.');
+    return;
+  }
+
+  const res = ce_buscarPedidoBling(nf.pedidoBling, nf.blingId);
+  if (!res.ok) { Logger.log('❌ Erro ao buscar pedido no Bling: ' + res.error); return; }
+
+  Logger.log('--- Itens retornados pelo pedido no Bling ---');
+  res.itens.forEach(it => {
+    Logger.log('codForn="' + it.codForn + '"  sku="' + it.sku + '"  descricao="' + it.descricao + '"  qtd=' + it.qtd + '  preco=' + it.preco);
+  });
+
+  Logger.log('--- Comparação direta (cProd da NF x codForn/sku do Bling, case-insensitive) ---');
+  const blingKeys = new Set();
+  res.itens.forEach(it => {
+    if (it.codForn) blingKeys.add(it.codForn.trim().toLowerCase());
+    if (it.sku)     blingKeys.add(it.sku.trim().toLowerCase());
+  });
+  (nf.itens || []).forEach(it => {
+    const key = String(it.cProd || '').trim().toLowerCase();
+    Logger.log('cProd="' + it.cProd + '" -> ' + (blingKeys.has(key) ? '✅ bate' : '❌ não bate com nenhum codForn/sku do pedido'));
+  });
+}
+
 // numeroPedido = número sequencial exibido (ex: "1907")
 // blingIdOpt   = ID interno do Bling da URL (ex: "26740306720"), opcional
 function ce_buscarPedidoBling(numeroPedido, blingIdOpt) {
@@ -416,12 +490,15 @@ function ce_buscarPedidoBling(numeroPedido, blingIdOpt) {
     }
 
     const itens = (det.itens || []).map(it => ({
-      produtoId: String(it.produto?.id    || ''),
-      sku:       String(it.produto?.codigo || ''),
-      descricao: String(it.descricao       || ''),
-      codForn:   String(it.codigo          || ''),
-      qtd:       Number(it.quantidade      || 0),
-      preco:     Number(it.valor           || 0),
+      produtoId: String(it.produto?.id         || ''),
+      sku:       String(it.produto?.codigo     || ''),
+      descricao: String(it.descricao           || ''),
+      // Campo certo é "codigoFornecedor" (bate exatamente com o cProd da
+      // NF) — "it.codigo" nem existe no item do pedido de compra; vinha
+      // sempre vazio, o que zerava a conciliação pra toda NF.
+      codForn:   String(it.codigoFornecedor    || ''),
+      qtd:       Number(it.quantidade          || 0),
+      preco:     Number(it.valor               || 0),
     }));
 
     return {
@@ -573,9 +650,13 @@ function ce_alterarPedidoBling(blingId, itensParaAtualizar) {
     if (!det.id) return { ok: false, error: 'Pedido ID ' + blingId + ' não encontrado no Bling' };
 
     // Preserva os itens originais com todos os campos; só altera quantidade
+    // "codigo" aqui é o campo de payload do PUT — o valor vem de
+    // "codigoFornecedor" na resposta do GET (ver ce_buscarPedidoBling).
+    // Lendo "it.codigo" (que não existe no GET) estava apagando o código
+    // do fornecedor de TODO o pedido a cada alteração.
     const itensBase = (det.itens || []).map(it => ({
       produto:    it.produto?.id ? { id: Number(it.produto.id) } : undefined,
-      codigo:     it.codigo     || '',
+      codigo:     it.codigoFornecedor || '',
       descricao:  it.descricao  || '',
       quantidade: Number(it.quantidade || 0),
       valor:      Number(it.valor  || 0),
