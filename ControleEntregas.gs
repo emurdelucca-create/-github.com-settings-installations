@@ -373,6 +373,29 @@ function ce_debugConciliacaoRun() {
   ce_debugConciliacao(CE_DEBUG_NF);
 }
 
+// ── Correção pontual: grava o ID Bling nas NFs 3277 e 3271, que
+// ficaram sem (busca por número de pedido falhou pra elas), e já
+// reconcilia em seguida. Rode uma vez só; depois pode apagar.
+function ce_fixBlingIdsRun() {
+  const CORRECOES = {
+    '3277': '26691986488', // pedido 1895
+    '3271': '26945951237', // pedido 1952
+  };
+  const aba  = _ce_aba();
+  const last = aba.getLastRow();
+  const raw  = aba.getRange(2, 1, last - 1, CE_NCOLS).getValues();
+
+  Object.keys(CORRECOES).forEach(nNF => {
+    const idx = raw.findIndex(r => String(r[3] || '').trim() === nNF);
+    if (idx === -1) { Logger.log('NF ' + nNF + ' não encontrada.'); return; }
+    aba.getRange(idx + 2, 15).setValue(CORRECOES[nNF]); // col O = ID Bling
+    Logger.log('NF ' + nNF + ' — ID Bling gravado: ' + CORRECOES[nNF]);
+  });
+
+  const res = ce_ressincronizarBling();
+  Logger.log('Reconciliação: ' + JSON.stringify(res));
+}
+
 // Mostra o JSON CRU (sem nenhum mapeamento) de um item do pedido de
 // compra no Bling, pra achar o nome certo do campo "código do
 // fornecedor" — o campo "it.codigo" que o código usa hoje está vindo
