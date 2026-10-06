@@ -662,11 +662,14 @@ td.r { text-align: right; }
 <div class="view" id="view_conferencia">
   <div style="max-width:1100px;margin:0 auto">
 
-    <!-- No NFs selected -->
-    <div id="confEmpty" style="text-align:center;padding:60px 20px;color:var(--muted2)">
-      <div style="font-size:48px;margin-bottom:16px">📋</div>
-      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Nenhuma NF selecionada</div>
-      <div style="font-size:13px">Vá para a aba <strong>Por NF</strong>, selecione as NFs que deseja conferir e clique em <strong>Iniciar Conferência</strong>.</div>
+    <!-- No NFs selected: visão macro de rascunhos/entregas em andamento -->
+    <div id="confEmpty">
+      <div id="confEmptyMsg" style="text-align:center;padding:60px 20px;color:var(--muted2)">
+        <div style="font-size:48px;margin-bottom:16px">📋</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Nenhuma NF selecionada</div>
+        <div style="font-size:13px">Vá para a aba <strong>Por NF</strong>, selecione as NFs que deseja conferir e clique em <strong>Iniciar Conferência</strong>.</div>
+      </div>
+      <div id="confEmLista" style="display:none;max-width:720px;margin:20px auto;padding:0 20px"></div>
     </div>
 
     <!-- Conference form -->
@@ -754,6 +757,7 @@ td.r { text-align: right; }
       <div style="flex:1"></div>
       <label style="font-size:11px;color:var(--muted2);padding:0 8px">Filtrar:</label>
       <input id="filtroComprasForn" class="form-input" style="margin:6px 8px;width:180px;font-size:11px" placeholder="Fornecedor, SKU, NF..." oninput="_onFiltroCompras()">
+      <button id="btnResyncBling" class="btn btn-ghost btn-sm" style="margin-right:8px;font-size:11px;color:var(--yellow);border-color:rgba(255,193,7,.35)" onclick="_onResyncBling()">🔁 Re-sincronizar Bling</button>
       <button class="btn btn-ghost btn-sm" style="margin-right:12px;font-size:11px" onclick="_onAtualizarCompras()">🔄 Atualizar</button>
     </div>
     <!-- Novo body -->
@@ -1061,14 +1065,39 @@ let _allSubRowsExpanded = false;
 
 function _renderSubRow(nf) {
   const entregas = nf.conferencia?.entregas || [];
+  const rascunho = nf.conferencia?.rascunho || null;
   const nfItens  = nf.itens || [];
-  if (!entregas.length) {
+  if (!entregas.length && !rascunho) {
     return `<tr class="sub-row" id="subrow_${nf.id}">
       <td colspan="15" class="sub-row-cell">
         <div class="sub-row-inner" style="color:var(--muted2);font-size:12px;font-style:italic">Nenhuma entrega registrada.</div>
       </td></tr>`;
   }
-  const cardsHtml = entregas.map((ent, entIdx) => {
+  // Rascunho aparece junto com as entregas de verdade (mesmo visual),
+  // só que com borda tracejada e um botão pra continuar editando — em
+  // vez de ficar escondido num campo separado que ninguém via.
+  const rascunhoHtml = !rascunho ? '' : (() => {
+    const totalPecas     = (rascunho.itens || []).reduce((a, it) => a + (it.qtdConferida || 0), 0);
+    const itensFiltrados = (rascunho.itens || []).filter(it => (it.qtdConferida || 0) > 0);
+    const chipHtml = itensFiltrados.map(it => `<span style="background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.25);border-radius:5px;padding:2px 7px;font-size:10px;white-space:nowrap">
+        <span style="color:var(--orange);font-family:monospace">${escHtml(it.cProd)}</span>
+        ${it.sku ? `<span style="color:var(--muted2);margin:0 3px">${escHtml(it.sku)}</span>` : ''}
+        <span style="color:var(--yellow);font-weight:700">×${it.qtdConferida}</span>
+      </span>`).join(' ');
+    return `<div class="entrega-card" style="border:1px dashed var(--yellow);background:rgba(255,193,7,.04)">
+      <div class="entrega-card-meta">
+        <span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(255,193,7,.14);color:var(--yellow);border:1px solid rgba(255,193,7,.35)">📝 Rascunho — ${rascunho.entregaNumero||1}ª Entrega</span>
+        <span style="color:var(--muted2);font-size:11px">👤 ${escHtml(rascunho.responsavel || '—')}</span>
+        <span style="color:var(--yellow);font-size:11px;font-weight:700">📦 ${totalPecas} peças (parcial, não finalizado)</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${chipHtml}</div>
+      <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+        <button class="btn btn-ghost btn-xs" style="color:var(--yellow);border-color:rgba(255,193,7,.35);white-space:nowrap"
+          onclick="abrirConferenciaNF('${escJs(nf.id)}')">✏️ Continuar editando</button>
+      </div>
+    </div>`;
+  })();
+  const cardsHtml = rascunhoHtml + entregas.map((ent, entIdx) => {
     const isFinal    = ent.tipo === 'final';
     const totalPecas = ent.totalPecas || (ent.itens||[]).reduce((a, ei) => a + (ei.qtdConferida||0), 0);
     const itensFiltrados = (ent.itens||[]).filter(ei => (ei.qtdConferida||0) > 0);
@@ -1291,6 +1320,8 @@ function setComprasSubTab(tab) {
   const inactiveStyle = 'padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2);border-bottom:2px solid transparent;transition:all .15s';
   document.getElementById('comprasSubNovo').style.cssText   = isNovo  ? activeStyle : inactiveStyle;
   document.getElementById('comprasSubAntigo').style.cssText = !isNovo ? activeStyle : inactiveStyle;
+  const resyncBtn = document.getElementById('btnResyncBling');
+  if (resyncBtn) resyncBtn.style.display = isNovo ? '' : 'none'; // só faz sentido no "Novo"
   if (isNovo) renderCompras();
   else        renderComprasAntigo();
 }
@@ -1307,6 +1338,51 @@ function _onAtualizarCompras() {
   } else {
     renderCompras();
   }
+}
+
+// Reconcilia de novo só as NFs que ainda estão sem "Valor Unit. Bling"
+// (não refaz tudo do zero — só o que falhou na importação).
+function _onResyncBling() {
+  const btn = document.getElementById('btnResyncBling');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Re-sincronizando...';
+  setOverlay(true, 'Reconciliando NFs com o Bling...');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.ok) {
+        setOverlay(false);
+        btn.disabled = false;
+        btn.textContent = orig;
+        toast('❌ ' + (res.error || 'Erro ao re-sincronizar'), 'err');
+        return;
+      }
+      // Recarrega as NFs da planilha pra pegar os itens atualizados
+      google.script.run
+        .withSuccessHandler(r2 => {
+          setOverlay(false);
+          btn.disabled = false;
+          btn.textContent = orig;
+          if (r2.ok) CE.nfs = r2.nfs || [];
+          renderCompras();
+          toast(
+            res.nfsAtualizadas
+              ? `✅ ${res.nfsAtualizadas} NF(s) reconciliada(s), ${res.itensAtualizados} item(ns) atualizado(s).`
+              : 'ℹ Nenhuma NF pendente de reconciliação encontrada.',
+            'ok'
+          );
+        })
+        .withFailureHandler(() => { setOverlay(false); btn.disabled = false; btn.textContent = orig; })
+        .ce_carregarNFs();
+    })
+    .withFailureHandler(e => {
+      setOverlay(false);
+      btn.disabled = false;
+      btn.textContent = orig;
+      toast('❌ Erro: ' + e.message, 'err');
+    })
+    .ce_ressincronizarBling();
 }
 
 function renderComprasAntigo() {
@@ -2640,6 +2716,53 @@ function _carregarStyluSeNeeded(nfIds, cb) {
 }
 
 // ── Render Conferência ────────────────────────────────────
+// ── Visão macro: NFs com rascunho ou entrega em andamento ───
+// Mostrada quando a aba Conferência é aberta sem nenhuma NF selecionada
+// (em vez de só o aviso "vá pra Por NF"). Clicar numa linha abre a
+// conferência detalhada daquela NF específica.
+function _renderConfEmpty() {
+  const emMsg   = document.getElementById('confEmptyMsg');
+  const emLista = document.getElementById('confEmLista');
+  const pendentes = CE.nfs.filter(nf => _confStatus(nf) === 'Em Andamento');
+
+  if (!pendentes.length) {
+    emMsg.style.display   = '';
+    emLista.style.display = 'none';
+    return;
+  }
+  emMsg.style.display   = 'none';
+  emLista.style.display = '';
+
+  emLista.innerHTML = `<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px">
+      📋 ${pendentes.length} NF${pendentes.length!==1?'s':''} com rascunho ou entrega em andamento
+    </div>` +
+    pendentes.map(nf => {
+      const c = nf.conferencia || {};
+      const temRascunho = !!c.rascunho;
+      const nEntregas   = (c.entregas || []).length;
+      return `<div class="card" style="padding:12px 16px;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color .15s"
+          onclick="abrirConferenciaNF('${escJs(nf.id)}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">NF ${escHtml(nf.nNF)} — ${escHtml(nf.fornecedor)}</div>
+          <div style="font-size:11px;color:var(--muted2);margin-top:2px">
+            ${escHtml(nf.empresa)} · ${nEntregas} entrega${nEntregas!==1?'s':''} salva${nEntregas!==1?'s':''}
+            ${temRascunho ? ' · <span style="color:var(--yellow)">📝 rascunho em aberto</span>' : ''}
+          </div>
+        </div>
+        <div style="color:var(--muted2);font-size:16px;flex-shrink:0">→</div>
+      </div>`;
+    }).join('');
+}
+
+// Abre a tela de conferência detalhada de UMA NF específica (usado pela
+// visão macro acima) — mostra todos os itens, pré-preenchendo a partir
+// do rascunho salvo, se houver.
+function abrirConferenciaNF(nfId) {
+  CONF.nfIds = [nfId];
+  CONF.novaEntregaIds.delete(nfId);
+  _carregarStyluSeNeeded([nfId], () => navTo('conferencia'));
+}
+
 function renderConferencia() {
   const empty = document.getElementById('confEmpty');
   const form  = document.getElementById('confForm');
@@ -2649,6 +2772,7 @@ function renderConferencia() {
   if (!CONF.nfIds.length) {
     empty.style.display = 'block';
     form.style.display  = 'none';
+    _renderConfEmpty();
     return;
   }
   empty.style.display = 'none';
@@ -3056,7 +3180,7 @@ function salvarRascunho() {
 
   const dadosConf = _coletarItensDaConferencia();
   const nfIds = Object.keys(dadosConf);
-  if (!nfIds.length) return;
+  if (!nfIds.length) { toast('⚠ Nada pra salvar — nenhuma NF ativa na tela de conferência.', 'err'); return; }
 
   setOverlay(true, 'Salvando rascunho...');
   let idx = 0;
@@ -3091,7 +3215,7 @@ function salvarEntrega() {
 
   const dadosConf = _coletarItensDaConferencia();
   const nfIds = Object.keys(dadosConf);
-  if (!nfIds.length) return;
+  if (!nfIds.length) { toast('⚠ Nada pra salvar — nenhuma NF ativa na tela de conferência.', 'err'); return; }
 
   // Build confirmation modal content
   let bodyHtml = '';

@@ -538,6 +538,98 @@ function ce_buscarSKUsBL() {
   }
 }
 
+// Re-sincroniza NFs cujos itens ainda não conciliaram com o Bling
+// (blingPreco=0, o que mostra "Valor Unit. Bling" vazio na aba Compras →
+// Novo) — usa a MESMA lógica de match da importação (_conciliar no
+// front-end): 1) cProd bate direto com codForn/sku do pedido Bling;
+// 2) cProd → mapa Controle de Compras → SKU → pedido Bling. Ao contrário
+// de ce_ressincronizarQtds, NÃO usa fallback posicional (item i da NF =
+// item i do Bling) — item sem match real fica sem match, não "adivinha".
+function ce_ressincronizarBling() {
+  try {
+    const aba  = _ce_aba();
+    const last = aba.getLastRow();
+    if (last < 2) return { ok: true, nfsAtualizadas: 0, itensAtualizados: 0 };
+
+    const raw = aba.getRange(2, 1, last - 1, CE_NCOLS).getValues();
+
+    let codFornMap = {};
+    try { const r = ce_buscarMapCodFornSKU(); if (r.ok) codFornMap = r.map; } catch(e) {}
+
+    let skusBL = [];
+    try { const r = ce_buscarSKUsBL(); if (r.ok) skusBL = r.skus; } catch(e) {}
+    const nomeMap = {};
+    skusBL.forEach(s => { nomeMap[s.sku] = s.nome; });
+
+    let nfsAtualizadas = 0, itensAtualizados = 0;
+
+    for (let i = 0; i < raw.length; i++) {
+      const r = raw[i];
+      if (!r[0]) continue;
+      const pedidoBling = String(r[1]  || '').trim();
+      const blingId     = String(r[14] || '').trim();
+      if (!pedidoBling) continue;
+
+      const itens = _ce_json(r[12]);
+      if (!itens.length) continue;
+      if (!itens.some(it => !it.blingPreco)) continue; // já conciliou tudo
+
+      try {
+        Utilities.sleep(300);
+        const res = ce_buscarPedidoBling(pedidoBling, blingId);
+        if (!res.ok || !res.itens.length) continue;
+
+        const bmap = {};
+        res.itens.forEach(bi => {
+          if (bi.codForn) bmap[bi.codForn.trim().toLowerCase()] = bi;
+          if (bi.sku)     bmap[bi.sku.trim().toLowerCase()]     = bi;
+        });
+
+        let mudou = false;
+        const novos = itens.map(it => {
+          if (it.blingPreco) return it; // já estava ok
+
+          const keyLow = (it.cProd || '').trim().toLowerCase();
+          let bi  = bmap[keyLow] || null;
+          let sku = bi ? bi.sku : '';
+
+          if (!bi) {
+            const skuMapped = codFornMap[(it.cProd || '').trim()] ||
+                               codFornMap[(it.cProd || '').trim().toUpperCase()];
+            if (skuMapped) {
+              sku = skuMapped;
+              bi  = bmap[skuMapped.trim().toLowerCase()] || null;
+            }
+          }
+
+          if (!bi) return it; // sem match real — não inventa
+
+          mudou = true;
+          itensAtualizados++;
+          return {
+            ...it,
+            sku,
+            nomeSKU:      sku ? (nomeMap[sku] || sku) : (it.nomeSKU || ''),
+            qtdPedido:    bi.qtd,
+            blingPreco:   bi.preco,
+            blingCodForn: bi.codForn || it.cProd || '',
+            matched:      true,
+          };
+        });
+
+        if (mudou) {
+          aba.getRange(i + 2, 13).setValue(JSON.stringify(novos));
+          nfsAtualizadas++;
+        }
+      } catch(e) { continue; }
+    }
+
+    return { ok: true, nfsAtualizadas, itensAtualizados };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // Re-sincroniza qtdPedido de todas as NFs que ainda têm itens com qtdPedido=0
 function ce_ressincronizarQtds() {
   try {
