@@ -3971,14 +3971,11 @@ function renderCompras() {
     </tr>`;
   }).join('');
 
-  const nfIdsSel = _comprasNfIdsSelecionados();
-  const podeReimportar = nfIdsSel.length === 1; // reimport de XML é 1 arquivo = 1 NF por vez
-
   body.innerHTML = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted2)">
       <span>${rows.length} item(ns) em ${new Set(rows.map(r=>r.nNF)).size} NF(s)</span>
       <span id="comprasSelCount" style="color:var(--yellow);font-weight:700">${CE._comprasSel.size} selecionado(s)</span>
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="abrirCfgComprasModal()" ${CE._comprasSel.size ? '' : 'disabled'}>⚙️ Alterar Configuração</button>
-      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="iniciarReimportXml()" ${podeReimportar ? '' : 'disabled'} title="Resobe o XML da NF selecionada e atualiza o % de IPI de cada item (casa pelo código do produto, não precisa reconciliar o pedido Bling de novo)">📄 Reimportar XML</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="iniciarReimportXml()" title="Atualiza o % de IPI de cada item casando pelo código do produto, não precisa reconciliar o pedido Bling de novo. Se tiver mais de uma NF na tela, filtra pelo número da NF primeiro (campo Filtrar).">📄 Reimportar XML</button>
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="_limparSelecaoCompras()">✕ Limpar seleção</button>
       <span style="color:var(--orange)">⚠ = IPI usando média da NF (NF antiga, ainda não corrigida — reimporta o XML dela)</span>
     </div>
@@ -4091,8 +4088,15 @@ function confirmarCfgCompras() {
 // cada um. Não mexe em SKU, qtdPedido, preço Bling, nem pede reconciliação
 // de pedido de novo — é só um "patch" fiscal em cima do que já existe.
 function iniciarReimportXml() {
-  const nfIds = _comprasNfIdsSelecionados();
-  if (nfIds.length !== 1) { toast('Selecione itens de uma única NF pra reimportar.', 'err'); return; }
+  // Usa as NFs atualmente visíveis na tabela (já passaram pelo filtro de
+  // texto), não a seleção por checkbox — assim dá pra reimportar a
+  // qualquer momento, só filtrando pelo número da NF antes se precisar.
+  const nfIds = Array.from(new Set((CE._comprasRows || []).map(r => r.nfId)));
+  if (!nfIds.length) { toast('Nenhuma NF visível pra reimportar.', 'err'); return; }
+  if (nfIds.length > 1) {
+    toast('Tem ' + nfIds.length + ' NFs diferentes na tela — filtra pelo número da NF (campo "Filtrar") pra deixar só uma antes de reimportar.', 'err');
+    return;
+  }
   CE._reimportNfId = nfIds[0];
   document.getElementById('reimportXmlInput').click();
 }
