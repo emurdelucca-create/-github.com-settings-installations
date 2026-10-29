@@ -3979,7 +3979,7 @@ function renderCompras() {
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="_limparSelecaoCompras()">✕ Limpar seleção</button>
       <span style="color:var(--orange)">⚠ = IPI usando média da NF (NF antiga, ainda não corrigida — reimporta o XML dela)</span>
     </div>
-    <input type="file" id="reimportXmlInput" accept=".xml" style="display:none" onchange="processarReimportXml(this.files[0])">
+    <input type="file" id="reimportXmlInput" accept=".xml" multiple style="display:none" onchange="processarReimportXmlMultiplos(this.files)">
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:1200px">
       <thead>${thead}</thead>
       <tbody>${tableRows}</tbody>
@@ -4115,60 +4115,82 @@ function _parseDetsXmlParaReimport(doc) {
   return { nNF, cnpjDest, itens };
 }
 
-function processarReimportXml(file) {
-  if (!file) return;
+// Processa 1 XML e devolve uma Promise com o resultado (nunca rejeita —
+// erro vira { ok:false, msg } — assim um XML com problema não trava os
+// outros no processamento em lote).
+function _reimportXmlUm(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const doc = new DOMParser().parseFromString(e.target.result, 'text/xml');
+        const { nNF, cnpjDest, itens: itensXml } = _parseDetsXmlParaReimport(doc);
+        const empresa = CNPJ_MAP[cnpjDest] || '';
+
+        if (!nNF) { resolve({ ok: false, msg: `❌ ${file.name}: não consegui ler o número da NF.` }); return; }
+
+        const nf = CE.nfs.find(n => n.nNF === nNF && (!empresa || n.empresa === empresa));
+        if (!nf) {
+          resolve({ ok: false, msg: `❌ NF ${nNF}${empresa ? ' (' + empresa + ')' : ''}: não achei essa NF já importada no sistema.` });
+          return;
+        }
+
+        const porCprod = {};
+        itensXml.forEach(it => { if (it.cProd) porCprod[it.cProd.trim().toLowerCase()] = it; });
+
+        let casados = 0;
+        const itensAtualizados = (nf.itens || []).map(it => {
+          const match = porCprod[(it.cProd || '').trim().toLowerCase()];
+          if (!match) return it;
+          casados++;
+          return Object.assign({}, it, { ipiPctItem: match.ipiPctItem, vIPIItem: match.vIPIItem });
+        });
+
+        if (!casados) {
+          resolve({ ok: false, msg: `⚠ NF ${nf.nNF}: nenhum item do XML casou pelo código do produto. Nada foi alterado.` });
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(res => {
+            if (!res.ok) { resolve({ ok: false, msg: `❌ NF ${nf.nNF}: ${res.error}` }); return; }
+            nf.itens = itensAtualizados;
+            resolve({ ok: true, msg: `✅ NF ${nf.nNF}: IPI atualizado em ${casados} de ${itensAtualizados.length} item(ns).` });
+          })
+          .withFailureHandler(err => resolve({ ok: false, msg: `❌ NF ${nf.nNF}: ${err.message}` }))
+          .ce_atualizarCampo(nf.id, 'itens', itensAtualizados);
+
+      } catch(err) {
+        resolve({ ok: false, msg: `❌ ${file.name}: erro ao ler XML — ${err.message}` });
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
+}
+
+// Processa vários XMLs de uma vez, um por vez (evita gravações
+// simultâneas na mesma planilha), e mostra um resumo no final.
+async function processarReimportXmlMultiplos(fileList) {
+  const files = Array.from(fileList || []);
   document.getElementById('reimportXmlInput').value = '';
+  if (!files.length) return;
 
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const doc = new DOMParser().parseFromString(e.target.result, 'text/xml');
-      const { nNF, cnpjDest, itens: itensXml } = _parseDetsXmlParaReimport(doc);
-      const empresa = CNPJ_MAP[cnpjDest] || '';
+  setOverlay(true, `Atualizando IPI por item... (0/${files.length})`);
+  const resultados = [];
+  for (let i = 0; i < files.length; i++) {
+    setOverlay(true, `Atualizando IPI por item... (${i + 1}/${files.length})`);
+    resultados.push(await _reimportXmlUm(files[i]));
+  }
+  setOverlay(false);
 
-      if (!nNF) { toast('❌ Não consegui ler o número da NF nesse XML.', 'err'); return; }
+  const okCount = resultados.filter(r => r.ok).length;
+  resultados.forEach(r => toast(r.msg, r.ok ? 'ok' : 'err'));
+  if (files.length > 1) {
+    toast(`Resumo: ${okCount} de ${files.length} NF(s) atualizada(s).`, okCount === files.length ? 'ok' : 'inf');
+  }
 
-      const nf = CE.nfs.find(n => n.nNF === nNF && (!empresa || n.empresa === empresa));
-      if (!nf) {
-        toast(`❌ Não achei nenhuma NF ${nNF}${empresa ? ' (' + empresa + ')' : ''} já importada no sistema.`, 'err');
-        return;
-      }
-      const nfId = nf.id;
-
-      const porCprod = {};
-      itensXml.forEach(it => { if (it.cProd) porCprod[it.cProd.trim().toLowerCase()] = it; });
-
-      let casados = 0;
-      const itensAtualizados = (nf.itens || []).map(it => {
-        const match = porCprod[(it.cProd || '').trim().toLowerCase()];
-        if (!match) return it;
-        casados++;
-        return Object.assign({}, it, { ipiPctItem: match.ipiPctItem, vIPIItem: match.vIPIItem });
-      });
-
-      if (!casados) {
-        toast('⚠ Nenhum item do XML casou com os itens dessa NF (código do produto não bateu). Nada foi alterado.', 'err');
-        return;
-      }
-
-      setOverlay(true, 'Atualizando IPI por item...');
-      google.script.run
-        .withSuccessHandler(res => {
-          setOverlay(false);
-          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
-          nf.itens = itensAtualizados;
-          toast(`✅ IPI atualizado em ${casados} de ${itensAtualizados.length} item(ns) da NF ${nf.nNF}.`, 'ok');
-          CE._comprasSel.clear();
-          renderCompras();
-        })
-        .withFailureHandler(err => { setOverlay(false); toast('❌ ' + err.message, 'err'); })
-        .ce_atualizarCampo(nfId, 'itens', itensAtualizados);
-
-    } catch(err) {
-      toast('❌ Erro ao ler XML: ' + err.message, 'err');
-    }
-  };
-  reader.readAsText(file, 'UTF-8');
+  CE._comprasSel.clear();
+  renderCompras();
 }
 
 </script>
