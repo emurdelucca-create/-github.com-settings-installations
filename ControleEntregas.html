@@ -789,6 +789,43 @@ td.r { text-align: right; }
   </div>
 </div>
 
+<!-- Modal alterar configuração fiscal (Compras → Novo) -->
+<div class="modal-bg" id="cfgComprasModal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">⚙️ Alterar Configuração Fiscal</div>
+    <div style="font-size:12px;color:var(--muted2);margin-bottom:14px" id="cfgComprasDesc"></div>
+    <div class="form-row" style="margin-bottom:10px">
+      <span class="form-label">Somar ST?</span>
+      <div style="display:flex;gap:4px;margin-top:4px">
+        <button type="button" id="tog_cfg_somarST_sim" class="btn btn-sm btn-ghost" onclick="setTogCfg('somarST',true)" style="font-size:11px">Sim</button>
+        <button type="button" id="tog_cfg_somarST_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTogCfg('somarST',false)" style="font-size:11px">Não</button>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <span class="form-label">Somar IPI?</span>
+      <div style="display:flex;gap:4px;margin-top:4px">
+        <button type="button" id="tog_cfg_somarIPI_sim" class="btn btn-sm btn-ghost" onclick="setTogCfg('somarIPI',true)" style="font-size:11px">Sim</button>
+        <button type="button" id="tog_cfg_somarIPI_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTogCfg('somarIPI',false)" style="font-size:11px">Não</button>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <span class="form-label">Tem ST por fora?</span>
+      <div style="display:flex;gap:4px;margin-top:4px">
+        <button type="button" id="tog_cfg_temSTporFora_sim" class="btn btn-sm btn-ghost" onclick="setTogCfg('temSTporFora',true)" style="font-size:11px">Sim</button>
+        <button type="button" id="tog_cfg_temSTporFora_nao" class="btn btn-sm btn-ghost active-tog" onclick="setTogCfg('temSTporFora',false)" style="font-size:11px">Não</button>
+      </div>
+    </div>
+    <div id="cfgStPorForaPctWrap" style="display:none;margin-bottom:4px">
+      <span class="form-label">% ST por fora</span>
+      <input class="form-input" id="f_cfg_pctSTporFora" type="number" step="0.01" min="0" placeholder="Ex: 7.5" style="width:90px;margin-top:4px">
+    </div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('cfgComprasModal')">Cancelar</button>
+      <button class="btn btn-green btn-sm" onclick="confirmarCfgCompras()">✅ Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Tooltip de itens -->
 <div class="item-tooltip" id="itemTooltip" style="display:none;opacity:0"></div>
 <!-- Tooltip conferência parcial -->
@@ -873,6 +910,10 @@ const CE = {
   // Compras sub-abas
   comprasSubTab:     'novo',
   comprasAntigoData: null,
+  // Compras — seleção de itens + edição de config fiscal por NF
+  _comprasRows:      [],
+  _comprasSel:       new Set(),
+  _cfgEdit:          { somarST: false, somarIPI: false, temSTporFora: false, pctSTporFora: 0 },
   // Sort
   sortFieldNF: 'dataCriacao',
   sortDirNF:   -1,
@@ -1494,7 +1535,18 @@ function processarXml(file) {
         const xProd  = det.querySelector('xProd')?.textContent.trim()  || '';
         const qCom   = parseFloat(det.querySelector('qCom')?.textContent || '0');
         const vUnCom = parseFloat(det.querySelector('vUnCom')?.textContent || '0');
-        itens.push({ cProd, descricaoNF: xProd, qtdNF: qCom, vUnCom,
+        // IPI por item: a NF-e traz isso dentro de imposto > IPI > IPITrib
+        // (item tributado) ou IPINT (isento/não tributado, sem % nem valor).
+        // Preferimos o <pIPI> (% já calculada pela própria NF), e só caímos
+        // pro cálculo vIPI/vProd do item se o <pIPI> não vier no XML.
+        const ipiTrib    = det.querySelector('imposto IPI IPITrib');
+        const pIPIxml    = ipiTrib?.querySelector('pIPI')?.textContent;
+        const vIPIItem   = parseFloat(ipiTrib?.querySelector('vIPI')?.textContent || '0');
+        const vProdItem  = qCom * vUnCom;
+        const ipiPctItem = pIPIxml != null && pIPIxml !== ''
+          ? parseFloat(pIPIxml)
+          : (vProdItem > 0 ? +(vIPIItem / vProdItem * 100).toFixed(4) : 0);
+        itens.push({ cProd, descricaoNF: xProd, qtdNF: qCom, vUnCom, ipiPctItem, vIPIItem,
                      sku: '', nomeSKU: '', qtdPedido: 0, matched: false });
       });
 
@@ -2005,6 +2057,7 @@ function _executarSalvarNF() {
         multiplo:         mult,
         fator:            fat,
         qtdNFConvertida:  mult ? it.qtdNF : +(it.qtdNF * fat).toFixed(3),
+        ipiPctItem:       Number(it.ipiPctItem) || 0,
       };
     }),
     dadosExtras: {
@@ -2082,6 +2135,20 @@ function setTog(campo, val) {
   if (campo === 'temSTporFora') {
     document.getElementById('stPorForaPctWrap').style.display = val ? '' : 'none';
     if (!val) { const el = document.getElementById('f_pctSTporFora'); if (el) el.value = ''; }
+  }
+}
+
+// Igual ao setTog, mas pro modal de edição de config fiscal em Compras → Novo
+// (usa CE._cfgEdit em vez de CE direto, pra não conflitar com o fluxo de importação)
+function setTogCfg(campo, val) {
+  CE._cfgEdit[campo] = val;
+  const simEl = document.getElementById('tog_cfg_' + campo + '_sim');
+  const naoEl = document.getElementById('tog_cfg_' + campo + '_nao');
+  if (simEl) simEl.classList.toggle('active-tog', val);
+  if (naoEl) naoEl.classList.toggle('active-tog', !val);
+  if (campo === 'temSTporFora') {
+    document.getElementById('cfgStPorForaPctWrap').style.display = val ? '' : 'none';
+    if (!val) { const el = document.getElementById('f_cfg_pctSTporFora'); if (el) el.value = ''; }
   }
 }
 
@@ -3792,19 +3859,29 @@ function renderCompras() {
     const pctSTpF     = Number(ex.pctSTporFora) || 0;
     const ufOrigem    = (ex.ufOrigem || '').toUpperCase();
 
-    const stPct    = somarST  && vProd > 0 ? vST  / vProd : 0;
-    const ipiPct   = somarIPI && vProd > 0 ? vIPI / vProd : 0;
-    const difalPct = ufOrigem !== 'SP' ? 0.06 : 0;
-    const stPFPct  = temSTpF ? (pctSTpF / 100) : 0;
+    const stPct       = somarST  && vProd > 0 ? vST  / vProd : 0;
+    const ipiPctMedia = somarIPI && vProd > 0 ? vIPI / vProd : 0; // fallback p/ NFs antigas (sem IPI por item salvo)
+    const difalPct    = ufOrigem !== 'SP' ? 0.06 : 0;
+    const stPFPct     = temSTpF ? (pctSTpF / 100) : 0;
 
-    (nf.itens || []).forEach(it => {
+    (nf.itens || []).forEach((it, i) => {
       const blingPreco = Number(it.blingPreco) || 0;
       const vUnCom     = Number(it.vUnCom)     || 0;
       const pctNota    = blingPreco > 0 ? vUnCom / blingPreco : 0;
+      // IPI por item: usa o % capturado do próprio item no XML (mais preciso,
+      // já que a alíquota varia item a item). Só cai pra média da NF em itens
+      // antigos que nunca tiveram esse campo salvo (reimportar XML corrige).
+      const temIpiItem = it.ipiPctItem !== undefined;
+      const ipiPct      = somarIPI
+        ? (temIpiItem ? (Number(it.ipiPctItem) || 0) / 100 : ipiPctMedia)
+        : 0;
+      const ipiFonte   = !somarIPI ? '' : (temIpiItem ? 'item' : 'media'); // 'media' = NF antiga, precisa reimportar XML
       const fatorAuto  = (stPct + ipiPct + stPFPct + difalPct) * pctNota;
       const valorTotal = blingPreco * (1 + fatorAuto);
 
       rows.push({
+        _key:            nf.id + '_' + i,
+        nfId:            nf.id,
         nNF:             nf.nNF,
         empresa:         nf.empresa,
         fornecedor:      nf.fornecedor,
@@ -3824,6 +3901,7 @@ function renderCompras() {
         pctNota,
         stPct,
         ipiPct,
+        ipiFonte,
         difalPct,
         stPFPct,
         fatorAuto,
@@ -3831,6 +3909,11 @@ function renderCompras() {
       });
     });
   });
+
+  // Limpa da seleção itens que não existem mais nessa renderização (filtro, exclusão, etc.)
+  const chavesAtuais = new Set(rows.map(r => r._key));
+  Array.from(CE._comprasSel).forEach(k => { if (!chavesAtuais.has(k)) CE._comprasSel.delete(k); });
+  CE._comprasRows = rows;
 
   if (!rows.length) {
     body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted2)">Nenhum item encontrado. Importe NFs com dados de compra para visualizá-los aqui.</div>';
@@ -3850,8 +3933,9 @@ function renderCompras() {
 
   const thStyle = 'padding:6px 10px;white-space:nowrap;font-size:10px;font-weight:700;color:var(--muted2);border-bottom:2px solid var(--border);text-align:right';
   const thStyleL = thStyle.replace('text-align:right','text-align:left');
+  const thCheck  = 'padding:6px 10px;white-space:nowrap;border-bottom:2px solid var(--border);text-align:center';
 
-  const thead = `<tr>${headerCols.map((h, i) => `<th style="${i < 12 ? thStyleL : thStyle}">${escHtml(h)}</th>`).join('')}</tr>`;
+  const thead = `<tr><th style="${thCheck}"></th>${headerCols.map((h, i) => `<th style="${i < 12 ? thStyleL : thStyle}">${escHtml(h)}</th>`).join('')}</tr>`;
 
   const tdR = (v, color) => `<td style="padding:5px 10px;font-size:11px;text-align:right;white-space:nowrap;${color ? 'color:'+color : ''}">${escHtml(String(v))}</td>`;
   const tdL = (v, color) => `<td style="padding:5px 10px;font-size:11px;text-align:left;white-space:nowrap;${color ? 'color:'+color : ''}">${escHtml(String(v))}</td>`;
@@ -3859,7 +3943,9 @@ function renderCompras() {
 
   const tableRows = rows.map(r => {
     const fatorColor = r.fatorAuto > 0 ? 'var(--yellow)' : 'var(--muted2)';
+    const checked = CE._comprasSel.has(r._key) ? 'checked' : '';
     return `<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+      <td style="padding:5px 10px;text-align:center"><input type="checkbox" ${checked} onchange="_toggleComprasSel('${r._key}', this.checked)"></td>
       ${tdL(r.nNF, 'var(--cyan)')}
       ${tdL(r.empresa)}
       ${tdL(r.xNomeEmitente)}
@@ -3877,7 +3963,7 @@ function renderCompras() {
       ${tdR(brl(r.blingPreco))}
       ${tdR(r.pctNota > 0 ? pct(r.pctNota) : '—', 'var(--blue)')}
       ${tdR(r.stPct  > 0 ? pct(r.stPct)  : '—')}
-      ${tdR(r.ipiPct > 0 ? pct(r.ipiPct) : '—')}
+      ${tdR(r.ipiFonte === 'media' ? pct(r.ipiPct) + ' ⚠' : (r.ipiPct > 0 ? pct(r.ipiPct) : '—'), r.ipiFonte === 'media' ? 'var(--orange)' : '')}
       ${tdR(r.difalPct > 0 ? pct(r.difalPct) : '—', 'var(--purple)')}
       ${tdR(r.stPFPct > 0 ? pct(r.stPFPct) : '—')}
       ${tdR(r.fatorAuto > 0 ? pct(r.fatorAuto) : '—', fatorColor)}
@@ -3885,11 +3971,205 @@ function renderCompras() {
     </tr>`;
   }).join('');
 
-  body.innerHTML = `<div style="margin-bottom:8px;font-size:11px;color:var(--muted2)">${rows.length} item(ns) em ${new Set(rows.map(r=>r.nNF)).size} NF(s)</div>
+  const nfIdsSel = _comprasNfIdsSelecionados();
+  const podeReimportar = nfIdsSel.length === 1; // reimport de XML é 1 arquivo = 1 NF por vez
+
+  body.innerHTML = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted2)">
+      <span>${rows.length} item(ns) em ${new Set(rows.map(r=>r.nNF)).size} NF(s)</span>
+      <span id="comprasSelCount" style="color:var(--yellow);font-weight:700">${CE._comprasSel.size} selecionado(s)</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="abrirCfgComprasModal()" ${CE._comprasSel.size ? '' : 'disabled'}>⚙️ Alterar Configuração</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="iniciarReimportXml()" ${podeReimportar ? '' : 'disabled'} title="Resobe o XML da NF selecionada e atualiza o % de IPI de cada item (casa pelo código do produto, não precisa reconciliar o pedido Bling de novo)">📄 Reimportar XML</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="_limparSelecaoCompras()">✕ Limpar seleção</button>
+      <span style="color:var(--orange)">⚠ = IPI usando média da NF (NF antiga, ainda não corrigida — reimporta o XML dela)</span>
+    </div>
+    <input type="file" id="reimportXmlInput" accept=".xml" style="display:none" onchange="processarReimportXml(this.files[0])">
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:1200px">
       <thead>${thead}</thead>
       <tbody>${tableRows}</tbody>
     </table></div>`;
+}
+
+function _toggleComprasSel(key, checked) {
+  if (checked) CE._comprasSel.add(key); else CE._comprasSel.delete(key);
+  renderCompras();
+}
+
+function _limparSelecaoCompras() {
+  CE._comprasSel.clear();
+  renderCompras();
+}
+
+// Pega os ids de NF distintos a partir dos itens selecionados.
+function _comprasNfIdsSelecionados() {
+  const keys = CE._comprasSel;
+  const ids = new Set();
+  (CE._comprasRows || []).forEach(r => { if (keys.has(r._key)) ids.add(r.nfId); });
+  return Array.from(ids);
+}
+
+function abrirCfgComprasModal() {
+  const nfIds = _comprasNfIdsSelecionados();
+  if (!nfIds.length) { toast('Selecione ao menos um item.', 'err'); return; }
+
+  // Pré-preenche com a config atual se só 1 NF estiver selecionada (ou todas tiverem a mesma config).
+  const nfsSel = nfIds.map(id => CE.nfs.find(nf => nf.id === id)).filter(Boolean);
+  const exs    = nfsSel.map(nf => nf.dadosExtras || {});
+  const base   = exs[0] || {};
+  const mesmaConfig = exs.every(ex =>
+    !!ex.somarST === !!base.somarST && !!ex.somarIPI === !!base.somarIPI &&
+    !!ex.temSTporFora === !!base.temSTporFora && (Number(ex.pctSTporFora)||0) === (Number(base.pctSTporFora)||0)
+  );
+
+  const cfg = mesmaConfig
+    ? { somarST: !!base.somarST, somarIPI: !!base.somarIPI, temSTporFora: !!base.temSTporFora, pctSTporFora: Number(base.pctSTporFora)||0 }
+    : { somarST: false, somarIPI: false, temSTporFora: false, pctSTporFora: 0 };
+  CE._cfgEdit = cfg;
+
+  ['somarST','somarIPI','temSTporFora'].forEach(k => setTogCfg(k, cfg[k]));
+  document.getElementById('f_cfg_pctSTporFora').value = cfg.pctSTporFora || '';
+
+  const qtdItens = CE._comprasSel.size;
+  document.getElementById('cfgComprasDesc').textContent = nfIds.length === 1
+    ? `Alterando a configuração fiscal da NF ${nfsSel[0]?.nNF || ''} (afeta todos os ${nfsSel[0]?.itens?.length || ''} itens dessa NF, mesmo que você tenha selecionado só ${qtdItens}).`
+    : `Alterando a configuração fiscal de ${nfIds.length} NFs (${qtdItens} item(ns) selecionado(s) — a mudança vale pra NF inteira de cada um).`;
+
+  document.getElementById('cfgComprasModal').classList.add('open');
+}
+
+function confirmarCfgCompras() {
+  const nfIds = _comprasNfIdsSelecionados();
+  if (!nfIds.length) { closeModal('cfgComprasModal'); return; }
+
+  const novoCfg = {
+    somarST:      CE._cfgEdit.somarST,
+    somarIPI:     CE._cfgEdit.somarIPI,
+    temSTporFora: CE._cfgEdit.temSTporFora,
+    pctSTporFora: CE._cfgEdit.temSTporFora ? (parseFloat(document.getElementById('f_cfg_pctSTporFora')?.value) || 0) : 0,
+  };
+
+  setOverlay(true, 'Salvando configuração...');
+  let pendentes = nfIds.length;
+  let falhou = null;
+
+  nfIds.forEach(nfId => {
+    const nf = CE.nfs.find(n => n.id === nfId);
+    if (!nf) { pendentes--; return; }
+    const novoExtras = Object.assign({}, nf.dadosExtras || {}, novoCfg);
+
+    google.script.run
+      .withSuccessHandler(res => {
+        pendentes--;
+        if (!res.ok) falhou = res.error;
+        else nf.dadosExtras = novoExtras;
+        if (pendentes === 0) {
+          setOverlay(false);
+          closeModal('cfgComprasModal');
+          if (falhou) { toast('❌ ' + falhou, 'err'); }
+          else { toast('✅ Configuração atualizada em ' + nfIds.length + ' NF(s)!', 'ok'); }
+          CE._comprasSel.clear();
+          renderCompras();
+        }
+      })
+      .withFailureHandler(e => {
+        pendentes--;
+        falhou = e.message;
+        if (pendentes === 0) {
+          setOverlay(false);
+          closeModal('cfgComprasModal');
+          toast('❌ ' + falhou, 'err');
+          CE._comprasSel.clear();
+          renderCompras();
+        }
+      })
+      .ce_atualizarCampo(nfId, 'dadosExtras', novoExtras);
+  });
+}
+
+// ── Reimportar XML — corrige o IPI por item de uma NF já importada ──
+// Sobe o mesmo XML de novo, casa cada item pelo cProd (código do produto —
+// mesma chave já usada na conciliação original) e atualiza só o %IPI de
+// cada um. Não mexe em SKU, qtdPedido, preço Bling, nem pede reconciliação
+// de pedido de novo — é só um "patch" fiscal em cima do que já existe.
+function iniciarReimportXml() {
+  const nfIds = _comprasNfIdsSelecionados();
+  if (nfIds.length !== 1) { toast('Selecione itens de uma única NF pra reimportar.', 'err'); return; }
+  CE._reimportNfId = nfIds[0];
+  document.getElementById('reimportXmlInput').click();
+}
+
+function _parseDetsXmlParaReimport(doc) {
+  const get = (sel) => { const el = doc.querySelector(sel); return el ? el.textContent.trim() : ''; };
+  const nNF = get('ide nNF') || get('nNF');
+  const dets = doc.querySelectorAll('det');
+  const itens = [];
+  dets.forEach(det => {
+    const cProd  = det.querySelector('cProd')?.textContent.trim() || '';
+    const qCom   = parseFloat(det.querySelector('qCom')?.textContent || '0');
+    const vUnCom = parseFloat(det.querySelector('vUnCom')?.textContent || '0');
+    const ipiTrib    = det.querySelector('imposto IPI IPITrib');
+    const pIPIxml    = ipiTrib?.querySelector('pIPI')?.textContent;
+    const vIPIItem   = parseFloat(ipiTrib?.querySelector('vIPI')?.textContent || '0');
+    const vProdItem  = qCom * vUnCom;
+    const ipiPctItem = pIPIxml != null && pIPIxml !== ''
+      ? parseFloat(pIPIxml)
+      : (vProdItem > 0 ? +(vIPIItem / vProdItem * 100).toFixed(4) : 0);
+    itens.push({ cProd, ipiPctItem, vIPIItem });
+  });
+  return { nNF, itens };
+}
+
+function processarReimportXml(file) {
+  if (!file) return;
+  const nfId = CE._reimportNfId;
+  const nf = CE.nfs.find(n => n.id === nfId);
+  document.getElementById('reimportXmlInput').value = '';
+  if (!nf) { toast('❌ NF não encontrada.', 'err'); return; }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const doc = new DOMParser().parseFromString(e.target.result, 'text/xml');
+      const { nNF, itens: itensXml } = _parseDetsXmlParaReimport(doc);
+
+      if (nNF && nf.nNF && nNF !== nf.nNF) {
+        toast(`❌ Esse XML é da NF ${nNF}, mas você selecionou a NF ${nf.nNF}. Nada foi alterado.`, 'err');
+        return;
+      }
+
+      const porCprod = {};
+      itensXml.forEach(it => { if (it.cProd) porCprod[it.cProd.trim().toLowerCase()] = it; });
+
+      let casados = 0;
+      const itensAtualizados = (nf.itens || []).map(it => {
+        const match = porCprod[(it.cProd || '').trim().toLowerCase()];
+        if (!match) return it;
+        casados++;
+        return Object.assign({}, it, { ipiPctItem: match.ipiPctItem, vIPIItem: match.vIPIItem });
+      });
+
+      if (!casados) {
+        toast('⚠ Nenhum item do XML casou com os itens dessa NF (código do produto não bateu). Nada foi alterado.', 'err');
+        return;
+      }
+
+      setOverlay(true, 'Atualizando IPI por item...');
+      google.script.run
+        .withSuccessHandler(res => {
+          setOverlay(false);
+          if (!res.ok) { toast('❌ ' + res.error, 'err'); return; }
+          nf.itens = itensAtualizados;
+          toast(`✅ IPI atualizado em ${casados} de ${itensAtualizados.length} item(ns) da NF ${nf.nNF}.`, 'ok');
+          CE._comprasSel.clear();
+          renderCompras();
+        })
+        .withFailureHandler(err => { setOverlay(false); toast('❌ ' + err.message, 'err'); })
+        .ce_atualizarCampo(nfId, 'itens', itensAtualizados);
+
+    } catch(err) {
+      toast('❌ Erro ao ler XML: ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 </script>
