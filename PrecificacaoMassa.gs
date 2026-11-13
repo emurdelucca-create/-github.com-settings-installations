@@ -200,31 +200,38 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('⚙️ Precificação em massa')
     .addItem('Criar / recriar planilha', 'criarPlanilha')
+    .addItem('Diagnosticar (não altera nada)', 'diagnosticar')
     .addToUi();
 }
 
 function criarPlanilha() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  SEP = detectarSeparador(ss);
+  var guarda, shTab, shPar, shFat, shPre;
+
+  // TODAS as etapas passam por passo(), prólogo e epílogo inclusive. Antes só
+  // o miolo estava protegido, e uma falha no começo ou no fim devolvia a
+  // mensagem genérica do Sheets, que não diz onde caiu.
+  passo('detectar separador', function () { SEP = detectarSeparador(ss); });
 
   // Uma planilha não pode ficar sem nenhuma aba. Se as 4 abas do script forem
   // as únicas do documento, apagar a última estoura e deixa o arquivo quebrado.
   // A aba-guarda segura o documento durante a exclusão e sai no fim.
-  var guarda = ss.insertSheet('__guarda__');
+  passo('criar aba-guarda', function () { guarda = ss.insertSheet('__guarda__'); });
 
-  ABAS.forEach(function (nome) {
-    var s = ss.getSheetByName(nome);
-    if (s) ss.deleteSheet(s);
+  passo('apagar abas antigas', function () {
+    ABAS.forEach(function (nome) {
+      var s = ss.getSheetByName(nome);
+      if (s) ss.deleteSheet(s);
+    });
   });
 
-  var shTab = ss.insertSheet('Tabela_ICMS');
-  var shPar = ss.insertSheet('Parametros');
-  var shFat = ss.insertSheet('Faturamento_UF');
-  var shPre = ss.insertSheet('Precificacao');
+  passo('criar as 4 abas', function () {
+    shTab = ss.insertSheet('Tabela_ICMS');
+    shPar = ss.insertSheet('Parametros');
+    shFat = ss.insertSheet('Faturamento_UF');
+    shPre = ss.insertSheet('Precificacao');
+  });
 
-  // Cada etapa roda isolada e dá flush. Se o serviço do Sheets falhar, a
-  // mensagem diz em QUAL etapa caiu, em vez do genérico "falha ao acessar o
-  // documento" — que não ajuda em nada a achar a causa.
   passo('montar Tabela_ICMS',      function () { montarTabelaICMS_estatico(shTab); });
   passo('montar Parametros',       function () { montarParametros_estatico(shPar); });
   passo('montar Faturamento_UF',   function () { montarFaturamento_estatico(shFat); });
@@ -234,21 +241,71 @@ function criarPlanilha() {
   passo('fórmulas Faturamento_UF', function () { montarFaturamento_formulas(shFat); });
   passo('fórmulas Precificacao',   function () { montarPrecificacao_formulas(shPre); });
   passo('formatação final',        function () { formatarTudo(shPar, shTab, shFat, shPre); });
+  passo('remover aba-guarda',      function () { ss.deleteSheet(guarda); });
 
-  ss.deleteSheet(guarda);
-  SpreadsheetApp.flush();
-  ss.setActiveSheet(shPre);
+  // A planilha está pronta a partir daqui. O que vem abaixo é só relatório,
+  // e por isso NÃO pode derrubar a execução: se falhar, a planilha continua
+  // válida e a mensagem apenas registra que a conferência não rodou.
+  var erros = '(não verificado)';
+  try {
+    SpreadsheetApp.flush();
+    erros = String(contarErros(ss));
+    ss.setActiveSheet(shPre);
+  } catch (e) {
+    erros = '(não verificado: ' + (e && e.message ? e.message : e) + ')';
+  }
 
   SpreadsheetApp.getUi().alert(
     'Planilha criada.\n\n' +
     'Idioma: ' + ss.getSpreadsheetLocale() + '\n' +
     'Separador detectado: "' + SEP + '"\n' +
-    'Células com erro: ' + contarErros(ss) + '\n\n' +
+    'Células com erro: ' + erros + '\n\n' +
     'Amarelo = você preenche.  Cinza = fórmula.  Verde = resultado.\n\n' +
     '1) Confira a aba Parametros\n' +
     '2) Confira o faturamento por UF em Faturamento_UF\n' +
     '3) Preencha uma linha por SKU na aba Precificacao (a partir da linha 5)'
   );
+}
+
+/**
+ * Diagnóstico read-only: não cria, não apaga, não escreve nada. Rode esta
+ * função quando criarPlanilha() falhar, para separar problema do documento
+ * de problema do script.
+ */
+function diagnosticar() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var L = [];
+  L.push('Documento: ' + ss.getName());
+  L.push('Idioma: ' + ss.getSpreadsheetLocale());
+  L.push('');
+  L.push('ABAS (' + ss.getSheets().length + '):');
+  ss.getSheets().forEach(function (s) {
+    L.push('  ' + s.getName() + '  ' + s.getMaxRows() + ' linhas x ' +
+           s.getMaxColumns() + ' colunas');
+  });
+  L.push('');
+  L.push('Named ranges: ' + ss.getNamedRanges().length);
+  L.push('');
+  var temp = null;
+  try {
+    temp = ss.insertSheet('__diag__');
+    temp.getRange('A1').setFormula('=SUM(1,2)');
+    SpreadsheetApp.flush();
+    L.push('Criar aba + escrever fórmula: OK (=SUM(1,2) devolveu ' +
+           temp.getRange('A1').getValue() + ')');
+  } catch (e) {
+    L.push('Criar aba + escrever fórmula: FALHOU -> ' + (e && e.message ? e.message : e));
+  }
+  try {
+    if (temp) ss.deleteSheet(temp);
+    L.push('Apagar aba: OK');
+  } catch (e) {
+    L.push('Apagar aba: FALHOU -> ' + (e && e.message ? e.message : e));
+  }
+  L.push('');
+  L.push('Linhas de SKU configuradas (N_LINHAS): ' + N_LINHAS);
+  L.push('Colunas da Precificacao: ' + COLS.length);
+  SpreadsheetApp.getUi().alert(L.join('\n'));
 }
 
 /**
@@ -266,16 +323,23 @@ function passo(nome, fn) {
 }
 
 function contarErros(ss) {
+  // Lê SÓ a linha modelo da Precificacao, não as 200 linhas. Ler tudo forçava
+  // a avaliação de milhares de fórmulas com LET e PROCV numa tacada e era
+  // pesado o bastante para derrubar o serviço do Sheets logo após o build.
   var n = 0;
-  ABAS.forEach(function (nome) {
-    var sh = ss.getSheetByName(nome);
-    if (!sh) return;
-    sh.getDataRange().getValues().forEach(function (linha) {
+  function conta(valores) {
+    valores.forEach(function (linha) {
       linha.forEach(function (v) {
         if (typeof v === 'string' && v.indexOf('#') === 0 && v.length > 2) n++;
       });
     });
+  }
+  ['Parametros', 'Tabela_ICMS', 'Faturamento_UF'].forEach(function (nome) {
+    var sh = ss.getSheetByName(nome);
+    if (sh) conta(sh.getDataRange().getValues());
   });
+  var pre = ss.getSheetByName('Precificacao');
+  if (pre) conta(pre.getRange(LIN_DADOS, 1, 1, COLS.length).getValues());
   return n;
 }
 
