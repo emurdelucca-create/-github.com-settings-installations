@@ -110,41 +110,42 @@ var COLS = [
   ['G',  '',                       '',                   'Total Comissões R$',            'fx',  'money', 'totalComissoes'],
   ['H',  '',                       'Crédito Imposto',    'Crédito Pis Cofins R$',         'fx',  'money', 'credTaxas'],
   ['I',  'Venda',                  '',                   'Preço de venda',                'in',  'money', 'preco'],
-  ['J',  '',                       '',                   'MC R$',                         'res', 'money', 'mcRS'],
-  ['K',  '',                       '',                   'MC %',                          'res', 'pct'  , 'mcPct'],
-  ['L',  'Simulador de preço',     '',                   'MC % Objetiva',                 'in',  'pct'  , 'mcAlvoPct'],
-  ['M',  '',                       '',                   'MC R$',                         'fx',  'money', 'mcAlvoRSpreco'],
-  ['N',  '',                       '',                   'Valor de Venda',                'res', 'money', 'precoNecessario'],
-  ['O',  'Custo inverso',          '',                   'Custo alvo do fornecedor R$',   'res', 'money', 'custoAlvo'],
-  ['P',  '',                       '',                   'MC R$',                         'res', 'money', 'mcAlvoRScusto'],
-  ['Q',  'Custos Operacionais',    '',                   'Embalagem',                     'in',  'money', 'embalagem'],
-  ['R',  'Compra',                 '',                   'Origem (Nacional ou Importada)','in',  'texto', 'origem'],
-  ['S',  '',                       '',                   'CMV já com créditos? (Sim/Não)','in',  'texto', 'cmvJaLiquido'],
-  ['T',  '',                       '',                   'UF meu estabelecimento',        'in',  'texto', 'ufEstab'],
-  ['U',  '',                       '',                   'UF de compra',                  'in',  'texto', 'ufCompra'],
-  ['V',  '',                       '',                   'ICMS %',                        'fx',  'pct'  , 'icmsCompraPct'],
-  ['W',  '',                       '',                   'Monofásico? (ver dropdown)',    'in',  'texto', 'monofasico'],
-  ['X',  '',                       '',                   'Pis %',                         'in',  'pct'  , 'pisPct'],
-  ['Y',  '',                       '',                   'Cofins %',                      'in',  'pct'  , 'cofinsPct'],
-  ['Z',  '',                       '',                   'ST %',                          'in',  'pct'  , 'stPct'],
-  ['AA', '',                       '',                   'IPI %',                         'in',  'pct'  , 'ipiPct'],
-  ['AB', '',                       '',                   'IPI só custo ou déb. e créd.?', 'in',  'texto', 'ipiTrat'],
-  ['AC', '',                       '',                   'Custo de compra R$',            'in',  'money', 'custoCompra'],
-  ['AD', 'Créditos',               '',                   'ICMS',                          'fx',  'money', 'credICMS'],
-  ['AE', '',                       '',                   'Pis',                           'fx',  'money', 'credPis'],
-  ['AF', '',                       '',                   'Cofins',                        'fx',  'money', 'credCofins'],
-  ['AG', '',                       '',                   'IPI R$',                        'fx',  'money', 'credIPI'],
-  ['AH', 'Custo na compra',        '',                   'IPI R$',                        'fx',  'money', 'custoIPI'],
-  ['AI', '',                       '',                   'ST R$',                         'fx',  'money', 'custoST'],
-  ['AJ', '',                       '',                   'CMV líquido',                   'res', 'money', 'cmvLiquido'],
-  ['AK', 'Débitos',                'ICMS',               'ICMS próprio R$',               'fx',  'money', 'icmsProprio'],
-  ['AL', '',                       'Pis',                'Pis R$',                        'fx',  'money', 'pisRS'],
-  ['AM', '',                       'Cofins',             'Cofins R$',                     'fx',  'money', 'cofinsRS'],
-  ['AN', '',                       'IPI R$',             'IPI R$',                        'fx',  'money', 'ipiSaidaRS'],
-  ['AO', '',                       'Difal',              'Difal Médio %',                 'fx',  'pct'  , 'difalPct'],
-  ['AP', '',                       '',                   'Difal Médio R$',                'fx',  'money', 'difalRS'],
-  ['AQ', 'Diagnóstico',            '',                   'ICMS total / preço',            'fx',  'pct'  , 'icmsTotalPct'],
-  ['AR', '',                       '',                   'Crédito ICMS que acumula R$',   'fx',  'money', 'credICMSAcumula']
+  ['J',  '',                       '',                   'Rebate R$',                     'in',  'money', 'rebate'],
+  ['K',  '',                       '',                   'MC R$',                         'res', 'money', 'mcRS'],
+  ['L',  '',                       '',                   'MC %',                          'res', 'pct'  , 'mcPct'],
+  ['M',  'Simulador de preço',     '',                   'MC % Objetiva',                 'in',  'pct'  , 'mcAlvoPct'],
+  ['N',  '',                       '',                   'MC R$',                         'fx',  'money', 'mcAlvoRSpreco'],
+  ['O',  '',                       '',                   'Valor de Venda',                'res', 'money', 'precoNecessario'],
+  ['P',  'Custo inverso',          '',                   'Custo alvo do fornecedor R$',   'res', 'money', 'custoAlvo'],
+  ['Q',  '',                       '',                   'MC R$',                         'res', 'money', 'mcAlvoRScusto'],
+  ['R',  'Custos Operacionais',    '',                   'Embalagem',                     'in',  'money', 'embalagem'],
+  ['S',  'Compra',                 '',                   'Origem (Nacional ou Importada)','in',  'texto', 'origem'],
+  ['T',  '',                       '',                   'CMV já com créditos? (Sim/Não)','in',  'texto', 'cmvJaLiquido'],
+  ['U',  '',                       '',                   'UF meu estabelecimento',        'in',  'texto', 'ufEstab'],
+  ['V',  '',                       '',                   'UF de compra',                  'in',  'texto', 'ufCompra'],
+  ['W',  '',                       '',                   'ICMS %',                        'fx',  'pct'  , 'icmsCompraPct'],
+  ['X',  '',                       '',                   'Monofásico? (ver dropdown)',    'in',  'texto', 'monofasico'],
+  ['Y',  '',                       '',                   'Pis %',                         'in',  'pct'  , 'pisPct'],
+  ['Z',  '',                       '',                   'Cofins %',                      'in',  'pct'  , 'cofinsPct'],
+  ['AA', '',                       '',                   'ST %',                          'in',  'pct'  , 'stPct'],
+  ['AB', '',                       '',                   'IPI %',                         'in',  'pct'  , 'ipiPct'],
+  ['AC', '',                       '',                   'IPI só custo ou déb. e créd.?', 'in',  'texto', 'ipiTrat'],
+  ['AD', '',                       '',                   'Custo de compra R$',            'in',  'money', 'custoCompra'],
+  ['AE', 'Créditos',               '',                   'ICMS',                          'fx',  'money', 'credICMS'],
+  ['AF', '',                       '',                   'Pis',                           'fx',  'money', 'credPis'],
+  ['AG', '',                       '',                   'Cofins',                        'fx',  'money', 'credCofins'],
+  ['AH', '',                       '',                   'IPI R$',                        'fx',  'money', 'credIPI'],
+  ['AI', 'Custo na compra',        '',                   'IPI R$',                        'fx',  'money', 'custoIPI'],
+  ['AJ', '',                       '',                   'ST R$',                         'fx',  'money', 'custoST'],
+  ['AK', '',                       '',                   'CMV líquido',                   'res', 'money', 'cmvLiquido'],
+  ['AL', 'Débitos',                'ICMS',               'ICMS próprio R$',               'fx',  'money', 'icmsProprio'],
+  ['AM', '',                       'Pis',                'Pis R$',                        'fx',  'money', 'pisRS'],
+  ['AN', '',                       'Cofins',             'Cofins R$',                     'fx',  'money', 'cofinsRS'],
+  ['AO', '',                       'IPI R$',             'IPI R$',                        'fx',  'money', 'ipiSaidaRS'],
+  ['AP', '',                       'Difal',              'Difal Médio %',                 'fx',  'pct'  , 'difalPct'],
+  ['AQ', '',                       '',                   'Difal Médio R$',                'fx',  'money', 'difalRS'],
+  ['AR', 'Diagnóstico',            '',                   'ICMS total / preço',            'fx',  'pct'  , 'icmsTotalPct'],
+  ['AS', '',                       '',                   'Crédito ICMS que acumula R$',   'fx',  'money', 'credICMSAcumula']
 ];
 
 /** Mapa id lógico -> letra da coluna. Usar SEMPRE isto nas fórmulas, nunca a
@@ -347,7 +348,7 @@ function montarParametros_estatico(sh) {
   sh.getRange('B27').setFormula(F('=DIFAL_MED_IMP'));
 
   sh.getRange('D3').setValue('O QUE CADA COISA FAZ');
-  sh.getRange('D4:D70').setValues([
+  sh.getRange('D4:D83').setValues([
     ['• Tema 69 (linha 16): o ICMS destacado não integra a base de PIS/COFINS.'],
     ['  Decisão definitiva do STF, vale para todo mundo. Deixe "Sim".'],
     [''],
@@ -394,6 +395,19 @@ function montarParametros_estatico(sh) {
     ['  Ou seja: importar direto um item monofásico tira a alíquota zero e'],
     ['  ainda paga MAIS que o regime normal (13,1% contra 9,25%). Confirme'],
     ['  as alíquotas do seu produto no art. 3º da lei antes de usar.'],
+    [''],
+    ['• Coluna J (Rebate R$): o desconto que o canal dá sobre o que cobra de'],
+    ['  você. Preenchimento manual, em reais, por anúncio. Ele abate o TOTAL'],
+    ['  do canal — comissão, taxa fixa, frete grátis e outros.'],
+    [''],
+    ['  O crédito de PIS/COFINS da coluna seguinte passa a ser calculado sobre'],
+    ['  o valor JÁ líquido de rebate, porque é esse o valor que o canal'],
+    ['  destaca na nota de serviço contra você.'],
+    [''],
+    ['  Por isso um rebate NÃO vale o valor de face: você ganha a comissão'],
+    ['  abatida mas perde o crédito que ela gerava. O ganho real é de'],
+    ['  (1 − 9,25%) = 90,75% do rebate anunciado. Leve isso em conta ao'],
+    ['  comparar campanhas do canal.'],
     [''],
     ['• A planilha tem DOIS simuladores, que respondem perguntas opostas a'],
     ['  partir da mesma margem objetiva:'],
@@ -636,18 +650,29 @@ function montarPrecificacao_formulas(sh) {
            '-' + pcItemF(r) + '*(1/(1+' + ipi + ')-IF(EXCLUI_ICMS_PC="Sim",' + icms + ',0))' +
            '+' + R('comissaoPct', r) + '*' + CRT + ')';
   }
-  // Custos que não variam com o preço.
+  // Custos que não variam com o preço. O rebate é um valor em reais, então é
+  // constante: entra aqui, abatendo, e NÃO altera o coeficiente K — o que
+  // mantém a inversão dos dois simuladores fechada.
+  function canalFixoF(r) {
+    return '(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) +
+           '-' + R('rebate', r) + ')';
+  }
   function fixosF(r) {
-    return '(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + '+' +
-           R('embalagem', r) + '+' + R('cmvLiquido', r) +
-           '-(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')*' + CRT + ')';
+    return '(' + canalFixoF(r) + '+' + R('embalagem', r) + '+' + R('cmvLiquido', r) +
+           '-' + canalFixoF(r) + '*' + CRT + ')';
   }
 
   var defs = {};
 
+  // O rebate é o desconto que o canal dá sobre o que cobra de você. Abate o
+  // TOTAL do canal, e por isso entra aqui — não numa linha separada depois.
+  // Consequência: o crédito de PIS/COFINS (coluna seguinte) passa a ser
+  // calculado sobre o valor JÁ líquido de rebate, que é o que o canal
+  // realmente destaca na nota de serviço.
   defs.totalComissoes = function (r) {
     return '=IF(' + R('sku', r) + '="","",' + R('preco', r) + '*' + R('comissaoPct', r) +
-           '+' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')';
+           '+' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) +
+           '-' + R('rebate', r) + ')';
   };
   // O crédito aqui vem da NF de SERVIÇO que o canal emite contra você, não da
   // mercadoria. O monofásico do produto não alcança esse serviço, então a
@@ -778,8 +803,8 @@ function montarPrecificacao_formulas(sh) {
 
     var cmvAlvo = R('preco', r) + '*' + coefK(r) +
       '-' + R('mcAlvoPct', r) + '*' + R('preco', r) + '/(1+' + ipi + ')' +
-      '-(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + '+' + R('embalagem', r) + ')' +
-      '+(' + R('taxaFixa', r) + '+' + R('freteGratis', r) + '+' + R('outrosCustos', r) + ')*' + CRT;
+      '-(' + canalFixoF(r) + '+' + R('embalagem', r) + ')' +
+      '+' + canalFixoF(r) + '*' + CRT;
 
     return '=IF(' + R('sku', r) + '="","",IFERROR(LET(' +
       'y,' + y + ',' +
@@ -838,7 +863,7 @@ function montarPrecificacao_formulas(sh) {
   // valor; as de fórmula ficam intactas.
   [['sku', 'EXEMPLO-001'], ['canal', 'Mercado Livre'], ['comissaoPct', 0.12],
    ['taxaFixa', 0], ['freteGratis', 68.95], ['outrosCustos', 0],
-   ['preco', 649.99], ['mcAlvoPct', 0.15], ['embalagem', 2.00],
+   ['preco', 649.99], ['rebate', 0], ['mcAlvoPct', 0.15], ['embalagem', 2.00],
    ['origem', 'Nacional'], ['cmvJaLiquido', 'Não'], ['ufEstab', 'SP'],
    ['ufCompra', 'SP'], ['monofasico', 'Não'], ['pisPct', 0.0165],
    ['cofinsPct', 0.076], ['stPct', 0], ['ipiPct', 0.0975],
